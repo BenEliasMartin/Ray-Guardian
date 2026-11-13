@@ -2,12 +2,33 @@
 
 **A proposed hands-free safety companion for Meta smart glasses.** Ray Guardian aims to recognize signs that help may be needed, check on the wearer when possible, and share an alert, location, and limited context with people the wearer has chosen.
 
-**Status: research and implementation plan only.** This repository was empty at the start of this review. No application, detector, backend, deployment, emergency integration, or device experiment has been built or run. The product vision includes medical collapse, assault, and bystander emergencies; reliable detection of those events has not been demonstrated.
+**Status: early Android prototype.** The first version can register with Meta AI, display reported glasses status, and rehearse a local simulated alert. It does not detect emergencies, send messages, share location, contact responders, or provide background protection. The product vision includes medical collapse, assault, and bystander emergencies; reliable detection of those events has not been demonstrated.
 
 Reviewed **14 November 2026** against Meta's public documentation search service and the official repositories listed below. Values described as **proposed** are Ray Guardian design choices to test, not Meta specifications or measured performance.
 
+## Run the Android prototype
+
+The prototype is a foreground-only rehearsal, not an emergency service. The simulated device uses Meta's MockDeviceKit in debug builds; it does not simulate real monitoring or message delivery. Real-glasses registration uses the DAT core SDK; the app does not start a glasses sensor session or access the camera, microphone, or location.
+
+**Requirements:** JDK 17+, Android SDK 36, an Android 12+ device or emulator, and internet access for the first Gradle dependency download. A real-glasses connection additionally requires supported Meta glasses paired in the Meta AI app, with Meta AI Developer Mode enabled. See [Meta's setup guide](https://wearables.developer.meta.com/docs/develop/dat/getting-started-toolkit/).
+
+1. Open the repository in Android Studio, or set `ANDROID_HOME` to your Android SDK directory.
+2. Run `./gradlew assembleDebug testDebugUnitTest` (Windows: `gradlew.bat assembleDebug testDebugUnitTest`).
+3. Install `app/build/outputs/apk/debug/app-debug.apk` on a device or emulator, or run `./gradlew installDebug` with a connected device.
+4. Select **Try simulated glasses** for Meta's debug mock device, or **Connect Meta glasses** to grant Bluetooth access and register through Meta AI. Force-stop and reopen the app to switch between the two modes. Once glasses are available, **Start device session** exercises a DAT session without starting sensor capture; leaving the screen stops the session.
+5. Select **Start rehearsal**, then **Simulate SOS** or **Replay a possible incident**. A replayed incident starts a 15-second check-in; the SOS creates a simulated alert immediately. The incident screen contains an example location and a button to simulate a contact acknowledgment. Cancellation, acknowledgment, timeout, and finish are local state transitions. Leaving the screen stops an active rehearsal.
+
+For a reproducible emulator check after building, run `python3 scripts/smoke_emulator.py --serial emulator-5554` with `adb` on `PATH` or `ANDROID_HOME` set. The script installs the debug app on the selected emulator, exercises the mock connection and rehearsal, and checks that leaving the foreground stops the rehearsal. It refuses physical-device serials.
+
+For local Developer Mode, the build defaults the Meta application ID and client token to `0`. If your Meta project requires its own values, put `mwdat_application_id` and `mwdat_client_token` in the ignored `local.properties` file. Never commit credentials. The callback scheme is `rayguardian`; configure the matching scheme for your Meta integration. Production distribution and capability approval are separate from this debug build.
+
+The prototype uses no camera or audio stream and requests no location, camera, or microphone permissions. The displayed battery and thermal values are reported DAT device metadata; they do not establish continuous coverage or a validated thermal operating envelope. SDK analytics and SDK crash-reporting opt-outs are configured in the manifest. No contact, alert, media, or location is transmitted by the rehearsal.
+
+The rest of this README preserves the research and roadmap. Its proposed detector, backend, resource governor, escalation, and production plans are future work, not implemented features.
+
 ## Contents
 
+- [Run the Android prototype](#run-the-android-prototype)
 - [1. Recommendation and feasibility](#1-recommendation-and-feasibility)
 - [2. Verified capabilities and limits](#2-verified-capabilities-and-limits)
 - [3. Product scope and scenarios](#3-product-scope-and-scenarios)
@@ -43,7 +64,7 @@ The largest feasibility constraints are:
 4. **Direct responder dispatch is a separate integration.** The initial external recipient is an opted-in trusted contact. Do not assume a public API can dispatch police or an ambulance, or that an SMS or live link reaches a dispatcher. [National 911 Program guidance](https://www.911.gov/calling-911/)
 5. **Production permission and medical positioning are unresolved.** The complete binding Meta terms and acceptable-use policy require a signed-in review. The iOS integration guide retrieved during this review explicitly warns that App Store publishing is unsupported; confirm its current applicability with Meta before planning an iOS launch. [Meta acceptable-use guidance](https://wearables.developer.meta.com/docs/develop/dat/acceptable-use/), [iOS integration prerequisites](https://wearables.developer.meta.com/docs/develop/dat/build-integration-ios/)
 
-**Recommended first demonstration, after implementation is authorized:** a clearly labeled, supervised development build that is explicitly armed, accepts a supported manual/voice activation or a replayed sensor trigger, and creates a simulated incident with synthetic location and recipient acknowledgments. A replayed automatic candidate includes a short check-in; an intentional SOS goes directly to simulated sending. Real delivery to consenting test contacts can follow in an approved pilot. No demonstration should contact emergency services.
+**First demonstration target:** a clearly labeled, supervised development build that is explicitly armed, accepts a supported manual/voice activation or a replayed sensor trigger, and creates a simulated incident with synthetic location and recipient acknowledgments. The current prototype supports phone controls and replay; glasses voice activation remains future work. A replayed candidate includes a short check-in; an intentional SOS goes directly to a simulated alert. Real delivery to consenting test contacts can follow in an approved pilot. No demonstration should contact emergency services.
 
 ## 2. Verified capabilities and limits
 
@@ -446,7 +467,7 @@ Priorities are planning judgments; owners must review residual risk before a pil
 
 ## 17. Roadmap and prioritized backlog
 
-This sequence begins **only after a separate request to start implementation**. Estimates and calendar dates should follow hardware access and G0/G1 decisions; approval lead times are not engineering promises.
+The Android prototype above implements a local-only subset of phases 1 and 2. The remaining sequence requires the relevant feasibility and pilot gates. Estimates and calendar dates should follow hardware access and G0/G1 decisions; approval lead times are not engineering promises.
 
 | Phase | Work and useful artifacts | Exit gate |
 | --- | --- | --- |
@@ -578,7 +599,7 @@ Meta's official repositories identify the public documentation MCP endpoint as [
 - The Chrome Web Store page could not be read with the research browser; simulator features were verified through Meta's official repository, not through an installed extension.
 - Public documentation and repository guidance can differ or lag. The retrieved iOS App Store warning is recorded as a blocker to confirm, not silently reconciled with unrelated SDK changes. When examples disagree, consult the pinned API and current Meta guidance before implementation.
 - No organization/project eligibility, developer approval, store acceptance, recipient consent, responder agreement, clinical validity, performance target, or thermal budget has been established by this documentation review.
-- This change adds documentation only. No SDKs/plugins were installed, accounts configured, messages sent, devices activated, emergency services contacted, or application code created.
+- The research review itself added documentation only; the Android prototype described above was implemented afterward. No emergency services were contacted during the review.
 - Recheck current docs, policies, capability flags, and compatibility before each implementation phase and release. Keep measured outcomes and approval evidence separate from proposed targets in future updates.
 
-The next step is to resolve Phase 0 and obtain a separate instruction to begin implementation.
+The next step is to validate the Android prototype on supported hardware and resolve the Phase 0 eligibility questions before extending it into a real alerting service.
