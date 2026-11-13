@@ -29,7 +29,7 @@ function readJson(req) {
   });
 }
 
-export function createApp({ analyze, clientToken, configured = true, now = Date.now }) {
+export function createApp({ analyze, speak, clientToken, configured = true, speechConfigured = Boolean(speak), now = Date.now }) {
   if (!clientToken || clientToken.length < 32) throw new Error('Set RAY_GUARDIAN_CLIENT_TOKEN to at least 32 characters.');
   let inFlight = 0;
   let windowStart = now();
@@ -43,7 +43,25 @@ export function createApp({ analyze, clientToken, configured = true, now = Date.
       });
       res.end(JSON.stringify(data));
     };
-    if (req.url === '/health' && req.method === 'GET') return reply(200, { status: 'ok', aiConfigured: configured });
+    if (req.url === '/health' && req.method === 'GET') return reply(200, { status: 'ok', aiConfigured: configured, speechConfigured });
+    const speech = /^\/v1\/speech\/([a-z_]{1,40})$/.exec(req.url ?? '');
+    if (speech && req.method === 'GET') {
+      if (!authorized(req.headers.authorization, clientToken)) return reply(401, { error: 'unauthorized' });
+      if (req.headers.origin) return reply(403, { error: 'browser_origin_not_allowed' });
+      try {
+        if (!speak) throw new ApiError(503, 'speech_not_configured', 'Speech is not configured.');
+        const audio = await speak(speech[1]);
+        if (res.destroyed) return;
+        res.writeHead(200, {
+          'Content-Type': 'audio/mpeg', 'Content-Length': audio.length, 'Cache-Control': 'no-store',
+          'X-Content-Type-Options': 'nosniff', 'Connection': 'close',
+        });
+        return res.end(audio);
+      } catch (error) {
+        if (error instanceof ApiError) return reply(error.status, { error: error.code, message: error.message });
+        return reply(500, { error: 'internal_error', message: 'Speech could not be generated.' });
+      }
+    }
     if (req.url !== '/v1/analyze' || req.method !== 'POST') return reply(404, { error: 'not_found' });
     if (!authorized(req.headers.authorization, clientToken)) return reply(401, { error: 'unauthorized' });
     if (req.headers.origin) return reply(403, { error: 'browser_origin_not_allowed' });

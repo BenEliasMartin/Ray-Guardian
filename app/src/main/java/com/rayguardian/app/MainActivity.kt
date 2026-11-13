@@ -47,6 +47,7 @@ class MainActivity : ComponentActivity() {
     private var batteryStatus = "unknown"
     private var thermalStatus = "unknown"
     private var timerText: TextView? = null
+    private lateinit var voice: VoicePrompts
     private val heartRateDetector = HeartRateAnomalyDetector()
     private var heartRateSource: HeartRateSource? = null
     private var heartRateStatus = "No watch connected"
@@ -106,6 +107,7 @@ class MainActivity : ComponentActivity() {
             if (demo.phase != DemoSession.Phase.CHECK_IN) return
             val now = SystemClock.elapsedRealtime()
             demo.tick(now)
+            if (demo.phase == DemoSession.Phase.ALERT) voice.speak(VoicePrompts.Phrase.ALERT_CREATED)
             if (demo.phase == DemoSession.Phase.CHECK_IN) {
                 val seconds = ((demo.deadlineMillis!! - now + 999) / 1000).coerceAtLeast(0)
                 timerText?.text = "Simulated alert in $seconds seconds"
@@ -118,6 +120,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        voice = VoicePrompts(this, lifecycleScope)
         window.statusBarColor = color("#F6F7F4")
         window.navigationBarColor = color("#F6F7F4")
         val scroll = ScrollView(this).apply {
@@ -149,6 +152,7 @@ class MainActivity : ComponentActivity() {
             demo.disarm()
             handler.removeCallbacks(countdown)
         }
+        voice.stop()
         stopWearableSession()
         // Heart-rate screening is foreground-only as well.
         stopHeartRateSource()
@@ -163,6 +167,7 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         handler.removeCallbacks(countdown)
         stopHeartRateSource()
+        voice.release()
         super.onDestroy()
     }
 
@@ -259,12 +264,18 @@ class MainActivity : ComponentActivity() {
         when (demo.phase) {
             DemoSession.Phase.DISARMED -> sessionCard.addView(button("Start rehearsal", true) {
                 demo.arm()
+                voice.prefetch()
                 render()
             })
             DemoSession.Phase.ARMED -> {
-                sessionCard.addView(button("Simulate SOS", true) { demo.manualSos(); render() })
+                sessionCard.addView(button("Simulate SOS", true) {
+                    demo.manualSos()
+                    voice.speak(VoicePrompts.Phrase.ALERT_CREATED)
+                    render()
+                })
                 sessionCard.addView(button("Replay a possible incident", false) {
                     demo.replayCandidate(SystemClock.elapsedRealtime())
+                    voice.speak(VoicePrompts.Phrase.CHECK_IN)
                     render()
                     handler.removeCallbacks(countdown)
                     handler.post(countdown)
@@ -278,11 +289,13 @@ class MainActivity : ComponentActivity() {
                 sessionCard.addView(timerText)
                 sessionCard.addView(button("I'm okay — cancel", true) {
                     demo.cancel()
+                    voice.speak(VoicePrompts.Phrase.CHECK_IN_CANCELLED)
                     handler.removeCallbacks(countdown)
                     render()
                 })
                 sessionCard.addView(button("Simulate SOS now", false) {
                     demo.manualSos()
+                    voice.speak(VoicePrompts.Phrase.ALERT_CREATED)
                     handler.removeCallbacks(countdown)
                     render()
                 })
@@ -397,6 +410,7 @@ class MainActivity : ComponentActivity() {
             heartRateAnomalySummary = "a sustained ${kindWord(assessment.kind)} heart rate (${assessment.latestBpm} bpm)"
             if (demo.phase == DemoSession.Phase.ARMED) {
                 demo.replayCandidate(SystemClock.elapsedRealtime(), DemoSession.Trigger.HEART_RATE_ANOMALY)
+                voice.speak(VoicePrompts.Phrase.CHECK_IN_HEART_RATE)
                 handler.removeCallbacks(countdown)
                 handler.post(countdown)
             }

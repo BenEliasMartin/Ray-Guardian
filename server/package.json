@@ -4,7 +4,7 @@
   "type": "module",
   "engines": { "node": ">=22" },
   "scripts": {
-    "start": "node --env-file-if-exists=.env index.mjs",
+    "start": "node --env-file-if-exists=../.env index.mjs",
     "test": "node --test"
   }
 }

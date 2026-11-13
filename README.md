@@ -30,15 +30,15 @@ The prototype uses no camera or audio stream and requests no location, camera, o
 
 Nemotron is the prototype's AI provider. The Android app calls a small authenticated Node backend, which calls the supplied Verda container at `https://containers.datacrunch.io/nemotron-3-5-super-vl-b300/v1/chat/completions` with model `nemotron-3.5-super-vl`. This runtime integration uses the OpenAI-compatible protocol; OpenCode is not needed to run the app.
 
-The **Verda inference key stays in the backend**, never in the APK or committed source. Local development credentials have been configured in ignored `server/.env` and `local.properties` files on the implementation machine. For a fresh checkout:
+The **Verda inference key stays in the backend**, never in the APK or committed source. All local secrets live in one ignored `.env` file at the repository root, read by both the backend and the Android debug build. For a fresh checkout:
 
 1. Install Node.js 22 or newer. The backend uses built-in modules and has no npm dependencies to install.
-2. Copy `server/.env.example` to `server/.env`. Set `VERDA_INFERENCE_KEY` and a separate random `RAY_GUARDIAN_CLIENT_TOKEN` of at least 32 characters. Keep the default provider URL/model unless your deployment changes.
-3. In ignored `local.properties`, set `ai_base_url=http://10.0.2.2:8787` and `ai_client_token` to the same **development client token**, not the Verda key.
+2. Copy `.env.example` to `.env`. Set `VERDA_INFERENCE_KEY` and a separate random `RAY_GUARDIAN_CLIENT_TOKEN` of at least 32 characters (for example `openssl rand -hex 32`). The Android build embeds this **development client token** in debug APKs, never the Verda key. Keep the default provider URL/model unless your deployment changes.
+3. Set `ELEVENLABS_API_KEY` for spoken prompts (see [Voice prompts](#voice-prompts-with-elevenlabs)).
 4. Run `npm --prefix server start`. By default it listens only on `127.0.0.1:8787`.
 5. Build/install the debug Android APK. Open **Open Nemotron context**, write a description, optionally choose an image, confirm submission consent, and select **Analyze with Nemotron**. An open simulated alert also offers **Review context with Nemotron**, which pre-fills only that rehearsal's synthetic context; it still requires consent and an explicit submission.
 
-For a physical Android device connected by USB, use `adb reverse tcp:8787 tcp:8787`, change `ai_base_url` to `http://127.0.0.1:8787`, then rebuild/install. Debug HTTP exceptions are limited to emulator/loopback hosts. The release build disables this development connection and contains no client token. A deployed multi-user service will need HTTPS and proper per-user authentication; the development bearer token is not a production identity system.
+For a physical Android device connected by USB, use `adb reverse tcp:8787 tcp:8787`, change `AI_BASE_URL` in `.env` to `http://127.0.0.1:8787`, then rebuild/install. Debug HTTP exceptions are limited to emulator/loopback hosts. The release build disables this development connection and contains no client token. A deployed multi-user service will need HTTPS and proper per-user authentication; the development bearer token is not a production identity system.
 
 **What Nemotron does:** returns a structured summary, reported/visible observations, and uncertainties. Text and images are treated as untrusted context. The model has no tools and cannot send, cancel, or acknowledge alerts, choose contacts, or claim dispatch. Its output is advisory and may be wrong; it is not a validated detector or medical assessment.
 
@@ -106,7 +106,7 @@ node scripts/evaluate_pov.mjs --mode summary --split development
 When credentials are configured locally and a live evaluation is explicitly intended, the following makes at most two inference attempts and may incur provider charges:
 
 ```bash
-node --env-file=server/.env scripts/evaluate_pov.mjs --live --mode classify --split development --limit 2
+node --env-file=.env scripts/evaluate_pov.mjs --live --mode classify --split development --limit 2
 ```
 
 Use development for prompt work, validation for choosing a fixed configuration, and the test split only after that configuration is frozen. The runner never sends source labels, scenario names, subject IDs, or filenames to the model. It records manifest/image/prompt/implementation hashes, model identifier, latency, and errors under ignored `validation/results/`. Classification reports include recall, specificity, false positives per ordinary clip, confidence intervals, decision coverage, and a confusion matrix that retains abstentions and failed requests. It does not estimate false alerts per armed hour from short selected clips.
@@ -120,12 +120,22 @@ python3 scripts/test_prepare_pov_validation.py
 npm --prefix server test
 ```
 
+## Voice prompts with ElevenLabs
+
+Rehearsal prompts are spoken with ElevenLabs **Eleven v4** (`eleven_v4`) in the **Jack John** voice (`7EzWGsX10sAS4c9m9cPf`): the check-in question (with a heart-rate variant), the cancellation confirmation, and "A simulated alert has been created. No one has been contacted."
+
+- The backend exposes `GET /v1/speech/<phrase>` with the same development client token. It only speaks the fixed phrases in `server/elevenlabs.mjs`, never client-supplied text, and caches each one in memory, so each phrase is generated at most once per server run.
+- Set `ELEVENLABS_API_KEY` in `.env`. `ELEVENLABS_MODEL_ID` and `ELEVENLABS_VOICE_ID` default to the values above.
+- The Android app downloads the prompts when a rehearsal starts and caches them on the device. Audio plays on the current media output, which is the glasses when they are the connected Bluetooth audio device. If the backend is unreachable or slow, Android's on-device voice speaks the same words, so a check-in is never silent. Release builds always use the on-device voice.
+- A test checks that the app's fallback wording matches the server phrases.
+
 ## Contents
 
 - [Run the Android prototype](#run-the-android-prototype)
 - [Run Nemotron AI context](#run-nemotron-ai-context)
 - [Smartwatch heart-rate screening](#smartwatch-heart-rate-screening)
 - [Wearer-perspective validation data](#wearer-perspective-validation-data)
+- [Voice prompts with ElevenLabs](#voice-prompts-with-elevenlabs)
 - [1. Recommendation and feasibility](#1-recommendation-and-feasibility)
 - [2. Verified capabilities and limits](#2-verified-capabilities-and-limits)
 - [3. Product scope and scenarios](#3-product-scope-and-scenarios)

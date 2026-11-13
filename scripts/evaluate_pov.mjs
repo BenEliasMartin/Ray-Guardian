@@ -167,7 +167,7 @@ async function main() {
   await mkdir(out, { recursive: true });
   await writeFile(resolve(out, 'plan.json'), JSON.stringify(plan, null, 2)+'\n', { flag: 'wx' });
   if (!args.live) { console.log(JSON.stringify({ ...plan, output_directory: out }, null, 2)); return; }
-  if (!key) throw new Error('VERDA_INFERENCE_KEY is missing. No model calls were made. Configure server/.env locally.');
+  if (!key) throw new Error('VERDA_INFERENCE_KEY is missing. No model calls were made. Configure .env locally.');
   const predictions = [];
   const summarize = createNemotron({ apiKey: key, baseURL, model });
   for (let i = 0; i < samples.length; i++) {

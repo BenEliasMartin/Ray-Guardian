@@ -9,6 +9,11 @@ plugins {
 val localProperties = Properties().apply {
     rootProject.file("local.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) }
 }
+// Shared root .env (gitignored). Simple KEY=value lines; # starts a comment.
+val dotEnv: Map<String, String> = rootProject.file(".env").takeIf { it.exists() }?.readLines().orEmpty()
+    .map { it.trim() }
+    .filter { it.isNotEmpty() && !it.startsWith("#") && "=" in it }
+    .associate { it.substringBefore("=").trim() to it.substringAfter("=").trim().removeSurrounding("\"") }
 fun configString(value: String) = "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
 
 android {
@@ -26,8 +31,8 @@ android {
     }
     buildTypes {
         debug {
-            buildConfigField("String", "AI_BASE_URL", configString(localProperties.getProperty("ai_base_url", "http://10.0.2.2:8787")))
-            buildConfigField("String", "AI_CLIENT_TOKEN", configString(localProperties.getProperty("ai_client_token", "")))
+            buildConfigField("String", "AI_BASE_URL", configString(dotEnv["AI_BASE_URL"]?.ifBlank { null } ?: "http://10.0.2.2:8787"))
+            buildConfigField("String", "AI_CLIENT_TOKEN", configString(dotEnv["RAY_GUARDIAN_CLIENT_TOKEN"].orEmpty()))
         }
         release {
             // This development token is never shipped in a release APK.
