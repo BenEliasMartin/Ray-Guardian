@@ -2,7 +2,7 @@
 
 **A proposed hands-free safety companion for Meta smart glasses.** Ray Guardian aims to recognize signs that help may be needed, check on the wearer when possible, and share an alert, location, and limited context with people the wearer has chosen.
 
-**Status: early Android prototype.** The first version can register with Meta AI, display reported glasses status, and rehearse a local simulated alert. It does not detect emergencies, send messages, share location, contact responders, or provide background protection. The product vision includes medical collapse, assault, and bystander emergencies; reliable detection of those events has not been demonstrated.
+**Status: early Android prototype with Nemotron AI context.** The app can register with Meta AI, display reported glasses status, rehearse a local simulated alert, and send explicitly submitted text and an optional selected image to Nemotron for a contextual summary. It does not detect emergencies, send contact alerts, share location, contact responders, or provide background protection. The product vision includes medical collapse, assault, and bystander emergencies; reliable detection of those events has not been demonstrated.
 
 Reviewed **14 November 2026** against Meta's public documentation search service and the official repositories listed below. Values described as **proposed** are Ray Guardian design choices to test, not Meta specifications or measured performance.
 
@@ -22,13 +22,36 @@ For a reproducible emulator check after building, run `python3 scripts/smoke_emu
 
 For local Developer Mode, the build defaults the Meta application ID and client token to `0`. If your Meta project requires its own values, put `mwdat_application_id` and `mwdat_client_token` in the ignored `local.properties` file. Never commit credentials. The callback scheme is `rayguardian`; configure the matching scheme for your Meta integration. Production distribution and capability approval are separate from this debug build.
 
-The prototype uses no camera or audio stream and requests no location, camera, or microphone permissions. The displayed battery and thermal values are reported DAT device metadata; they do not establish continuous coverage or a validated thermal operating envelope. SDK analytics and SDK crash-reporting opt-outs are configured in the manifest. No contact, alert, media, or location is transmitted by the rehearsal.
+The prototype uses no camera or audio stream and requests no location, camera, or microphone permissions. The displayed battery and thermal values are reported DAT device metadata; they do not establish continuous coverage or a validated thermal operating envelope. SDK analytics and SDK crash-reporting opt-outs are configured in the manifest. The rehearsal transmits no contact, alert, media, or location. The separate Nemotron screen sends only the text and selected image you explicitly submit after confirming consent.
 
-The rest of this README preserves the research and roadmap. Its proposed detector, backend, resource governor, escalation, and production plans are future work, not implemented features.
+## Run Nemotron AI context
+
+Nemotron is the prototype's AI provider. The Android app calls a small authenticated Node backend, which calls the supplied Verda container at `https://containers.datacrunch.io/nemotron-3-5-super-vl-b300/v1/chat/completions` with model `nemotron-3.5-super-vl`. This runtime integration uses the OpenAI-compatible protocol; OpenCode is not needed to run the app.
+
+The **Verda inference key stays in the backend**, never in the APK or committed source. Local development credentials have been configured in ignored `server/.env` and `local.properties` files on the implementation machine. For a fresh checkout:
+
+1. Install Node.js 22 or newer. The backend uses built-in modules and has no npm dependencies to install.
+2. Copy `server/.env.example` to `server/.env`. Set `VERDA_INFERENCE_KEY` and a separate random `RAY_GUARDIAN_CLIENT_TOKEN` of at least 32 characters. Keep the default provider URL/model unless your deployment changes.
+3. In ignored `local.properties`, set `ai_base_url=http://10.0.2.2:8787` and `ai_client_token` to the same **development client token**, not the Verda key.
+4. Run `npm --prefix server start`. By default it listens only on `127.0.0.1:8787`.
+5. Build/install the debug Android APK. Open **Open Nemotron context**, write a description, optionally choose an image, confirm submission consent, and select **Analyze with Nemotron**. An open simulated alert also offers **Review context with Nemotron**, which pre-fills only that rehearsal's synthetic context; it still requires consent and an explicit submission.
+
+For a physical Android device connected by USB, use `adb reverse tcp:8787 tcp:8787`, change `ai_base_url` to `http://127.0.0.1:8787`, then rebuild/install. Debug HTTP exceptions are limited to emulator/loopback hosts. The release build disables this development connection and contains no client token. A deployed multi-user service will need HTTPS and proper per-user authentication; the development bearer token is not a production identity system.
+
+**What Nemotron does:** returns a structured summary, reported/visible observations, and uncertainties. Text and images are treated as untrusted context. The model has no tools and cannot send, cancel, or acknowledge alerts, choose contacts, or claim dispatch. Its output is advisory and may be wrong; it is not a validated detector or medical assessment.
+
+**Data and resource limits:** no automatic camera streaming or background inference; image selection uses Android's document picker. Selected images are resized to at most 768 pixels on the longest side and re-encoded as JPEG before upload, removing original metadata. The backend accepts at most 768 KiB of inline JPEG/PNG image data and 4000 description characters, permits two concurrent requests and ten analyses per minute, requests at most 1024 output tokens with thinking disabled, and times out provider calls after 40 seconds. There are no automatic paid retries. Leaving the AI screen cancels an active request. Raw context, image data, credentials, and model reasoning are not logged or persisted by this backend; provider processing and retention remain subject to Verda's terms and must be reviewed before real sensitive data is used.
+
+Run backend tests with `npm --prefix server test`. Tests cover authorization, consent, vision payloads, bounded concurrency/rate, cancellation/timeout, malformed/truncated output, and sanitized provider errors. Live synthetic text and generated-image requests were verified against the supplied endpoint. [Verda API compatibility](https://docs.verda.com/inference/openai-compatibility/), [NVIDIA model card and thinking control](https://huggingface.co/nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-BF16)
+
+To explicitly run a live Android AI smoke test, start the backend and run `python3 scripts/smoke_ai_emulator.py --serial emulator-5554 --live`. This sends one synthetic description through the app and may incur an inference charge. The normal rehearsal smoke test makes no AI requests.
+
+The remaining README preserves the research and roadmap. Automatic detection, durable incident delivery, the full resource governor, real escalation, and production approval are future work.
 
 ## Contents
 
 - [Run the Android prototype](#run-the-android-prototype)
+- [Run Nemotron AI context](#run-nemotron-ai-context)
 - [1. Recommendation and feasibility](#1-recommendation-and-feasibility)
 - [2. Verified capabilities and limits](#2-verified-capabilities-and-limits)
 - [3. Product scope and scenarios](#3-product-scope-and-scenarios)
@@ -140,7 +163,7 @@ flowchart LR
 
 **Backend:** authenticate devices/users, persist versioned incidents, deduplicate notifications, enforce recipient access and expiry, ingest signed provider callbacks, and record delivery/acknowledgment transitions. Send metadata before media. A queue or provider acceptance is not proof a person received help.
 
-**AI service, if later justified:** summarize a bounded incident clip or produce structured observations with uncertainty. It cannot select recipients, change consent, invent location, cancel an incident, or directly dispatch responders. Keep its failure outside the critical alert path.
+**AI service:** the current Nemotron prototype summarizes explicitly submitted text and a selected image through a backend. Automatic incident-clip analysis remains future work. The service cannot select recipients, change consent, invent location, cancel an incident, or directly dispatch responders. Its failure stays outside the alert rehearsal.
 
 **Optional Web App:** explore status, check-in, and contact acknowledgment UX for Display glasses. Do not assume it can control a concurrent DAT session or silently communicate with a native companion. Any bridge requires a separate feasibility and authentication design. Prefer native DAT Display for a single-session companion if the approved capability set supports it.
 

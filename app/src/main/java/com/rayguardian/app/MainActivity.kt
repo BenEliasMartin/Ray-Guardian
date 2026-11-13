@@ -2,6 +2,7 @@ package com.rayguardian.app
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
@@ -252,10 +253,28 @@ class MainActivity : ComponentActivity() {
                 }
                 sessionCard.addView(button("Cancel simulated alert", false) { demo.cancel(); render() })
                 sessionCard.addView(button("Finish rehearsal", false) { demo.finish(); render() })
+                if (BuildConfig.AI_BASE_URL.isNotBlank()) {
+                    sessionCard.addView(button("Review context with Nemotron", false) {
+                        startActivity(Intent(this, AiActivity::class.java).putExtra(
+                            "context_description",
+                            "SIMULATED REHEARSAL, not a real emergency. $triggerText. " +
+                                "No camera, microphone, or live sensor evidence is available. " +
+                                "No contacts have been notified. Summarize the reported context and its limitations.",
+                        ))
+                    })
+                }
             }
             DemoSession.Phase.CANCELLED -> sessionCard.addView(button("Finish rehearsal", true) { demo.finish(); render() })
         }
         content.addView(sessionCard)
+
+        if (BuildConfig.AI_BASE_URL.isNotBlank()) {
+            sectionHeading("03", "AI context with Nemotron", "Analyze text and an optional image when you choose.")
+            val aiCard = card("#FFFFFF")
+            aiCard.addView(label("Your submitted context can be sent to Nemotron for a summary. AI results do not operate the alert controls.", 14, "#5B6D67"))
+            aiCard.addView(button("Open Nemotron context", true) { startActivity(Intent(this, AiActivity::class.java)) })
+            content.addView(aiCard)
+        }
 
         content.addView(label("Built for careful testing", 14, "#277B69", true).apply { setPadding(0, dp(24), 0, dp(6)) })
         content.addView(label("Camera, microphone, location, automatic detection and real alert delivery are not enabled in this prototype.", 13, "#71817A"))

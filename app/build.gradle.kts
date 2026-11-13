@@ -9,6 +9,7 @@ plugins {
 val localProperties = Properties().apply {
     rootProject.file("local.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) }
 }
+fun configString(value: String) = "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
 
 android {
     namespace = "com.rayguardian.app"
@@ -18,10 +19,21 @@ android {
         applicationId = "com.rayguardian.app"
         minSdk = 31
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.2.0"
         manifestPlaceholders["mwdat_application_id"] = localProperties.getProperty("mwdat_application_id", "0")
         manifestPlaceholders["mwdat_client_token"] = localProperties.getProperty("mwdat_client_token", "0")
+    }
+    buildTypes {
+        debug {
+            buildConfigField("String", "AI_BASE_URL", configString(localProperties.getProperty("ai_base_url", "http://10.0.2.2:8787")))
+            buildConfigField("String", "AI_CLIENT_TOKEN", configString(localProperties.getProperty("ai_client_token", "")))
+        }
+        release {
+            // This development token is never shipped in a release APK.
+            buildConfigField("String", "AI_BASE_URL", "\"\"")
+            buildConfigField("String", "AI_CLIENT_TOKEN", "\"\"")
+        }
     }
 
     compileOptions {
