@@ -61,11 +61,71 @@ The main screen has a **Smartwatch heart rate** section that screens heart-rate 
 
 Readings are kept in memory only and are not logged, stored, or sent to the backend. The Nemotron review of a heart-rate alert includes only the one-line summary shown on the alert screen, and only when you submit it.
 
+## Wearer-perspective validation data
+
+The repository includes a reproducible pipeline and frozen manifest for a **36-clip first-person screening set** from [EGOFALLS](https://dataverse.nl/dataset.xhtml?persistentId=doi:10.34894/HO5GE3), version 1.1, released by Xueyi Wang through DataverseNL under CC0. It contains 18 staged falls and 18 ordinary movements. All videos and prepared images stay local under ignored `validation/data/`; no media is committed. Source paths, labels, checksums, and split assignments are recorded in [the manifest](validation/manifest.jsonl). No training or live model inference has been performed on this set.
+
+| Split | Participant | Staged falls | Ordinary activities |
+| --- | --- | --- | --- |
+| Development | S_FI | 6 | 6 |
+| Validation | S_HB | 6 | 6 |
+| Test | S_L | 6 | 6 |
+
+These are recordings from the **person wearing the camera**, not room-camera or spectator views. Camera placement is publisher-labeled **neck**, rather than head-mounted glasses. Positive classes cover backward, downward, forward, and lateral staged falls. Comparisons include bending, lying down, rising, sitting, walking, squatting, and standing; the exact activities differ by split. A staged fall is not a confirmed medical collapse or proof of an emergency. Nonfall means the dataset's activity class, not that a person is safe.
+
+Collection reads individual ZIP members using bounded HTTP byte ranges, avoiding the full roughly 200 GB release. The selected originals total **580,492,989 bytes (about 554 MiB)**. The [data audit](validation/data-audit.json) verifies all original/prepared hashes and checks exact duplicates and participant overlap. Collection found candidate copies across source Neck/Waist directories; visual inspection also found outdoor-looking walking footage under an Indoor directory. [Source audit](validation/source-audit.json) records these findings. Mount and environment metadata still need independent review. There is no verified environment/session separation or perceptual near-duplicate audit.
+
+The [source catalog](validation/catalog.json) also records other first-person candidates and their access/license limits. WEAR offers head-mounted exercise comparisons under noncommercial terms; Ego4D needs a dataset agreement and credentials; VIEW360's original project still lists its data as coming soon. Robot-mounted interaction data and surveillance datasets are excluded. **Wearer-directed assault, clinically confirmed collapse, and head-mounted positive events remain unfilled coverage gaps.**
+
+To prepare the set from a fresh checkout, use Python 3 and Node.js 22+. Download the selected source clips, generate image sequences, and check their integrity:
+
+```bash
+python3 -m venv validation/.venv
+validation/.venv/bin/python -m pip install -r validation/requirements.txt
+python3 scripts/prepare_pov_validation.py download --max-mib 600
+validation/.venv/bin/python scripts/prepare_pov_validation.py prepare
+python3 scripts/prepare_pov_validation.py audit
+```
+
+The committed archive indexes and manifest freeze sample selection before inference. `index` refreshes missing publisher indexes, and `plan` creates a new manifest only when no manifest exists. These are collection-maintenance commands, not required to reproduce the frozen subset. Media downloads are sequential, validate publisher ZIP CRC32 and local SHA-256, resume at verified clip boundaries, and fail if the server ignores byte ranges or the requested transfer budget is exceeded. The Python environment directory is local and ignored. After preparation, `audit --prepared-only` can check local image hashes and manifest split assignments without rechecking original videos.
+
+Preparation produces one 768 × 464 JPEG per clip containing six uniformly spaced frames, in chronological order with neutral frame numbers/timestamps. Source labels and paths are not drawn into the image. This uses the current app's image/text input shape and budget. Audio remains in the original video but is not passed to the model. Sparse frames may miss an event, and whole-clip sampling includes later context; it cannot measure real-time onset detection or detection delay.
+
+The evaluator has two distinct modes:
+
+- `--mode summary` uses the **unchanged application summarizer**. Its output needs blind human review and does not yield a detection-accuracy score.
+- `--mode classify` uses an **isolated experimental classification prompt** against the same configured provider. It returns `fall`, `nonfall`, or `uncertain`; it changes no app behavior and cannot send alerts.
+
+Dry runs validate every selected image and show request counts without contacting the provider:
+
+```bash
+node scripts/evaluate_pov.mjs --mode classify --split development
+node scripts/evaluate_pov.mjs --mode summary --split development
+```
+
+When credentials are configured locally and a live evaluation is explicitly intended, the following makes at most two inference attempts and may incur provider charges:
+
+```bash
+node --env-file=server/.env scripts/evaluate_pov.mjs --live --mode classify --split development --limit 2
+```
+
+Use development for prompt work, validation for choosing a fixed configuration, and the test split only after that configuration is frozen. The runner never sends source labels, scenario names, subject IDs, or filenames to the model. It records manifest/image/prompt/implementation hashes, model identifier, latency, and errors under ignored `validation/results/`. Classification reports include recall, specificity, false positives per ordinary clip, confidence intervals, decision coverage, and a confusion matrix that retains abstentions and failed requests. It does not estimate false alerts per armed hour from short selected clips.
+
+[The protocol](validation/protocol.json) defines these limits and a two-reviewer annotation procedure. The [blank review sheet](validation/review.csv) contains opaque sample IDs with no gold labels. Independent label/visibility adjudication is pending; the source labels have not been independently certified. Even 6/6 detected test falls gives a Wilson 95% lower bound of only about 61%, and this selected public set may overlap unknown model pretraining data. **No readiness claim or automatic-alert promotion follows from this screening.**
+
+Verification:
+
+```bash
+python3 scripts/test_prepare_pov_validation.py
+npm --prefix server test
+```
+
 ## Contents
 
 - [Run the Android prototype](#run-the-android-prototype)
 - [Run Nemotron AI context](#run-nemotron-ai-context)
 - [Smartwatch heart-rate screening](#smartwatch-heart-rate-screening)
+- [Wearer-perspective validation data](#wearer-perspective-validation-data)
 - [1. Recommendation and feasibility](#1-recommendation-and-feasibility)
 - [2. Verified capabilities and limits](#2-verified-capabilities-and-limits)
 - [3. Product scope and scenarios](#3-product-scope-and-scenarios)

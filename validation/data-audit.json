@@ -1,0 +1,30 @@
+{
+  "samples": 36,
+  "counts": {
+    "development/fall": 6,
+    "development/nonfall": 6,
+    "validation/fall": 6,
+    "validation/nonfall": 6,
+    "test/fall": 6,
+    "test/nonfall": 6
+  },
+  "missing_or_changed": [],
+  "verification_scope": "original_videos_and_prepared_images",
+  "original_videos_verified_locally": true,
+  "duplicate_raw_hashes": [],
+  "cross_split_hash_leakage": [],
+  "cross_split_subject_leakage": [],
+  "reviewed_samples": 0,
+  "total_source_clip_seconds": 427.55,
+  "readiness": "not_established",
+  "limitations": [
+    "Body-worn neck view, not glasses/head-mounted.",
+    "Staged falls are not clinically confirmed collapse.",
+    "No assault data included.",
+    "No model inference has been run by this data audit.",
+    "Sparse montage can miss an event; source video labels are not frame labels.",
+    "Public pretraining contamination cannot be excluded.",
+    "Participant separation does not establish environment/session separation.",
+    "Publisher Indoor directories include visually outdoor-looking clips; environment labels are unverified."
+  ]
+}

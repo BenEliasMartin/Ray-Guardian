@@ -1,0 +1,45 @@
+{
+  "candidate_duplicate_groups": [
+    {
+      "subject": "S_FI",
+      "paths": [
+        "S_FI/Indoor/falls/back_falls/Back_lying/Neck/S_FI_Back_lying_Neck_1.MOV",
+        "S_FI/Indoor/falls/back_falls/Back_lying/Waist/S_FI_Back_lying_Waist_2.MOV"
+      ],
+      "basis": "same ZIP CRC32 and byte length; candidate duplicates"
+    },
+    {
+      "subject": "S_FI",
+      "paths": [
+        "S_FI/Indoor/falls/back_falls/Back_lying/Neck/S_FI_Back_lying_Neck_2.MOV",
+        "S_FI/Indoor/falls/back_falls/Back_lying/Waist/S_FI_Back_lying_Waist_3.MOV"
+      ],
+      "basis": "same ZIP CRC32 and byte length; candidate duplicates"
+    },
+    {
+      "subject": "S_FI",
+      "paths": [
+        "S_FI/Indoor/falls/back_falls/Back_lying/Neck/S_FI_Back_lying_Neck_3.MOV",
+        "S_FI/Indoor/falls/back_falls/Back_lying/Waist/S_FI_Back_lying_Waist_5.MOV"
+      ],
+      "basis": "same ZIP CRC32 and byte length; candidate duplicates"
+    },
+    {
+      "subject": "S_FI",
+      "paths": [
+        "S_FI/Indoor/falls/downside_falls/Down_syncope/Waist/S_FI_Down_syncope_Waist_1.MOV",
+        "S_FI/Indoor/falls/downside_falls/Down_syncope/Waist/S_FI_Down_syncope_Waist_2.MOV"
+      ],
+      "basis": "same ZIP CRC32 and byte length; candidate duplicates"
+    }
+  ],
+  "note": "Neck/waist copies may have inconsistent source labels. Mount is publisher-reported; verify before glasses claims.",
+  "visual_spot_checks": [
+    {
+      "sample_id": "6993ae8893a3c6b6",
+      "split": "development",
+      "finding": "Publisher Indoor/Walking directory contains outdoor street-looking frames. Environment metadata is unverified; no label correction made."
+    }
+  ],
+  "independent_label_review": "pending; visual spot checks are not two-reviewer adjudication"
+}

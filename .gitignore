@@ -8,3 +8,10 @@ captures/
 .env.*
 !.env.example
 node_modules/
+validation/.venv/
+validation/data/
+validation/results/
+validation/sources/*.pdf
+validation/sources/*.bin
+validation/sources/*.html
+__pycache__/

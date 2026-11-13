@@ -1,0 +1,88 @@
+{
+  "reviewed_on": "2026-11-14",
+  "scope": "Human-worn, wearer-perspective recordings. Room cameras, spectators, and robot-mounted cameras do not satisfy the core benchmark requirement.",
+  "sources": [
+    {
+      "id": "egofalls",
+      "name": "EGOFALLS",
+      "source_url": "https://dataverse.nl/dataset.xhtml?persistentId=doi:10.34894/HO5GE3",
+      "metadata_url": "https://dataverse.nl/api/datasets/:persistentId/?persistentId=doi:10.34894/HO5GE3",
+      "author_repository": "https://github.com/Xueyi-Wang/EGOFALLS",
+      "paper": "https://arxiv.org/abs/2309.04579",
+      "attribution": "Wang, Xueyi, EGOFALLS: A visual-audio dataset and benchmark for fall detection using egocentric cameras, DataverseNL, doi:10.34894/HO5GE3, version 1.1.",
+      "license": "CC0-1.0, verified in original Dataverse metadata",
+      "license_url": "http://creativecommons.org/publicdomain/zero/1.0",
+      "camera_mount": "Human-worn neck and waist; local subset uses publisher-labeled Neck directories only",
+      "coverage": ["staged backward falls", "staged forward falls", "staged lateral falls", "staged downward/syncope-like movements", "bending", "lying down", "rising", "sitting", "standing", "squatting", "walking"],
+      "acquisition_status": "36 original clips downloaded by exact HTTP byte range; publisher ZIP CRC32 and local SHA-256 verified",
+      "eligible_use": "First-person visual fall versus nonfall screening, with body-to-head domain gap explicitly retained",
+      "limitations": ["Not head-mounted glasses footage", "Staged activity labels do not establish medical collapse, injury, or need for help", "Dataset metadata and repository counts differ; local counts come from inspected archives", "Candidate duplicate files exist across Neck and Waist directories", "Local sample is small; source Indoor folders include outdoor-looking footage, so matched environments are unverified", "Source labels await independent human adjudication"]
+    },
+    {
+      "id": "wear",
+      "name": "WEAR",
+      "source_url": "https://mariusbock.github.io/wear/",
+      "paper": "https://arxiv.org/abs/2304.05088",
+      "camera_mount": "Human-worn head strap, tilted downward 45 degrees",
+      "coverage": ["ordinary outdoor exercise", "running", "stretching", "push-ups and other strength exercises"],
+      "license": "CC BY-NC-SA 4.0, stated on original project page",
+      "license_url": "https://creativecommons.org/licenses/by-nc-sa/4.0/",
+      "acquisition_status": "Cataloged; not downloaded",
+      "eligible_use": "Potential hard negatives after confirming noncommercial research scope",
+      "limitations": ["No emergency-positive classes", "Exercise context differs from everyday glasses use", "Noncommercial restriction; do not treat the code license as the media license"]
+    },
+    {
+      "id": "ego4d",
+      "name": "Ego4D / Ego-Exo4D",
+      "source_url": "https://ego4d-data.org/docs/start-here/",
+      "camera_mount": "Wearable first-person cameras; select ego streams and verify mount per recording",
+      "coverage": ["diverse everyday activities", "social interactions", "skilled activities"],
+      "license": "Custom dataset agreement; access now through Lab22",
+      "acquisition_status": "Access-gated; no media or annotations downloaded",
+      "eligible_use": "Potential long-duration everyday negatives after agreement and clip-level event review",
+      "limitations": ["Requires license acceptance and credentials", "An everyday activity label does not guarantee absence of hazards", "Do not use exocentric streams from paired ego/exo recordings"]
+    },
+    {
+      "id": "view360",
+      "name": "VIEW360",
+      "source_url": "https://songinpyo.github.io/VIEW360-Project/",
+      "author_repository": "https://github.com/Songinpyo/VIEW360",
+      "paper": "https://arxiv.org/abs/2411.10945",
+      "camera_mount": "Human-worn egocentric 360-degree camera",
+      "coverage": ["staged pickpocketing", "staged shoulder surfing", "staged teasing/harassment", "normal comparisons"],
+      "license": "No usable public media license verified",
+      "acquisition_status": "Original project still says Data (Coming Soon); no usable release downloaded",
+      "eligible_use": "Candidate for wearer-directed threat research once released and licensed",
+      "limitations": ["360-degree views include events behind the wearer that forward-facing glasses cannot see", "Not a verified assault/medical-collapse benchmark", "Threat labels require visibility and wearer-role review; never infer criminal intent from appearance"]
+    },
+    {
+      "id": "nusfpid",
+      "name": "NUS First Person Interaction Dataset",
+      "source_url": "https://sites.google.com/view/sanath-narayan/Datasets",
+      "paper": "https://openaccess.thecvf.com/content_cvpr_workshops_2014/W16/papers/Narayan_Action_and_Interaction_2014_CVPR_paper.pdf",
+      "camera_mount": "Human-worn head camera",
+      "coverage": ["handshakes", "waving", "passing objects", "throwing objects", "ordinary object use"],
+      "license": "No explicit media license verified on author dataset page",
+      "acquisition_status": "Cataloged; not downloaded",
+      "eligible_use": "Potential wearer-directed interaction confounders after rights and perspective review",
+      "limitations": ["Includes actions passively observed by the wearer; retain only active-participant classes", "Throwing an object is not itself proof of an assault or emergency"]
+    },
+    {
+      "id": "egopolice",
+      "name": "EgoPolice",
+      "source_url": "https://github.com/princetonvisualai/EgoPolice",
+      "camera_mount": "Police body-worn camera",
+      "coverage": ["high-stakes police-civilian interactions"],
+      "license": "Raw media has source restrictions; repository code license does not grant raw-video rights",
+      "acquisition_status": "Request-gated; no download",
+      "eligible_use": "Not included in core wearer-victim benchmark",
+      "limitations": ["Wearer is often an officer intervening in another person's situation", "Must annotate whether danger concerns the camera wearer", "Public availability and original release policies can change"]
+    }
+  ],
+  "excluded_sources": [
+    {"name": "AIRTLab, GMDCSA24, CAUCAFall, URFD, RWF-2000, XD-Violence", "reason": "Room/surveillance/spectator views do not meet the user's wearer-perspective requirement. No media included."},
+    {"name": "JPL First-Person Interaction / UTKinect-FirstPerson humanoid", "reason": "Camera on a humanoid stand-in, not the person experiencing the situation. Excluded even though it is camera-centric."},
+    {"name": "Generated images, first-person gameplay, and event descriptions", "reason": "Cannot substitute for real human-worn recordings in a readiness evaluation."}
+  ],
+  "unfilled_coverage": ["Human-worn victim-perspective physical assault", "Clinically established medical collapse", "Head-mounted positive incidents", "Long untrimmed glasses recordings of ordinary life", "Low light and outdoor negatives matched to positive environments"]
+}

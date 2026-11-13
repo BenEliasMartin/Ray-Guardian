@@ -1,0 +1,96 @@
+{
+  "version": "pov-screening-v1",
+  "status": "data_prepared_model_not_evaluated",
+  "population": "Human camera wearer; not a spectator, room camera, robot, or video-game character",
+  "question": "Can the supplied visual evidence distinguish a staged wearer fall from an ordinary non-fall movement?",
+  "not_measured": [
+    "Generic danger",
+    "Clinical diagnosis or medical collapse",
+    "Assault recognition",
+    "Dispatch readiness",
+    "Continuous protection",
+    "Real glasses/head-camera accuracy"
+  ],
+  "sampling": {
+    "seed": "ray-guardian-pov-v1",
+    "source_version": "EGOFALLS 1.1",
+    "subjects": {
+      "S_FI": "development",
+      "S_HB": "validation",
+      "S_L": "test"
+    },
+    "per_subject": {
+      "fall": 6,
+      "nonfall": 6
+    },
+    "environment": "Publisher Indoor directories for both classes. Visual inspection found outdoor-looking walking footage under Indoor; matched environments are NOT established and must be reviewed before scoring shortcuts.",
+    "mount": "Publisher-labeled Neck directories",
+    "selection": "Deterministic SHA-256 ranking within scenario families; round-robin scenario allocation. No selection based on model outputs or visual ease.",
+    "deduplication": "Exclude equal byte-length/CRC32 candidates before sampling; verify whole-file SHA-256 after download; do not distribute a subject across splits.",
+    "caveat": "Participant separation does not establish collection-session/environment independence. Mount labels have source anomalies. Public pretraining overlap is unknown."
+  },
+  "preparation": {
+    "input": "Original human-worn video",
+    "fractions_of_clip_duration": [
+      0.05,
+      0.23,
+      0.41,
+      0.59,
+      0.77,
+      0.95
+    ],
+    "output": "Six-frame chronological JPEG montage, 768 x 464, no EXIF, neutral opaque filename",
+    "audio": "Original clips retained, but audio is not passed to the image/text-only app interface",
+    "caveat": "Whole-clip labels do not prove that the fall is visible in the sampled frames. Annotate visibility before interpreting individual errors. Sampling includes post-event context; this does not test real-time detection or detection delay."
+  },
+  "model_modes": {
+    "summary": "Calls the unchanged application summarizer with neutral text and the montage. Human review required. Does not produce a detection-accuracy number.",
+    "classify": "Separate experimental prompt using the configured Nemotron provider. Returns fall, nonfall, or uncertain; cannot operate app alerts. This is not the deployed summarizer."
+  },
+  "leakage_controls": [
+    "Never send source labels, scenario names, subject IDs, source paths, split names, or dataset captions to the model",
+    "Freeze selection before inference",
+    "Keep the test split untouched for prompt/threshold development",
+    "Record prompt, implementation, manifest, and prepared-image hashes"
+  ],
+  "human_review": {
+    "status": "Publisher labels retained; independent adjudication pending",
+    "required_fields": [
+      "id",
+      "wearer_perspective_verified",
+      "camera_mount_verified_or_unknown",
+      "event_visible_in_montage",
+      "activity_label_supported",
+      "ambiguity",
+      "reviewer",
+      "adjudication"
+    ],
+    "procedure": "Use two independent reviewers blinded to source label, then adjudicate disagreements against the original video. Do not relabel an unclear clip as an ordinary/safe situation."
+  },
+  "metrics": [
+    "Fall recall with Wilson 95% interval",
+    "Nonfall specificity with Wilson 95% interval",
+    "False positives per ordinary clip",
+    "Confusion matrix including uncertainty and inference errors",
+    "Decision coverage",
+    "Conservative balanced accuracy",
+    "Per-scenario and per-participant failure review"
+  ],
+  "uncertainty_policy": "Abstentions and inference errors remain in denominators; they never count as correct nonfall predictions.",
+  "readiness": {
+    "decision": "not_established",
+    "numeric_release_thresholds": null,
+    "blockers": [
+      "Live model evaluation deferred at user request; no inference results exist.",
+      "Only six positive test clips and six ordinary test clips",
+      "Independent visibility/label review pending",
+      "No head-mounted positive data",
+      "No wearer-assault or clinical-collapse data",
+      "No continuous ordinary-life denominator for false alerts per armed hour",
+      "No onset annotations or latency assessment",
+      "Promotion thresholds have not been agreed"
+    ],
+    "next_measurement": "After the initial screening, collect consented head-mounted/real-glasses data, longer ordinary sessions, matched hard negatives, and safely staged wearer-perspective events. Evaluate separately from this public body-camera proxy."
+  },
+  "live_evaluation": "Deferred at user request; prepare data and evaluation tools only."
+}
