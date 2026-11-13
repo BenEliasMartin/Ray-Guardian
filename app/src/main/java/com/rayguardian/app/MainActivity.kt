@@ -102,6 +102,9 @@ class MainActivity : ComponentActivity() {
         mode = activeIntegrationMode
         if (mode != null) observeWearables()
         render()
+        if (BuildConfig.DEBUG && intent.getBooleanExtra("ray_guardian_simulator", false) && mode == null) {
+            connectMockGlasses()
+        }
     }
 
     override fun onPause() {
@@ -320,6 +323,7 @@ class MainActivity : ComponentActivity() {
                 } else {
                     activeIntegrationMode = IntegrationMode.MOCK
                     observeWearables()
+                    android.util.Log.i("RayGuardian", "Meta MockDeviceKit simulator ready")
                 }
             } catch (error: Exception) {
                 integrationError = "Could not start the simulated device. Restart the app to retry."
