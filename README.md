@@ -2,9 +2,20 @@
 
 **A proposed hands-free safety companion for Meta smart glasses.** Ray Guardian aims to recognize signs that help may be needed, check on the wearer when possible, and share an alert, location, and limited context with people the wearer has chosen.
 
-**Status: early Android prototype with Nemotron AI context.** The app can register with Meta AI, display reported glasses status, rehearse a local simulated alert, and send explicitly submitted text and an optional selected image to Nemotron for a contextual summary. It does not detect emergencies, send contact alerts, share location, contact responders, or provide background protection. The product vision includes medical collapse, assault, and bystander emergencies; reliable detection of those events has not been demonstrated.
+**Status: browser emergency drill and early Android prototype.** The browser demo replays a glasses POV video, automatically starts a check-in at a staged collapse cue, and records an accepted call at a local simulated dispatch desk. Nemotron can summarize three frames from the drill. The Android prototype connects to Meta glasses or the debug MockDeviceKit and offers a separate alert rehearsal.
 
 Reviewed **14 November 2026** against Meta's public documentation search service and the official repositories listed below. Values described as **proposed** are Ray Guardian design choices to test, not Meta specifications or measured performance.
+
+## Run the emergency drill in Meta's Chrome simulator
+
+1. Install Node.js 22 or later and the [official Meta Ray-Ban Display Simulator Chrome extension](https://chromewebstore.google.com/detail/jpjlmmodokemlepklkdbimceggpbjcll).
+2. For real Nemotron analysis, configure the root `.env` from `.env.example` and run `npm --prefix server start`. Run `npm --prefix web-simulator start` in a second terminal.
+3. Open [the glasses display view](http://localhost:4173/?display) in desktop Chrome, then toggle the Meta extension on from the toolbar. Use **Choose POV video** to load a clip, or put a browser-compatible MP4 at `captures/browser-pov.mp4` to load it automatically. On macOS, convert a MOV with `swift scripts/prepare_pov_video.swift input.mov captures/browser-pov.mp4 h264`.
+4. Enable **Analyze sampled frames with Verda / Nemotron** to send up to three ordered JPEGs from the clip, then select **Run collapse drill**. The staged cue appears around six seconds into the reference clip. Choose **I'm OK · Cancel** or wait ten seconds for the local dispatch receipt. **Simulate SOS now** exercises the manual path immediately.
+5. Enable **Let Nemotron trigger the check-in** to try the AI-driven path. A positive assessment opens the same cancel window; an uncertain or failed assessment leaves manual SOS available.
+6. Expand the Nemotron panel to read the visual context. If it arrives after the call, it attaches to the same test receipt. The map coordinates are a fixed Helsinki test point. The call ends at the local simulated dispatch server.
+
+The default collapse cue is timed for a repeatable rehearsal. AI check-ins exercise Nemotron on a replay and are experimental. Live camera access and hardware event detection require the native DAT path and physical-device validation.
 
 ## Run the Android prototype
 

@@ -43,6 +43,22 @@ test('sends only validated inline image content for vision', async () => {
   assert.equal((await analyze(validateInput({ ...input, imageDataUrl: png }))).imageIncluded, true);
 });
 
+test('replay assessment uses ordered frames and requires a boolean before it can trigger a check-in', async () => {
+  assert.throws(() => validateInput({ ...input, assessCollapse: true, imageDataUrls: [png] }), { code: 'invalid_image' });
+  const frames = [png, 'data:image/jpeg;base64,/9j/'];
+  const replay = validateInput({ ...input, assessCollapse: true, imageDataUrls: frames });
+  const analyze = createNemotron({ apiKey: 'test', fetchImpl: async (_, options) => {
+    const messages = JSON.parse(options.body).messages;
+    assert.match(messages[0].content, /checkInRecommended/);
+    assert.deepEqual(messages[1].content.slice(1).map(part => part.image_url.url), frames);
+    return completion({ message: { content: JSON.stringify({ ...analysis, checkInRecommended: false }) } });
+  } });
+  assert.equal((await analyze(replay)).checkInRecommended, false);
+  assert.throws(() => parseAnalysis(JSON.stringify({ ...analysis, checkInRecommended: 'true' }), true),
+    { code: 'invalid_model_output' });
+  assert.equal(parseAnalysis(JSON.stringify({ ...analysis, checkInRecommended: true })).checkInRecommended, undefined);
+});
+
 test('rejects truncated responses, tool calls, and malformed model JSON', async () => {
   for (const response of [
     { finish_reason: 'length' },

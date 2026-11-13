@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ray Guardian | Emergency Drill</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main>
+    <header>
+      <div class="brand"><span aria-hidden="true">◇</span> Ray Guardian</div>
+      <span class="badge">SIMULATION</span>
+    </header>
+
+    <div class="view">
+      <video id="feed" src="/clip.mp4" muted playsinline preload="auto" aria-label="Glasses POV replay"></video>
+      <div class="hud"><span>◉ GLASSES POV</span><span id="clock">00:00</span></div>
+      <p id="video-message" class="video-message" hidden>Choose a POV video to run the drill.</p>
+    </div>
+
+    <section id="incident" aria-labelledby="headline">
+      <h1 id="headline">Collapse drill ready</h1>
+      <p id="detail" aria-live="polite">Replay the glasses POV, check on the wearer, and simulate an emergency call.</p>
+      <p id="countdown" role="timer" aria-label="Seconds until simulated call" hidden></p>
+      <dl id="receipt" hidden>
+        <div><dt>Call ID</dt><dd id="receipt-id"></dd></div>
+        <div><dt>Test location</dt><dd id="receipt-location"></dd></div>
+        <div><dt>AI context</dt><dd id="receipt-context"></dd></div>
+      </dl>
+    </section>
+
+    <div class="actions">
+      <button type="button" class="primary" id="start" disabled>Run collapse drill</button>
+      <button type="button" class="primary" id="cancel" hidden>I'm OK · Cancel</button>
+      <button type="button" id="sos">Simulate SOS now</button>
+      <button type="button" id="reset" hidden>Run another drill</button>
+    </div>
+
+    <div id="settings">
+      <label class="share"><input id="share" type="checkbox"> Analyze sampled frames with Verda / Nemotron</label>
+      <label class="file">Choose POV video<input id="file" type="file" accept="video/*,.mp4,.mov" aria-label="Choose POV video"></label>
+      <label class="share"><input id="ai-trigger" type="checkbox" disabled> Let Nemotron trigger the check-in</label>
+    </div>
+
+    <details id="analysis-panel">
+      <summary><span id="analysis-status" aria-live="polite">Nemotron ready</span></summary>
+      <p id="analysis-summary">The drill samples up to three frames. The rehearsal uses a staged collapse cue.</p>
+      <ul id="analysis-observations" hidden></ul>
+      <ul id="analysis-uncertainties" hidden></ul>
+    </details>
+    <p class="footnote">Test location and dispatch receipt. No real calls or notifications.</p>
+  </main>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
