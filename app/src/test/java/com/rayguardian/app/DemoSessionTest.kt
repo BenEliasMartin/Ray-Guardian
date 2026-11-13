@@ -67,4 +67,23 @@ class DemoSessionTest {
         session.finish()
         assertEquals(DemoSession.Phase.DISARMED, session.phase)
     }
+
+    @Test fun heartRateAnomalyStartsACheckInAndNeverAnAlertDirectly() {
+        val session = DemoSession()
+        session.replayCandidate(0, DemoSession.Trigger.HEART_RATE_ANOMALY)
+        assertEquals(DemoSession.Phase.DISARMED, session.phase)
+        session.arm()
+        session.replayCandidate(0, DemoSession.Trigger.HEART_RATE_ANOMALY)
+        assertEquals(DemoSession.Phase.CHECK_IN, session.phase)
+        assertEquals(DemoSession.Trigger.HEART_RATE_ANOMALY, session.trigger)
+        session.tick(DemoSession.CHECK_IN_MILLIS)
+        assertEquals(DemoSession.Phase.ALERT, session.phase)
+    }
+
+    @Test fun candidateCannotClaimToBeAManualSos() {
+        val session = DemoSession()
+        session.arm()
+        session.replayCandidate(0, DemoSession.Trigger.MANUAL)
+        assertEquals(DemoSession.Phase.ARMED, session.phase)
+    }
 }

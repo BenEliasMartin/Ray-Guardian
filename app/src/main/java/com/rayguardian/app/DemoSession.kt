@@ -3,7 +3,7 @@ package com.rayguardian.app
 /** A local-only rehearsal. No transition in this class sends an alert or accesses a sensor. */
 class DemoSession {
     enum class Phase { DISARMED, ARMED, CHECK_IN, ALERT, ACKNOWLEDGED, CANCELLED }
-    enum class Trigger { MANUAL, REPLAYED_CANDIDATE }
+    enum class Trigger { MANUAL, REPLAYED_CANDIDATE, HEART_RATE_ANOMALY }
 
     var phase: Phase = Phase.DISARMED
         private set
@@ -33,9 +33,10 @@ class DemoSession {
         phase = Phase.ALERT
     }
 
-    fun replayCandidate(nowMillis: Long) {
-        if (phase != Phase.ARMED) return
-        trigger = Trigger.REPLAYED_CANDIDATE
+    /** A candidate event always starts a check-in first; it never creates an alert directly. */
+    fun replayCandidate(nowMillis: Long, source: Trigger = Trigger.REPLAYED_CANDIDATE) {
+        if (phase != Phase.ARMED || source == Trigger.MANUAL) return
+        trigger = source
         deadlineMillis = nowMillis + CHECK_IN_MILLIS
         phase = Phase.CHECK_IN
     }

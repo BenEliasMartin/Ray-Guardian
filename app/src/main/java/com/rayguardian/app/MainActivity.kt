@@ -47,6 +47,13 @@ class MainActivity : ComponentActivity() {
     private var batteryStatus = "unknown"
     private var thermalStatus = "unknown"
     private var timerText: TextView? = null
+    private val heartRateDetector = HeartRateAnomalyDetector()
+    private var heartRateSource: HeartRateSource? = null
+    private var heartRateStatus = "No watch connected"
+    private var heartRateAssessment = HeartRateAnomalyDetector.Assessment(HeartRateAnomalyDetector.State.NO_DATA)
+    private var heartRateAnomalySummary: String? = null
+    private var heartRateValueText: TextView? = null
+    private var heartRateStateText: TextView? = null
     private lateinit var content: LinearLayout
 
     private enum class IntegrationMode { REAL, MOCK }
@@ -64,6 +71,35 @@ class MainActivity : ComponentActivity() {
                 render()
             }
         }
+
+    private val heartRatePermissions =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
+            if (results.values.all { it }) startHeartRateSource(BleHeartRateSource(this))
+            else {
+                heartRateStatus = "Bluetooth access was not granted. You can still use a simulated watch."
+                render()
+            }
+        }
+
+    private val heartRateListener = object : HeartRateSource.Listener {
+        override fun onSample(bpm: Int, skinContact: Boolean?) {
+            onHeartRateAssessment(heartRateDetector.onSample(bpm, SystemClock.elapsedRealtime(), skinContact))
+        }
+
+        override fun onStatus(status: String) {
+            heartRateStatus = status
+            render()
+        }
+    }
+
+    // Re-assesses once per second so a watch that stops reporting shows up as lost signal.
+    private val heartRateTicker = object : Runnable {
+        override fun run() {
+            if (heartRateSource == null) return
+            onHeartRateAssessment(heartRateDetector.assess(SystemClock.elapsedRealtime()))
+            handler.postDelayed(this, 1_000L)
+        }
+    }
 
     private val countdown = object : Runnable {
         override fun run() {
@@ -114,6 +150,8 @@ class MainActivity : ComponentActivity() {
             handler.removeCallbacks(countdown)
         }
         stopWearableSession()
+        // Heart-rate screening is foreground-only as well.
+        stopHeartRateSource()
         super.onPause()
     }
 
@@ -124,12 +162,15 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         handler.removeCallbacks(countdown)
+        stopHeartRateSource()
         super.onDestroy()
     }
 
     private fun render() {
         content.removeAllViews()
         timerText = null
+        heartRateValueText = null
+        heartRateStateText = null
 
         content.addView(label("RAY GUARDIAN  /  PROTOTYPE", 12, "#277B69", true).apply {
             letterSpacing = 0.12f
@@ -144,7 +185,7 @@ class MainActivity : ComponentActivity() {
 
         val banner = card("#E5F1EB")
         banner.addView(label("DEMO ONLY", 12, "#1C6857", true))
-        banner.addView(label("No help is contacted. No emergency detection or background monitoring is active.", 15, "#23463D").apply {
+        banner.addView(label("No help is contacted. No background monitoring is active, and heart-rate rules are unvalidated.", 15, "#23463D").apply {
             setPadding(0, dp(6), 0, 0)
         })
         content.addView(banner)
@@ -193,7 +234,11 @@ class MainActivity : ComponentActivity() {
             }
             DemoSession.Phase.CHECK_IN -> {
                 phaseTitle = "Are you okay?"
-                phaseDescription = "This is a replayed event. Cancel the check-in or wait to see the alert screen."
+                phaseDescription = if (demo.trigger == DemoSession.Trigger.HEART_RATE_ANOMALY) {
+                    "Your watch reported ${heartRateAnomalySummary ?: "an unusual heart rate"}. Cancel the check-in or wait to see the alert screen."
+                } else {
+                    "This is a replayed event. Cancel the check-in or wait to see the alert screen."
+                }
             }
             DemoSession.Phase.ALERT -> {
                 phaseTitle = "Simulated alert created"
@@ -246,6 +291,7 @@ class MainActivity : ComponentActivity() {
                 val triggerText = when (demo.trigger) {
                     DemoSession.Trigger.MANUAL -> "Trigger: simulated SOS"
                     DemoSession.Trigger.REPLAYED_CANDIDATE -> "Trigger: replayed incident"
+                    DemoSession.Trigger.HEART_RATE_ANOMALY -> "Trigger: smartwatch ${heartRateAnomalySummary ?: "heart-rate anomaly"}"
                     null -> "Trigger unavailable"
                 }
                 sessionCard.addView(label(triggerText, 13, "#71817A").apply { setPadding(0, dp(10), 0, 0) })
@@ -261,7 +307,12 @@ class MainActivity : ComponentActivity() {
                         startActivity(Intent(this, AiActivity::class.java).putExtra(
                             "context_description",
                             "SIMULATED REHEARSAL, not a real emergency. $triggerText. " +
-                                "No camera, microphone, or live sensor evidence is available. " +
+                                (if (demo.trigger == DemoSession.Trigger.HEART_RATE_ANOMALY) {
+                                    "A smartwatch reported ${heartRateAnomalySummary ?: "an unusual heart rate"} under an unvalidated rule. " +
+                                        "No camera, microphone, or other sensor evidence is available. "
+                                } else {
+                                    "No camera, microphone, or live sensor evidence is available. "
+                                }) +
                                 "No contacts have been notified. Summarize the reported context and its limitations.",
                         ))
                     })
@@ -271,8 +322,10 @@ class MainActivity : ComponentActivity() {
         }
         content.addView(sessionCard)
 
+        renderHeartRateCard()
+
         if (BuildConfig.AI_BASE_URL.isNotBlank()) {
-            sectionHeading("03", "AI context with Nemotron", "Analyze text and an optional image when you choose.")
+            sectionHeading("04", "AI context with Nemotron", "Analyze text and an optional image when you choose.")
             val aiCard = card("#FFFFFF")
             aiCard.addView(label("Your submitted context can be sent to Nemotron for a summary. AI results do not operate the alert controls.", 14, "#5B6D67"))
             aiCard.addView(button("Open Nemotron context", true) { startActivity(Intent(this, AiActivity::class.java)) })
@@ -280,7 +333,108 @@ class MainActivity : ComponentActivity() {
         }
 
         content.addView(label("Built for careful testing", 14, "#277B69", true).apply { setPadding(0, dp(24), 0, dp(6)) })
-        content.addView(label("Camera, microphone, location, automatic detection and real alert delivery are not enabled in this prototype.", 13, "#71817A"))
+        content.addView(label("Camera, microphone, location, background monitoring and real alert delivery are not enabled in this prototype. Heart-rate screening is a simple rule, not a medical assessment.", 13, "#71817A"))
+    }
+
+    private fun renderHeartRateCard() {
+        sectionHeading("03", "Smartwatch heart rate", "Screen watch readings for a sustained unusual heart rate.")
+        val card = card("#FFFFFF")
+        val source = heartRateSource
+        card.addView(label(if (source is SimulatedWatchSource) "SIMULATED WATCH" else "SMARTWATCH", 11, "#71817A", true))
+        card.addView(label(source?.label ?: "No watch connected", 20, "#172B26", true).apply { setPadding(0, dp(8), 0, dp(3)) })
+        heartRateValueText = label(heartRateValueLine(), 30, "#172B26", true).apply { setPadding(0, dp(6), 0, 0) }
+        heartRateStateText = label(heartRateStateLine(), 14, heartRateStateColor())
+        card.addView(heartRateValueText)
+        card.addView(heartRateStateText)
+        card.addView(label(heartRateStatus, 13, "#71817A").apply { setPadding(0, dp(8), 0, 0) })
+        card.addView(label(
+            "Readings are checked only while this screen is open. A heart rate above " +
+                "${HeartRateAnomalyDetector.Config().highBpm} or below ${HeartRateAnomalyDetector.Config().lowBpm} bpm " +
+                "for 30 seconds starts the check-in of an active rehearsal. This is an unvalidated rule, not a diagnosis.",
+            13, "#5B6D67",
+        ).apply { setPadding(0, dp(10), 0, 0) })
+        if (source == null) {
+            card.addView(button("Connect Bluetooth heart-rate watch", true) { requestHeartRateConnection() })
+            SimulatedHeartRateTrace.Scenario.entries.forEach { scenario ->
+                card.addView(button("Simulate: ${scenario.title}", false) { startHeartRateSource(SimulatedWatchSource(scenario)) })
+            }
+        } else {
+            card.addView(button("Disconnect watch", false) { stopHeartRateSource(); render() })
+        }
+        content.addView(card)
+    }
+
+    private fun heartRateValueLine(): String {
+        val bpm = heartRateAssessment.latestBpm ?: return "— bpm"
+        return if (heartRateAssessment.state == HeartRateAnomalyDetector.State.SIGNAL_LOST) "— bpm (last $bpm)" else "$bpm bpm"
+    }
+
+    private fun heartRateStateLine(): String = when (heartRateAssessment.state) {
+        HeartRateAnomalyDetector.State.NO_DATA -> "Waiting for readings"
+        HeartRateAnomalyDetector.State.NORMAL -> "Within the configured range"
+        HeartRateAnomalyDetector.State.OUT_OF_RANGE ->
+            "Unusually ${kindWord(heartRateAssessment.kind)} for ${heartRateAssessment.outOfRangeMillis / 1000} s — watching"
+        HeartRateAnomalyDetector.State.ANOMALY -> "Sustained ${kindWord(heartRateAssessment.kind)} heart rate"
+        HeartRateAnomalyDetector.State.SIGNAL_LOST -> "No recent reading — coverage reduced, not treated as an emergency"
+    }
+
+    private fun heartRateStateColor() = when (heartRateAssessment.state) {
+        HeartRateAnomalyDetector.State.ANOMALY, HeartRateAnomalyDetector.State.OUT_OF_RANGE -> "#A84436"
+        HeartRateAnomalyDetector.State.SIGNAL_LOST -> "#9A6A12"
+        else -> "#5B6D67"
+    }
+
+    private fun kindWord(kind: HeartRateAnomalyDetector.Kind?) = when (kind) {
+        HeartRateAnomalyDetector.Kind.HIGH -> "high"
+        HeartRateAnomalyDetector.Kind.LOW -> "low"
+        null -> "unusual"
+    }
+
+    private fun onHeartRateAssessment(assessment: HeartRateAnomalyDetector.Assessment) {
+        val stateChanged = assessment.state != heartRateAssessment.state || assessment.kind != heartRateAssessment.kind
+        heartRateAssessment = assessment
+        if (assessment.newAnomaly) {
+            heartRateAnomalySummary = "a sustained ${kindWord(assessment.kind)} heart rate (${assessment.latestBpm} bpm)"
+            if (demo.phase == DemoSession.Phase.ARMED) {
+                demo.replayCandidate(SystemClock.elapsedRealtime(), DemoSession.Trigger.HEART_RATE_ANOMALY)
+                handler.removeCallbacks(countdown)
+                handler.post(countdown)
+            }
+            render()
+            return
+        }
+        if (stateChanged) {
+            render()
+        } else {
+            heartRateValueText?.text = heartRateValueLine()
+            heartRateStateText?.text = heartRateStateLine()
+        }
+    }
+
+    private fun requestHeartRateConnection() {
+        val needed = arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT)
+        if (needed.all { ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED }) {
+            startHeartRateSource(BleHeartRateSource(this))
+        } else {
+            heartRatePermissions.launch(needed)
+        }
+    }
+
+    private fun startHeartRateSource(source: HeartRateSource) {
+        stopHeartRateSource()
+        heartRateSource = source
+        source.start(heartRateListener)
+        handler.postDelayed(heartRateTicker, 1_000L)
+        render()
+    }
+
+    private fun stopHeartRateSource() {
+        handler.removeCallbacks(heartRateTicker)
+        heartRateSource?.stop()
+        heartRateSource = null
+        heartRateDetector.reset()
+        heartRateAssessment = HeartRateAnomalyDetector.Assessment(HeartRateAnomalyDetector.State.NO_DATA)
+        heartRateStatus = "No watch connected"
     }
 
     private fun requestRealConnection() {

@@ -50,10 +50,22 @@ To explicitly run a live Android AI smoke test, start the backend and run `pytho
 
 The remaining README preserves the research and roadmap. Automatic detection, durable incident delivery, the full resource governor, real escalation, and production approval are future work.
 
+## Smartwatch heart-rate screening
+
+The main screen has a **Smartwatch heart rate** section that screens heart-rate readings while the app is in the foreground. It is a simple, unvalidated rule, not a medical assessment or arrhythmia detection.
+
+- **Sources:** any watch or strap that exposes the standard Bluetooth LE Heart Rate service (`0x180D`), for example a watch in heart-rate broadcast mode, or one of four scripted simulated traces (resting, sustained high, sustained low, watch taken off). Connecting a real device asks for `BLUETOOTH_SCAN` (declared `neverForLocation`) and `BLUETOOTH_CONNECT`. Watches that only share data through a vendor app or Health Connect are not supported yet; a Wear OS companion is future work.
+- **Rule:** a reading above 150 bpm or below 40 bpm that persists for at least 30 seconds and three readings is a candidate. Single spikes, readings outside 25–240 bpm, and readings the sensor flags as having no skin contact are ignored. Thresholds live in `HeartRateAnomalyDetector.Config` and are placeholders that need clinical review; they do not account for age, exercise, or medication.
+- **Lost signal:** no reading for 15 seconds is shown as reduced coverage. It is never treated as an emergency.
+- **Escalation:** if a rehearsal is active, a candidate starts the same 15-second check-in as a replayed incident, then a simulated alert. A candidate never creates an alert directly, and nothing is sent to contacts or emergency services. Leaving the screen disconnects the watch.
+
+Readings are kept in memory only and are not logged, stored, or sent to the backend. The Nemotron review of a heart-rate alert includes only the one-line summary shown on the alert screen, and only when you submit it.
+
 ## Contents
 
 - [Run the Android prototype](#run-the-android-prototype)
 - [Run Nemotron AI context](#run-nemotron-ai-context)
+- [Smartwatch heart-rate screening](#smartwatch-heart-rate-screening)
 - [1. Recommendation and feasibility](#1-recommendation-and-feasibility)
 - [2. Verified capabilities and limits](#2-verified-capabilities-and-limits)
 - [3. Product scope and scenarios](#3-product-scope-and-scenarios)
