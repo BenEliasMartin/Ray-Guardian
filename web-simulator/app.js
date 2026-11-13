@@ -1,5 +1,6 @@
 const $ = selector => document.querySelector(selector);
 const video = $('#feed');
+const displayPreview = new URLSearchParams(location.search).has('display');
 const samplesAt = [1, 3.5, 6];
 const checkInMs = 10_000;
 let phase = 'ready';
@@ -7,7 +8,7 @@ let sourceReady = false;
 let objectUrl;
 let drill;
 
-document.body.classList.toggle('display-preview', new URLSearchParams(location.search).has('display'));
+document.body.classList.toggle('display-preview', displayPreview);
 
 const copy = {
   ready: ['Collapse drill ready', 'Replay the glasses POV, check on the wearer, and simulate an emergency call.'],
@@ -271,5 +272,30 @@ $('#share').addEventListener('change', event => {
 if ($('#share').checked) $('#ai-trigger').disabled = false;
 window.addEventListener('pagehide', stopDrill);
 window.addEventListener('pageshow', event => { if (event.persisted) reset(); });
+if (displayPreview) {
+  document.addEventListener('keydown', event => {
+    if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
+    const active = document.activeElement;
+    if ((event.key === 'Enter' || event.key === 'Return') &&
+        active.matches('main button, main input, main summary')) {
+      event.preventDefault();
+      if (!event.repeat) active.click();
+      return;
+    }
+    if (event.key === 'Escape' && phase === 'check-in') {
+      event.preventDefault();
+      $('#cancel').click();
+      return;
+    }
+    const step = { ArrowLeft: -1, ArrowUp: -1, ArrowRight: 1, ArrowDown: 1 }[event.key];
+    if (!step) return;
+    const controls = [...document.querySelectorAll('main button, main input, main summary')]
+      .filter(control => !control.disabled && control.getClientRects().length);
+    if (!controls.length) return;
+    const current = controls.indexOf(active);
+    event.preventDefault();
+    controls[current < 0 ? 0 : (current + step + controls.length) % controls.length].focus();
+  });
+}
 if (video.readyState >= 2) markSourceReady();
 show('ready');

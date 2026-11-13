@@ -1,10 +1,11 @@
 import { createServer } from 'node:http';
-import { createReadStream, statSync } from 'node:fs';
+import { createReadStream, existsSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
-const clip = process.env.SIMULATOR_VIDEO ?? path.join(root, '../captures/browser-pov.mp4');
+const localClip = path.join(root, '../captures/browser-pov.mp4');
+const clip = process.env.SIMULATOR_VIDEO ?? (existsSync(localClip) ? localClip : path.join(root, 'demo-pov.mp4'));
 const port = Number(process.env.SIMULATOR_PORT ?? 4173);
 const aiPort = Number(process.env.PORT ?? 8787);
 const receipts = new Map();
