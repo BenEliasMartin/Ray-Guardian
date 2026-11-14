@@ -138,4 +138,35 @@ verify(HandsFreePrompt.text(state:"call_unknown",voiceCommands:true)?.contains("
 verify(HandsFreePrompt.text(state:"call_failed",voiceCommands:true)?.contains("No help is confirmed") == true,"Failure cue never claims help was sent")
 verify(HandsFreePrompt.text(state:"demo_call_active",voiceCommands:true) == nil,"Actual demo audio has its own transport")
 verify(HandsFreePrompt.text(state:"future_unknown_state",voiceCommands:true) == nil,"Unknown state does not invent a spoken confirmation")
+// Selected C1 patrol / M2 pulse: routing is independent from detection and dispatch.
+verify(IncidentAnimation.kind(trigger:"spoken_threat",detectionLabel:nil) == .patrol,"Spoken threat selects the patrol car")
+verify(IncidentAnimation.kind(trigger:"spoken_threat",detectionLabel:"possible_fall") == .patrol,"A floor-view assessment does not erase the threat cue")
+verify(IncidentAnimation.kind(trigger:"manual_check",detectionLabel:"possible_assault") == .patrol,"Assault assessment selects the patrol car")
+verify(IncidentAnimation.kind(trigger:"manual_check",detectionLabel:"possible_fall") == .pulse,"Fall assessment selects the illustrative pulse")
+for source in ["motion","motion_phone","heart_rate"] {
+    verify(IncidentAnimation.kind(trigger:source,detectionLabel:nil) == .pulse,"Medical cue selects pulse: \(source)")
+}
+for source in ["manual_sos","keyword_sos","keyword_distress","gesture_distress","manual_check"] {
+    verify(IncidentAnimation.kind(trigger:source,detectionLabel:"uncertain") == nil,"Ambiguous requests remain neutral: \(source)")
+}
+verify(IncidentAnimation.kind(trigger:"manual_check",detectionLabel:"immediate_danger") == nil,"Unspecified immediate danger is not labeled a crime or diagnosis")
+func animationIncident(_ id: String = "incident-a",state: String = "check_in",trigger: String = "spoken_threat",label: String? = nil) throws -> Incident {
+    var object: [String:Any] = ["id":id,"sessionId":"session-a","mode":"demo","state":state,"trigger":trigger,"createdAt":100000,"updatedAt":100000,"voiceConsent":false,"demoCallConsent":false]
+    if let label { object["detection"] = ["label":label,"confidence":"medium","summary":"Fixture","observations":[],"uncertainties":[],"source":"fixture"] as [String:Any] }
+    return try JSONDecoder().decode(Incident.self,from:JSONSerialization.data(withJSONObject:object))
+}
+let animationIncidentA = try animationIncident()
+let entrance = IncidentAnimation.update(previous:nil,incident:animationIncidentA,now:100)!
+verify(IncidentAnimation.update(previous:entrance,incident:animationIncidentA,now:104) == entrance,"Incident refreshes do not restart the entrance")
+let pendingAnimationIncident = try animationIncident(state:"needs_demo_call_consent")
+verify(IncidentAnimation.update(previous:entrance,incident:pendingAnimationIncident,now:104) == entrance,"Alert state changes do not replay the entrance")
+verify(entrance.elapsed(at:102) == 2 && entrance.elapsed(at:120) == 6,"Entrance stops after six seconds")
+verify(entrance.elapsed(at:90) == 0 && entrance.elapsed(at:.nan) == 6,"Invalid/backward clocks cannot create an endless animation")
+let otherEntrance = IncidentAnimation.update(previous:entrance,incident:try animationIncident("incident-b"),now:105)
+verify(otherEntrance?.startedAt == 105,"A new incident gets one fresh entrance")
+let changedKind = IncidentAnimation.update(previous:entrance,incident:try animationIncident(trigger:"manual_check",label:"possible_fall"),now:105)
+verify(changedKind?.kind == .pulse && changedKind?.startedAt == 105,"A newly identified category gets its selected visual")
+let cancelledAnimationIncident = try animationIncident(state:"cancelled")
+verify(IncidentAnimation.update(previous:entrance,incident:cancelledAnimationIncident,now:104) == nil,"Cancelling removes the visual")
+verify(IncidentAnimation.update(previous:entrance,incident:nil,now:104) == nil,"Disarming clears the visual")
 print("Passed \(checks) GuardianCore checks")

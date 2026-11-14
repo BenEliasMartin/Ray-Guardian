@@ -7,6 +7,31 @@ import Vision
 import FoundationNetworking
 #endif
 final class GuardianCoreTests: XCTestCase {
+    func testSelectedIncidentAnimationsUseSpecificCues() {
+        XCTAssertEqual(IncidentAnimation.kind(trigger:"spoken_threat",detectionLabel:nil),.patrol)
+        XCTAssertEqual(IncidentAnimation.kind(trigger:"spoken_threat",detectionLabel:"possible_fall"),.patrol)
+        XCTAssertEqual(IncidentAnimation.kind(trigger:"manual_check",detectionLabel:"possible_assault"),.patrol)
+        XCTAssertEqual(IncidentAnimation.kind(trigger:"manual_check",detectionLabel:"possible_fall"),.pulse)
+        XCTAssertEqual(IncidentAnimation.kind(trigger:"motion_phone",detectionLabel:nil),.pulse)
+        XCTAssertEqual(IncidentAnimation.kind(trigger:"heart_rate",detectionLabel:nil),.pulse)
+        XCTAssertNil(IncidentAnimation.kind(trigger:"keyword_distress",detectionLabel:"uncertain"))
+        XCTAssertNil(IncidentAnimation.kind(trigger:"manual_sos",detectionLabel:nil))
+        XCTAssertNil(IncidentAnimation.kind(trigger:"manual_check",detectionLabel:"immediate_danger"))
+    }
+    func testIncidentRefreshDoesNotRestartAnimationAndCancellationRemovesIt() throws {
+        func incident(_ state: String) throws -> Incident {
+            let object: [String:Any] = ["id":"same-incident","sessionId":"same-session","mode":"demo","state":state,"trigger":"spoken_threat","createdAt":100000,"updatedAt":104000,"voiceConsent":false,"demoCallConsent":false]
+            return try JSONDecoder().decode(Incident.self,from:JSONSerialization.data(withJSONObject:object))
+        }
+        let first = try XCTUnwrap(IncidentAnimation.update(previous:nil,incident:try incident("check_in"),now:100))
+        XCTAssertEqual(IncidentAnimation.update(previous:first,incident:try incident("check_in"),now:103),first)
+        XCTAssertEqual(IncidentAnimation.update(previous:first,incident:try incident("needs_demo_call_consent"),now:104),first)
+        XCTAssertEqual(first.elapsed(at:102),2)
+        XCTAssertEqual(first.elapsed(at:120),6)
+        XCTAssertEqual(first.elapsed(at:.nan),6)
+        XCTAssertNil(IncidentAnimation.update(previous:first,incident:try incident("cancelled"),now:105))
+        XCTAssertNil(IncidentAnimation.update(previous:first,incident:nil,now:105))
+    }
     func testScreenlessCheckInHasVoiceControlsAndSuppressesItsOwnInstructions() throws {
         let prompt = try XCTUnwrap(HandsFreePrompt.text(state:"check_in",voiceCommands:true))
         XCTAssertTrue(prompt.contains("Guardian cancel"))

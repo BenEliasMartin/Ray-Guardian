@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A700C1C200004C38B6B23101 /* IncidentAnimationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A700C1C200004C38B6B23102 /* IncidentAnimationView.swift */; };
 		1552C4B68374649BEC725744 /* QuietHaloView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 225636BD0F2157DB75D8E31D /* QuietHaloView.swift */; };
 		E801E6D28AA64A9D9D8200C1 /* IncidentEvidence.swift in Sources */ = {isa = PBXBuildFile; fileRef = E801E6D28AA64A9D9D8200C2 /* IncidentEvidence.swift */; };
 		06866B9FC75A465DAD21395B /* IncidentLocation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00EBC70A765FEBC77AEB530B /* IncidentLocation.swift */; };
@@ -45,6 +46,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		A700C1C200004C38B6B23102 /* IncidentAnimationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IncidentAnimationView.swift; sourceTree = "<group>"; };
 		225636BD0F2157DB75D8E31D /* QuietHaloView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuietHaloView.swift; sourceTree = "<group>"; };
 		E801E6D28AA64A9D9D8200C2 /* IncidentEvidence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IncidentEvidence.swift; sourceTree = "<group>"; };
 		00EBC70A765FEBC77AEB530B /* IncidentLocation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IncidentLocation.swift; sourceTree = "<group>"; };
@@ -140,6 +142,7 @@
 			children = (
 				3DF00DB6237907EACBAF966C /* ContentView.swift */,
 				225636BD0F2157DB75D8E31D /* QuietHaloView.swift */,
+				A700C1C200004C38B6B23102 /* IncidentAnimationView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -319,6 +322,7 @@
 				0EFDE40216BBE27587E5884D /* Configuration.swift in Sources */,
 				42D9B1BC001D08968928F162 /* ContentView.swift in Sources */,
 				1552C4B68374649BEC725744 /* QuietHaloView.swift in Sources */,
+				A700C1C200004C38B6B23101 /* IncidentAnimationView.swift in Sources */,
 				C587682A1053616401501D0E /* GlassesAdapter.swift in Sources */,
 				20837E3C0B269555CED7A0CE /* GuardianModel.swift in Sources */,
 				424B180B34BF0105C19FFB34 /* HeartRateMonitor.swift in Sources */,

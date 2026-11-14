@@ -451,7 +451,12 @@ struct IncidentView: View {
 
     var body: some View {
         VStack(spacing: 18) {
-            GuardianMark(symbol: "bell", attention: true)
+            if let animation = model.incidentAnimation, animation.incidentID == incident.id, !incident.terminal {
+                IncidentAnimationView(presentation:animation)
+                    .id("\(animation.incidentID):\(animation.kind.rawValue)")
+            } else {
+                GuardianMark(symbol: "bell", attention: true)
+            }
             Text(model.audibleAlertID == incident.id ? "Alert active" : incident.displayState)
                 .font(.system(.largeTitle, design: .serif).weight(.medium))
                 .accessibilityAddTraits(.isHeader)

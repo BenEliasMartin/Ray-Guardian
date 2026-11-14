@@ -165,3 +165,9 @@ swift scripts/generate_simulator_clip.swift app/src/debug/assets/simulator_path.
 ## Android capture signature preparation
 
 The Android Keystore P-256 signer, one-time administrator key enrollment, server nonce, exact-byte verifier, encrypted original retention and incident-view status are prepared for the separately implemented MP4 recorder. The current recorder callback is **not connected yet** and no existing live flow generates seals. See [capture seal integration handoff](docs/capture-seal.md) for the three recorder-side calls, upload contract and acceptance tests. The UI/pitch claim is **“Signed by the capture app”**: the file matches what the enrolled app signed; compromised-phone footage injection before signing is outside this guarantee. SOS remains independent.
+
+## Selected iPhone alert animations
+
+The active iPhone incident view uses the selected **C1 Night patrol** car for spoken threats or `possible_assault`, and **M2 Heartbeat ribbon** for `possible_fall`, motion/fall cues or heart-rate indicators. These are check-in illustrations, not confirmation of a crime, diagnosis, measured pulse or dispatched responder. Ambiguous SOS/distress events keep the neutral alert mark.
+
+Each incident/category gets one six-second native SwiftUI entrance, then a still image. Countdown refreshes and alert-state changes do not restart it. Reduce Motion uses a static illustration, and animation stops when the app becomes inactive or the incident view is dismissed. The pulse is explicitly labeled illustrative. Existing countdown, cancellation, audio, glasses display and incident-evidence behavior remains in its current flow. The original fourteen-concept browser gallery is retained locally under `design/hackathon-motion/`; it is not needed at runtime.

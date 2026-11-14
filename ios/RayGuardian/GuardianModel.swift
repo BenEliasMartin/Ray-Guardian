@@ -22,6 +22,7 @@ import GuardianCore
     @Published private(set) var health: Health?
     @Published private(set) var armed = false
     @Published private(set) var audibleAlertID: String?
+    @Published private(set) var incidentAnimation: IncidentAnimation.Presentation?
     @Published private(set) var capturing = false
     @Published private(set) var processing = false
     @Published private(set) var status = "Ready to configure"
@@ -215,6 +216,7 @@ import GuardianCore
         alertDeadlineTask?.cancel(); alertDeadlineTask = nil
         alertSoundTask?.cancel(); alertSoundTask = nil
         audibleAlertID = nil
+        incidentAnimation = nil
         captureTask?.cancel(); replayAudioTask?.cancel(); uploadTask?.cancel(); heartbeatTask?.cancel()
         recentPreviewFrames.removeAll()
         handHold = HandGestureHold(); handSampleAt = -10; handIncidentID = nil; gestureTriggerPending = false
@@ -561,6 +563,7 @@ import GuardianCore
         } catch { if operation == epoch { self.error = error.localizedDescription } }
     }
     private func updateAlertPresentation(previous: Incident?) {
+        incidentAnimation = IncidentAnimation.update(previous:incidentAnimation,incident:armed ? incident : nil,now:Date().timeIntervalSince1970)
         guard armed, let incident, !incident.terminal else {
             alertDeadlineTask?.cancel()
             alertDeadlineTask = nil
