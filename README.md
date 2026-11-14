@@ -18,6 +18,16 @@ Bootstrap generates the client token, encryption key and media signing secret wi
 
 For a physical iPhone, use HTTPS or a reachable LAN host. Set `HOST=0.0.0.0` in `.env` and enter the host's LAN URL in the companion. `127.0.0.1` works for the iOS Simulator on the same Mac. Local HTTP is intended for development; HTTPS is required for remote endpoints.
 
+### Host the backend over HTTPS
+
+On Render, create a Blueprint from this repository using `render.yaml`. It provisions one paid web service with managed HTTPS and a persistent disk for the encrypted incident database. Set the requested secrets in Render. Run `node scripts/bootstrap.mjs` to generate the client token, encryption key, and signing secret in the ignored local `.env` if you need new values. Keep the encryption key stable across deploys.
+
+The service can start before the provider keys arrive. In Render's **Environment** tab, add `VERDA_INFERENCE_KEY` when issued for the Nemotron endpoint and `ELEVENLABS_API_KEY` for transcription and voice. The Blueprint sets the existing Verda container URL and model. Update both if the new key comes with a different endpoint or model.
+
+Open the deployed service's `https://…onrender.com/health` to confirm it starts. In the iPhone app's **Setup**, enter the service's HTTPS base URL and `RAY_GUARDIAN_CLIENT_TOKEN`. The iPhone can then connect over cellular or Wi-Fi with the development computer powered off. Provider credentials stay on the server. The health endpoint reports configuration flags. Run the provider smoke test to verify actual inference and voice synthesis.
+
+The Blueprint starts in playback mode. To enable outbound demo calls, configure the Twilio variables below on the service and set `PUBLIC_BASE_URL` to the exact HTTPS base URL used for callbacks.
+
 ## Run the iOS companion
 
 The checked-in [Xcode project](ios/RayGuardian.xcodeproj) includes a shared RayGuardian scheme, native SwiftUI app, pinned Meta DAT **1.0.1**, and a standalone Swift core package. Requires **Xcode 26.4+, Swift 6.3+, iOS 17.2+** for the Meta binary SDK. The core alone builds with older supported Swift toolchains.
