@@ -26,6 +26,7 @@ android {
         targetSdk = 36
         versionCode = 3
         versionName = "0.3.0"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         manifestPlaceholders["mwdat_application_id"] = localProperties.getProperty("mwdat_application_id", "0")
         manifestPlaceholders["mwdat_client_token"] = localProperties.getProperty("mwdat_client_token", "0")
     }
@@ -58,4 +59,8 @@ dependencies {
     implementation("com.meta.wearable:mwdat-camera:1.0.1")
     debugImplementation("com.meta.wearable:mwdat-mockdevice:1.0.1")
     testImplementation("junit:junit:4.13.2")
+    androidTestImplementation("androidx.test:runner:1.7.0")
+    androidTestImplementation("androidx.test.ext:junit:1.3.0")
+    androidTestImplementation("androidx.test:core-ktx:1.7.0")
+    androidTestImplementation("androidx.test.uiautomator:uiautomator:2.3.0")
 }

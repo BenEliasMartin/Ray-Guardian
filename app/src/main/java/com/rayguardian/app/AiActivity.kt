@@ -145,6 +145,15 @@ class AiActivity : ComponentActivity() {
             accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
         }
         layout.addView(result)
+        if (intent.getBooleanExtra("feed_frame", false)) {
+            AiImageHandoff.take()?.let { frame ->
+                imageDataUrl = "data:image/jpeg;base64," + Base64.encodeToString(frame.jpeg, Base64.NO_WRAP)
+                preview.setImageBitmap(BitmapFactory.decodeByteArray(frame.jpeg, 0, frame.jpeg.size))
+                preview.visibility = View.VISIBLE
+                removeButton.visibility = View.VISIBLE
+                imageStatus.text = "${frame.label}. Frozen frame; only sent after consent and Analyze."
+            }
+        }
     }
 
     private fun submit() {
