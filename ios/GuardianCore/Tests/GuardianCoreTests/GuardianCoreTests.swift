@@ -4,6 +4,22 @@ import XCTest
 import FoundationNetworking
 #endif
 final class GuardianCoreTests: XCTestCase {
+    func testQuietHaloUsesServerDeadlineAndDoesNotInventAlertSuccess() throws {
+        let clock=try XCTUnwrap(QuietHalo.Countdown(startedAt:100000,deadline:115000))
+        XCTAssertEqual(clock.reading(at:103001)?.seconds,12)
+        XCTAssertEqual(clock.reading(at:114999)?.seconds,1)
+        XCTAssertEqual(clock.reading(at:115000)?.seconds,0)
+        XCTAssertEqual(clock.reading(at:125000)?.fraction,0)
+        XCTAssertEqual(clock.reading(at:90000)?.fraction,1)
+        XCTAssertNil(clock.reading(at:.nan))
+        XCTAssertNil(QuietHalo.Countdown(startedAt:115000,deadline:100000))
+        XCTAssertNil(QuietHalo.state(incidentState:nil))
+        XCTAssertEqual(QuietHalo.state(incidentState:"check_in",capturing:true,processing:true)?.kind,.checkIn)
+        XCTAssertEqual(QuietHalo.state(incidentState:"call_queued")?.title,"Preparing demo alert")
+        XCTAssertEqual(QuietHalo.state(incidentState:"demo_call_active",transport:"playback")?.title,"Demo playback active")
+        XCTAssertEqual(QuietHalo.state(incidentState:"call_unknown")?.title,"Check demo status")
+        XCTAssertEqual(QuietHalo.state(incidentState:"cancelled")?.kind,.confirmation)
+    }
     func testSpeechClipSurvivesOldWindowBoundaryAndAnInternalPause() {
         var buffer = SpeechClipBuffer()
         XCTAssertTrue(buffer.consume(Array(repeating: 0, count: 61_000)).isEmpty)

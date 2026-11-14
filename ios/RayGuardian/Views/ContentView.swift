@@ -67,27 +67,17 @@ struct GlassesPreview: View {
     let showsOverlay: Bool
     var fillsSpace = false
 
-    private var displayState: (title: String, icon: String, color: Color) {
-        switch model.incident?.state {
-        case "check_in": return ("Are you okay?", "exclamationmark.triangle.fill", .orange)
-        case "awaiting_foreground_confirmation": return ("Confirm demo alert", "bell.badge", .orange)
-        case "needs_demo_call_consent": return ("Demo alert paused", "pause.circle", .orange)
-        case "demo_call_limited": return ("Demo call limit reached", "pause.circle", .orange)
-        case "call_queued", "call_ringing", "call_in_progress", "demo_call_active", "call_completed":
-            return ("Demo alert active", "phone.fill", .orange)
-        case "call_failed", "call_unknown": return ("Check demo alert", "exclamationmark.circle", .orange)
-        default: break
-        }
-        if model.processing { return ("Analyzing scene", "sparkle.magnifyingglass", .cyan) }
-        if model.capturing { return ("Checking scene", "viewfinder", .cyan) }
-        if model.starting { return ("Connecting", "ellipsis.circle", .cyan) }
-        if model.armed { return ("Guardian armed", "shield.fill", .mint) }
-        return ("Guardian paused", "shield", .white)
+    private var haloState: QuietHalo.State? {
+        QuietHalo.state(incidentState:model.incident?.state,transport:model.incident?.call?.transport,
+                        capturing:model.capturing,processing:model.processing)
+    }
+    private var haloCountdown: QuietHalo.Countdown? {
+        guard let incident=model.incident, let deadline=incident.checkInDeadline else { return nil }
+        return QuietHalo.Countdown(startedAt:incident.createdAt,deadline:deadline)
     }
 
     var body: some View {
         GeometryReader { geometry in
-            let state = displayState
             ZStack(alignment: .trailing) {
                 Color(red: 0.04, green: 0.07, blue: 0.09)
                 if let preview = model.preview {
@@ -105,23 +95,10 @@ struct GlassesPreview: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
                 if showsOverlay {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Label(state.title, systemImage: state.icon)
-                            .font(.title3.bold())
-                            .foregroundStyle(state.color)
-                        if let incident = model.incident, incident.state == "check_in", let deadline = incident.checkInDeadline {
-                            CheckInCountdown(deadline: deadline).font(.title.bold())
-                            Text("Say “Guardian cancel”").font(.subheadline)
-                        } else if model.capturing {
-                            Text("\(model.frameCount) of 6 frames").font(.subheadline.monospacedDigit())
-                        }
-                    }
-                    .padding(14)
-                    .frame(maxWidth: min(270, geometry.size.width * 0.77), alignment: .leading)
-                    .background(.black.opacity(0.86), in: RoundedRectangle(cornerRadius: 16))
-                    .overlay { RoundedRectangle(cornerRadius: 16).strokeBorder(state.color.opacity(0.55)) }
-                    .padding(16)
-                    .frame(maxHeight: .infinity, alignment: .bottomTrailing)
+                    QuietHaloView(state:haloState,incidentID:model.incident?.id,countdown:haloCountdown,updatedAt:model.incident?.updatedAt)
+                        .frame(maxWidth:max(0,min(260,geometry.size.width-32)),alignment:.trailing)
+                        .padding(16)
+                        .frame(maxWidth:.infinity,maxHeight:.infinity,alignment:.bottomTrailing)
                 }
             }
             .overlay(alignment: .topLeading) {

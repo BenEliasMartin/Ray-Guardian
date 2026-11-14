@@ -17,7 +17,7 @@ import GuardianCore
     @Published private(set) var incident: Incident? {
         didSet {
             if armed, let incident, incident.state == "check_in", let deadline = incident.checkInDeadline {
-                glasses.showCheckIn(id: incident.id, deadline: Date(timeIntervalSince1970: deadline / 1000))
+                glasses.showCheckIn(id:incident.id,startedAt:Date(timeIntervalSince1970:incident.createdAt/1000),deadline:Date(timeIntervalSince1970:deadline/1000))
             } else {
                 glasses.clearCheckIn()
             }

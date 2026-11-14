@@ -38,6 +38,7 @@ import MWDATMockDevice
     private var displayTask: Task<Void,Never>?
     private var inputTask: Task<Void,Never>?
     private var displayedIncident: String?
+    private var displayedDeadline: Date?
     private var generation = UUID()
     private var cameraGeneration = UUID()
     private var selector: AutoDeviceSelector?
@@ -174,11 +175,15 @@ import MWDATMockDevice
         attached.stream.start(); cameraStatus = "Starting bounded stream"
     }
     func stopCapture() { cameraGeneration = UUID(); cameraTokens.clear(); camera?.stop(); camera = nil; imageDecoder?.close(); imageDecoder = nil; cameraStatus = "Off" }
-    func showCheckIn(id: String, deadline: Date) {
-        guard displayedIncident != id, let session, session.state == .started,
+    func showCheckIn(id: String, startedAt: Date, deadline: Date) {
+        guard displayedIncident != id || displayedDeadline != deadline, let session, session.state == .started,
               session.device?.deviceType() == .metaRayBanDisplay else { return }
         displayedIncident = id
+        displayedDeadline = deadline
         displayTask?.cancel()
+        inputTask?.cancel()
+        inputTask = nil
+        try? session.removeInputs()
         displayTask = Task { [weak self] in
             guard let self else { return }
             do {
@@ -189,31 +194,55 @@ import MWDATMockDevice
                     try await Task.sleep(for: .milliseconds(100))
                 }
                 try Task.checkCancellation()
-                guard Date() < deadline, self.displayedIncident == id else { return }
-                let content = FlexBox(direction: .column, spacing: 12) {
-                    MWDATDisplay.Text("Are you okay?", style: .heading)
-                    MWDATDisplay.Button(label: "I’m okay", onClick: { [weak self] in
-                        Task { @MainActor in
-                            guard let self, self.displayedIncident == id, Date() < deadline else { return }
-                            self.onDisplayCancel?(id)
-                        }
-                    }).actionRole(.primary)
-                }.padding(24).background(.card)
-                try await display.send(content)
-                guard !Task.isCancelled, self.displayedIncident == id else { return }
-                self.displayStatus = "Check-in on glasses"
-                if let inputs = try session.addInputs(configuration: InputsConfiguration(sources: [.neuralBand], consumeBack: false)) {
+                guard Date() < deadline, self.displayedIncident == id, self.displayedDeadline == deadline, self.session === session else { return }
+                // The native button works even if optional band input is unavailable.
+                if let inputs = try? session.addInputs(configuration: InputsConfiguration(sources: [.neuralBand], consumeBack: false)) {
                     self.inputTask = Task { [weak self] in
                         for await event in inputs.events {
-                            guard !Task.isCancelled, let self, self.displayedIncident == id, Date() < deadline else { break }
+                            guard !Task.isCancelled, let self, self.displayedIncident == id, self.displayedDeadline == deadline, Date() < deadline else { break }
                             if case .select(source: .neuralBand, timestampMs: _) = event {
                                 self.onDisplayCancel?(id)
                             }
                         }
                     }
                 }
+                let countdown = QuietHalo.Countdown(startedAt:startedAt.timeIntervalSince1970*1000,deadline:deadline.timeIntervalSince1970*1000)
+                // DAT supplies layout primitives. Keep its native cancel action and
+                // render only the small halo icon; send at most one update per second.
+                while Date() < deadline {
+                    try Task.checkCancellation()
+                    guard self.displayedIncident == id, self.displayedDeadline == deadline, self.session === session else { return }
+                    let reading = countdown?.reading(at:Date().timeIntervalSince1970*1000)
+                    if reading?.seconds == 0 { break }
+                    let content = FlexBox(direction:.column,alignment:.end,crossAlignment:.end) {
+                        FlexBox(direction:.row,spacing:10,crossAlignment:.center) {
+                            MWDATDisplay.Image(image:QuietHaloDisplayImage.ring(reading),sizePreset:.icon)
+                            FlexBox(direction:.column,spacing:2) {
+                                MWDATDisplay.Text("Are you okay?",style:.body)
+                                MWDATDisplay.Text(reading.map { "\($0.seconds)s · Demo check-in" } ?? "Demo check-in",style:.meta,color:.secondary)
+                            }
+                            MWDATDisplay.Button(label:"I’m okay",style:.outline,onClick:{ [weak self] in
+                                Task { @MainActor in
+                                    guard let self,self.displayedIncident == id,self.displayedDeadline == deadline,Date() < deadline else { return }
+                                    self.onDisplayCancel?(id)
+                                }
+                            }).actionRole(.primary)
+                        }.padding(10).background(.card)
+                    }.padding(16)
+                    try await display.send(content)
+                    guard !Task.isCancelled,self.displayedIncident == id,self.displayedDeadline == deadline,self.session === session else { return }
+                    self.displayStatus = "Quiet halo check-in on glasses"
+                    try await Task.sleep(for:.seconds(min(1,max(0,deadline.timeIntervalSinceNow))))
+                }
+                // A local clock reaching zero is not proof that an alert was sent.
+                guard self.displayedIncident == id,self.displayedDeadline == deadline else { return }
+                self.inputTask?.cancel()
+                self.inputTask = nil
+                try? session.removeInputs()
+                try await display.clearDisplay()
+                self.displayStatus = "Check-in expired · awaiting server status"
             } catch {
-                guard !Task.isCancelled, self.displayedIncident == id else { return }
+                guard !Task.isCancelled, self.displayedIncident == id, self.displayedDeadline == deadline else { return }
                 self.displayStatus = "Glasses check-in or gesture unavailable: \(error.localizedDescription)"
             }
         }
@@ -222,6 +251,7 @@ import MWDATMockDevice
     func clearCheckIn() {
         guard displayedIncident != nil else { return }
         displayedIncident = nil
+        displayedDeadline = nil
         displayTask?.cancel()
         inputTask?.cancel()
         inputTask = nil
