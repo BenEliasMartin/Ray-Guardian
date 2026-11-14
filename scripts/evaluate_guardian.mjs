@@ -13,7 +13,7 @@ const manifestPath=resolve(arg('--manifest',resolve(root,'ios/RayGuardian/Resour
 const manifest=JSON.parse(readFileSync(manifestPath,'utf8')),ffmpeg=arg('--ffmpeg','ffmpeg'),live=args.includes('--live'),includeAudio=args.includes('--audio');
 const detector=createDetector({apiKey:process.env.VERDA_INFERENCE_KEY,baseURL:process.env.VERDA_BASE_URL,model:process.env.VERDA_MODEL});
 const voice=createVoiceProvider({apiKey:process.env.ELEVENLABS_API_KEY,sttModel:process.env.ELEVENLABS_STT_MODEL,enableLogging:process.env.ELEVENLABS_ENABLE_LOGGING!=='false'});
-if(live&&!process.env.VERDA_INFERENCE_KEY)throw new Error('Live evaluation needs VERDA_INFERENCE_KEY; load server/.env locally.');
+if(live&&!process.env.VERDA_INFERENCE_KEY)throw new Error('Live evaluation needs VERDA_INFERENCE_KEY; load the root .env locally.');
 if(live&&includeAudio&&!process.env.ELEVENLABS_API_KEY)throw new Error('Audio evaluation needs ELEVENLABS_API_KEY.');
 export function framesFromVideo(path,executable=ffmpeg){
   const result=spawnSync(executable,['-hide_banner','-loglevel','error','-i',path,'-vf','fps=0.75,scale=640:-2','-frames:v','6','-q:v','8','-f','image2pipe','-vcodec','mjpeg','-'],{maxBuffer:2*1024*1024});
@@ -29,6 +29,7 @@ for(const clip of manifest.clips.slice(0,Number(arg('--limit','100')))){
   try{
     if(includeAudio&&clip.audio){const wav=readFileSync(resolve(directory,clip.audio));audioDurationMs=inspectWAV(wav).durationMs;if(live)transcript=(await voice.transcribe(wav)).text;}
     const detection=live?await detector({frames,transcript,trigger:'motion',source:'meta_mock'}):null;
+    if(live&&detection.source!=='nemotron')throw Object.assign(new Error('Nemotron did not complete the assessment.'),{code:'nemotron_unavailable'});
     rows.push({id:clip.id,gold:clip.expected,sourceSplit:clip.sourceSplit??'unknown',labelScope:clip.labelScope??'unreviewed',frames:frames.length,audioDurationMs,detection,checkIn:detection?shouldCheckIn(detection):null,error:null});
     console.log(`${live?'Assessed':'Prepared'} ${clip.id}: ${detection?.label??`${frames.length} real frames`}`);
   }catch(error){rows.push({id:clip.id,gold:clip.expected,detection:null,error:error.code??'provider_error'});console.log(`Provider error for ${clip.id}; kept in denominator.`);}
@@ -39,3 +40,4 @@ const summary={mode:live?'live':'dry_run',total:rows.length,errors:rows.filter(r
   fallCheckIns:rows.filter(r=>r.gold==='fall'&&r.checkIn===true).length,nonFallCheckIns:rows.filter(r=>r.gold==='nonfall'&&r.checkIn===true).length,
   readinessCertified:false,limitations:['Replay crops have publisher full-clip labels; independently adjudicate cropped windows.','No assault or real emergency readiness is established.','Component evaluation does not measure local-trigger recall or background coverage.']};
 const output=resolve(arg('--output',resolve(root,'validation/results/guardian-'+Date.now()+'.json')));mkdirSync(dirname(output),{recursive:true});writeFileSync(output,JSON.stringify({summary,rows},null,2)+'\n');console.log(JSON.stringify(summary));console.log(`Saved ${output}`);
+if(live&&summary.errors)process.exitCode=1;
