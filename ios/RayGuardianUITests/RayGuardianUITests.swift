@@ -14,7 +14,8 @@ final class RayGuardianUITests: XCTestCase {
     private func tap(_ identifier: String, in app: XCUIApplication) {
         let button = app.buttons[identifier]
         // Form rows are lazy; realize controls with short drags rather than assuming offscreen rows exist.
-        for _ in 0..<9 {
+        // At accessibility5 the explanatory sections span several screenfuls.
+        for _ in 0..<32 {
             if button.exists && button.isHittable { button.tap(); return }
             let start = app.coordinate(withNormalizedOffset:CGVector(dx:0.5,dy:0.72))
             let end = app.coordinate(withNormalizedOffset:CGVector(dx:0.5,dy:0.42))
@@ -57,7 +58,8 @@ final class RayGuardianUITests: XCTestCase {
     }
     func testStopClearsActualMockCapture() {
         let app = launch(stopAfterFirstFrame:true); armAndInject(app)
-        let stoppedWithFrame = NSPredicate(format:"label CONTAINS %@", "1 SDK frames")
+        // Early camera frames can already be buffered when the first capture callback stops it.
+        let stoppedWithFrame = NSPredicate(format:"label MATCHES %@", ".* [1-9][0-9]* SDK frames")
         expectation(for:stoppedWithFrame,evaluatedWith:app.staticTexts["guardian.lastCaptureFrames"])
         waitForExpectations(timeout:10)
         XCTAssertTrue(app.staticTexts["Your camera is off"].waitForExistence(timeout:5))
