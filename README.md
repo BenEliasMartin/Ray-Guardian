@@ -18,15 +18,22 @@ Bootstrap generates the client token, encryption key and media signing secret wi
 
 For a physical iPhone, use HTTPS or a reachable LAN host. Set `HOST=0.0.0.0` in `.env` and enter the host's LAN URL in the companion. `127.0.0.1` works for the iOS Simulator on the same Mac. Local HTTP is intended for development; HTTPS is required for remote endpoints.
 
-### Host the backend over HTTPS
+### Host the full backend on Verda
 
-On Render, create a Blueprint from this repository using `render.yaml`. It provisions one paid web service with managed HTTPS and a persistent disk for the encrypted incident database. Set the requested secrets in Render. Run `node scripts/bootstrap.mjs` to generate the client token, encryption key, and signing secret in the ignored local `.env` if you need new values. Keep the encryption key stable across deploys.
+Run the Node API, encrypted incident database, and HTTPS gateway on an always-on Verda CPU instance. Your phone connects directly to that instance over HTTPS. The API calls Verda Nemotron and optional voice and telephony providers from the server. [Verda instance setup](https://docs.verda.com/cpu-and-gpu-instances/set-up-a-gpu-instance/)
 
-The service can start before the provider keys arrive. In Render's **Environment** tab, add `VERDA_INFERENCE_KEY` when issued for the Nemotron endpoint and `ELEVENLABS_API_KEY` for transcription and voice. The Blueprint sets the existing Verda container URL and model. Update both if the new key comes with a different endpoint or model.
+1. Provision an on-demand Verda CPU instance with a public IP, persistent disk, and SSH access. Point your API hostname at the public IP. Allow inbound TCP 80 and 443 for Caddy and restrict SSH access to administrators.
+2. On the instance, install Docker with Compose v2.24.4 or later, clone this private repo, and run `node scripts/bootstrap.mjs` with Node 22.13+ to create the ignored `.env` and its secrets. Set `GUARDIAN_DOMAIN` in that file to the DNS hostname alone, for example `guardian.example.com`. The Compose override sets the matching HTTPS callback URL and exposes only the Caddy ports.
+3. On the instance, run the following.
 
-Open the deployed service's `https://…onrender.com/health` to confirm it starts. In the iPhone app's **Setup**, enter the service's HTTPS base URL and `RAY_GUARDIAN_CLIENT_TOKEN`. The iPhone can then connect over cellular or Wi-Fi with the development computer powered off. Provider credentials stay on the server. The health endpoint reports configuration flags. Run the provider smoke test to verify actual inference and voice synthesis.
+   ```sh
+   docker compose -f compose.yml -f compose.verda.yml --profile https up --build -d
+   ```
 
-The Blueprint starts in playback mode. To enable outbound demo calls, configure the Twilio variables below on the service and set `PUBLIC_BASE_URL` to the exact HTTPS base URL used for callbacks.
+4. Confirm `https://guardian.example.com/health` from outside the instance, then enter the HTTPS base URL and `RAY_GUARDIAN_CLIENT_TOKEN` in the iPhone app's **Setup**. Open **Setup** on a phone using cellular data to verify that it reaches the hosted API.
+5. Add `VERDA_INFERENCE_KEY` to the instance's `.env` when the replacement key arrives. Keep the configured Nemotron model and URL unless Verda supplies different values. Add `ELEVENLABS_API_KEY` for transcription and voice. Re-run the Compose command to apply changes and run the credentialed smoke test below.
+
+Keep the Docker volumes for SQLite and Caddy certificates on persistent storage and preserve `DATA_ENCRYPTION_KEY` across redeploys. The API can start before provider keys are available. If using server-hosted replay downloads, prepare or copy those media files onto the instance's replay directory.
 
 ## Run the iOS companion
 
