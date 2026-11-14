@@ -1,19 +1,21 @@
 import {createServer} from 'node:http';
 import {createHash,timingSafeEqual} from 'node:crypto';
 import {ApiError,validateInput} from './nemotron.mjs';
+import {createSimulatedDispatch} from './simulated-dispatch.mjs';
 import {readBody,readJSON,sendJSON} from './lib/transport.mjs';
 const equal=(a,b)=>{const x=Buffer.from(a??''),y=Buffer.from(b);return x.length===y.length&&timingSafeEqual(x,y);};
 const clean=value=>JSON.parse(JSON.stringify(value,(key,item)=>key==='owner'?undefined:item));
 const binary=(res,audio)=>{res.writeHead(200,{'Content-Type':audio.contentType,'Content-Length':audio.bytes.length,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});res.end(audio.bytes);};
-export function createGuardianHTTP({guardian,clientToken,analyze,now=Date.now}){
+export function createGuardianHTTP({guardian,clientToken,analyze,speak,now=Date.now}){
   if(!clientToken||clientToken.length<32)throw new Error('RAY_GUARDIAN_CLIENT_TOKEN needs at least 32 characters.');
+  const dispatch=createSimulatedDispatch();
   const owner=createHash('sha256').update(clientToken).digest('hex');
   let requests=0,voiceRequests=0,legacyRequests=0,legacyInFlight=0,windowStart=now(),sweeping=false;
   const server=createServer(async(req,res)=>{
     const abort=new AbortController();res.on('close',()=>{if(!res.writableFinished)abort.abort();});
     try{
       const url=new URL(req.url,'http://localhost'),path=url.pathname;
-      if(req.method==='GET'&&path==='/health')return sendJSON(res,200,{status:'ok',...guardian.health()});
+      if(req.method==='GET'&&path==='/health')return sendJSON(res,200,{status:'ok',aiConfigured:guardian.providerStatus.nemotron?.configured??false,speechConfigured:guardian.providerStatus.elevenlabs?.configured??false,...guardian.health()});
       const callback=path.match(/^\/v1\/twilio\/(status|ack)\/([a-f0-9-]{36})$/);
       if(callback&&req.method==='POST'){
         if(!/^application\/x-www-form-urlencoded(?:;|$)/i.test(req.headers['content-type']??''))throw new ApiError(415,'form_required','Send a signed form.');
@@ -41,6 +43,12 @@ export function createGuardianHTTP({guardian,clientToken,analyze,now=Date.now}){
       if(req.headers.origin)throw new ApiError(403,'browser_origin_not_allowed','Native clients only.');
       if(now()-windowStart>=60000){requests=0;voiceRequests=0;legacyRequests=0;windowStart=now();}
       if(++requests>300)throw new ApiError(429,'rate_limited','Request budget exceeded.');
+      const speech=path.match(/^\/v1\/speech\/([a-z_]{1,40})$/);
+      if(speech&&req.method==='GET'){
+        if(!speak)throw new ApiError(503,'speech_not_configured','Legacy speech is not configured.');
+        return binary(res,{bytes:await speak(speech[1]),contentType:'audio/mpeg'});
+      }
+      if(path==='/v1/simulated-dispatch'&&req.method==='POST')return sendJSON(res,200,dispatch(await readJSON(req)));
       if(req.method==='POST'&&path==='/v1/sessions')return sendJSON(res,201,clean(guardian.createSession(owner,await readJSON(req))));
       if(req.method==='GET'&&path==='/v1/incidents')return sendJSON(res,200,clean({incidents:guardian.store.list('incident',owner)}));
       const session=path.match(/^\/v1\/sessions\/([a-f0-9-]{36})(?:\/(arm|disarm|heartbeat|triggers|observations))?$/);

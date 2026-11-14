@@ -50,5 +50,9 @@ def main():
                       'audioSHA256':hashlib.sha256((args.output/audio).read_bytes()).hexdigest() if has_audio else None})
         print(f'Prepared wearer replay {index+1:02d} (video + {"source audio" if has_audio else "no audio track"})')
     (args.output/'manifest.json').write_text(json.dumps({'version':1,'clips':clips},indent=2)+'\n')
+    if rows:
+        browser = ROOT/'captures/browser-pov.mp4'
+        browser.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run([ffmpeg,'-hide_banner','-loglevel','error','-y','-i',str(args.output/clips[0]['video']),'-an','-c:v','libx264','-preset','fast','-crf','26','-movflags','+faststart',str(browser)],check=True)
     print(f'{len(clips)} local replays ready. Media remains ignored by git.')
 if __name__=='__main__': main()

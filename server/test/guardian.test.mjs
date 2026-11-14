@@ -8,7 +8,7 @@ import {EncryptedStore} from '../store.mjs';
 import {GuardianService} from '../guardian.mjs';
 import {createGuardianHTTP} from '../http.mjs';
 import {createDetector,parseDetection,shouldCheckIn} from '../detection.mjs';
-import {createElevenLabs} from '../elevenlabs.mjs';
+import {createVoiceProvider} from '../elevenlabs.mjs';
 import {createDemoCalls,validTwilioSignature} from '../demo-calls.mjs';
 import {inspectWAV,validateObservation} from '../media.mjs';
 const png='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a1i8AAAAASUVORK5CYII=';
@@ -65,7 +65,7 @@ test('restart marks in-flight jobs unknown without redial',async t=>{
 test('provider wire contracts use real multimodal content, multipart audio and MP3 speech',async()=>{
   let detectionBody;const detect=createDetector({apiKey:'test',fetchImpl:async(_,o)=>{detectionBody=JSON.parse(o.body);return new Response(JSON.stringify({choices:[{finish_reason:'stop',message:{content:JSON.stringify(fall)}}]}));}});
   assert.equal((await detect({frames:[{offsetMs:0,imageDataUrl:png}],transcript:'Help me',trigger:'motion',source:'meta_mock'})).source,'nemotron');assert.equal(detectionBody.messages[1].content[1].image_url.url,png);assert.equal(detectionBody.tools,undefined);
-  const seen=[];const voice=createElevenLabs({apiKey:'test',fetchImpl:async(url,o)=>{seen.push({url,o});return url.includes('speech-to-text')?new Response(JSON.stringify({text:'help',language_code:'eng'})):new Response(Buffer.alloc(100),{headers:{'content-type':'audio/mpeg'}});}});
+  const seen=[];const voice=createVoiceProvider({apiKey:'test',fetchImpl:async(url,o)=>{seen.push({url,o});return url.includes('speech-to-text')?new Response(JSON.stringify({text:'help',language_code:'eng'})):new Response(Buffer.alloc(100),{headers:{'content-type':'audio/mpeg'}});}});
   assert.equal((await voice.transcribe(wav())).text,'help');assert.equal(seen[0].o.body.get('file').type,'audio/wav');assert.equal((await voice.speak('Demo only.')).source,'elevenlabs');assert.match(seen[1].url,/text-to-speech/);
 });
 test('Twilio only uses configured allowlist, signed expiring audio and callbacks',async()=>{
@@ -95,7 +95,7 @@ test('real-provider adapters connect through capture, STT, detection, TTS, Twili
   };
   const store=new EncryptedStore({path:':memory:',key:'b'.repeat(64),now:()=>time});
   const calls=createDemoCalls({transport:'twilio',accountSid:'AC'+'a'.repeat(32),authToken:secret,from:'+15551234567',to:'+15557654321',allowlist:['+15557654321'],publicBaseURL:'https://demo.example',mediaSecret:'m'.repeat(32),fetchImpl:providerFetch,now:()=>time});
-  const g=new GuardianService({store,calls,now:()=>time,voice:createElevenLabs({apiKey:'test-eleven',fetchImpl:providerFetch}),detect:createDetector({apiKey:'test-nemotron',fetchImpl:providerFetch})});
+  const g=new GuardianService({store,calls,now:()=>time,voice:createVoiceProvider({apiKey:'test-eleven',fetchImpl:providerFetch}),detect:createDetector({apiKey:'test-nemotron',fetchImpl:providerFetch})});
   t.after(async()=>{await g.close();store.close();});
   const session=g.createSession('owner',{consent:{capture:true,cloud:true,audio:true,voice:true,demoCalls:true}});g.arm('owner',session.id);const trigger=g.trigger('owner',session.id,{signal:'motion'});
   const result=await g.observe('owner',session.id,{windowId:trigger.window.id,source:'meta_mock',frames:[{offsetMs:0,imageDataUrl:png}],audio:{format:'wav_pcm_s16le_16000_mono',base64:wav().toString('base64')}});

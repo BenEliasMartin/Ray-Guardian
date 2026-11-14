@@ -6,7 +6,7 @@
     "node": ">=22.13"
   },
   "scripts": {
-    "start": "node --env-file-if-exists=.env index.mjs",
+    "start": "node --env-file-if-exists=../.env index.mjs",
     "test": "node --test",
     "setup": "node ../scripts/bootstrap.mjs"
   }

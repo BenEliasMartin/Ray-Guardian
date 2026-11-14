@@ -2,7 +2,7 @@ import {existsSync,readFileSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
 import {resolve} from 'node:path';
 const root=fileURLToPath(new URL('..',import.meta.url));
-const path=resolve(root,'server/.env'),env={...process.env};
+const path=resolve(root,'.env'),env={...process.env};
 if(existsSync(path))for(const line of readFileSync(path,'utf8').split('\n')){const match=line.match(/^([A-Z_0-9]+)=(.*)$/);if(match&&!env[match[1]])env[match[1]]=match[2].trim().replace(/^['"]|['"]$/g,'');}
 let missing=0;
 for(const key of ['RAY_GUARDIAN_CLIENT_TOKEN','DATA_ENCRYPTION_KEY','MEDIA_SIGNING_SECRET','VERDA_INFERENCE_KEY','ELEVENLABS_API_KEY']){const ready=Boolean(env[key]);console.log(`${key}: ${ready?'configured':'manual setup required'}`);if(!ready)missing++;}

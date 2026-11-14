@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: server/Dockerfile
-    env_file: server/.env
+    env_file: .env
     environment:
       HOST: 0.0.0.0
       DATA_PATH: /data/guardian.sqlite

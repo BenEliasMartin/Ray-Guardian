@@ -10,13 +10,13 @@ Use Node 22.13+ (Node 24 recommended). No npm dependencies are required.
 
 ```sh
 node scripts/bootstrap.mjs
-# Fill VERDA_INFERENCE_KEY and ELEVENLABS_API_KEY in the ignored server/.env.
+# Fill VERDA_INFERENCE_KEY and ELEVENLABS_API_KEY in the ignored .env.
 npm --prefix server start
 ```
 
 Bootstrap generates the client token, encryption key and media signing secret without printing them. Existing configuration is preserved. Run `node scripts/doctor.mjs --require-ready` to check missing external settings. Provider keys remain on the server.
 
-For a physical iPhone, use HTTPS or a reachable LAN host. Set `HOST=0.0.0.0` in `server/.env` and enter the host's LAN URL in the companion. `127.0.0.1` works for the iOS Simulator on the same Mac. Local HTTP is intended for development; HTTPS is required for remote endpoints.
+For a physical iPhone, use HTTPS or a reachable LAN host. Set `HOST=0.0.0.0` in `.env` and enter the host's LAN URL in the companion. `127.0.0.1` works for the iOS Simulator on the same Mac. Local HTTP is intended for development; HTTPS is required for remote endpoints.
 
 ## Run the iOS companion
 
@@ -54,7 +54,7 @@ MockDeviceKit has a public video-feed API and speech/motion injection APIs, but 
 
 ## Genuine demo phone calls
 
-The default `DEMO_CALL_TRANSPORT=playback` plays actual ElevenLabs audio in the companion. It does not place a telephone call. For a real outbound demonstration call, configure these in `server/.env`:
+The default `DEMO_CALL_TRANSPORT=playback` plays actual ElevenLabs audio in the companion. It does not place a telephone call. For a real outbound demonstration call, configure these in `.env`:
 
 ```dotenv
 DEMO_CALL_TRANSPORT=twilio
@@ -97,13 +97,17 @@ The production detector can be evaluated against prepared replays without making
 ```sh
 # Pass --ffmpeg /path/to/ffmpeg if it is not on PATH. Default is a dry run.
 node scripts/evaluate_guardian.mjs --audio
-node --env-file=server/.env scripts/evaluate_guardian.mjs --live --audio
+node --env-file=.env scripts/evaluate_guardian.mjs --live --audio
 # Live full API path: authentic frames + original audio → STT → Nemotron → ElevenLabs.
-node --env-file=server/.env scripts/smoke_guardian.mjs
+node --env-file=.env scripts/smoke_guardian.mjs
 # Also exercise the configured demo-call transport:
-node --env-file=server/.env scripts/smoke_guardian.mjs --demo-call
+node --env-file=.env scripts/smoke_guardian.mjs --demo-call
 ```
 
 A normal/uncertain result is reported faithfully; the smoke tool does not manufacture a positive incident. Live runs consume provider credits. Results and MP3 output are ignored under `validation/results/`. The original participant-separated 36-clip evaluation pipeline and its limitations remain in [validation](validation/README.md). The new replay evaluator is a component check, not proof of trigger recall, assault detection or emergency readiness.
 
 See [implementation and API notes](docs/implementation.md) and [manual handoff](docs/manual-handoff.md). The earlier Android prototype remains buildable under `app/`; it has bounded camera context and local trigger rehearsals, but does not have iOS feature parity. Previous research is preserved in the [research archive](docs/research-archive.md).
+
+## Existing browser demonstration
+
+`npm --prefix web-simulator start` preserves the local browser rehearsal at `http://127.0.0.1:4173`. It uses the same root `.env` and the compatible summary API. `prepare_demo_media.py` also prepares its ignored `captures/browser-pov.mp4`; alternatively choose a local video in the page. A video is no longer stored in the repository. Browser simulated-dispatch receipts remain a separate local rehearsal, not the new iOS/Twilio incident workflow.

@@ -62,6 +62,10 @@ class MainActivity : ComponentActivity() {
                     TriggerController.Signal.HEART_RATE -> demo.replayCandidate(SystemClock.elapsedRealtime(), DemoSession.Trigger.HEART_RATE_ANOMALY)
                     TriggerController.Signal.LOUD_VOICE -> Unit
                 }
+                if (::voice.isInitialized) {
+                    if (demo.phase == DemoSession.Phase.CHECK_IN) voice.speak(if (signal == TriggerController.Signal.HEART_RATE) VoicePrompts.Phrase.CHECK_IN_HEART_RATE else VoicePrompts.Phrase.CHECK_IN)
+                    else if (demo.phase == DemoSession.Phase.ALERT) voice.speak(VoicePrompts.Phrase.ALERT_CREATED)
+                }
                 handler.removeCallbacks(countdown)
                 if (demo.phase == DemoSession.Phase.CHECK_IN) handler.post(countdown)
             },
@@ -75,6 +79,7 @@ class MainActivity : ComponentActivity() {
         )
     }
     private var timerText: TextView? = null
+    private lateinit var voice: VoicePrompts
     private val heartRateDetector = HeartRateAnomalyDetector()
     private var heartRateSource: HeartRateSource? = null
     private var heartRateStatus = "No watch connected"
@@ -148,6 +153,7 @@ class MainActivity : ComponentActivity() {
             if (demo.phase != DemoSession.Phase.CHECK_IN) return
             val now = SystemClock.elapsedRealtime()
             demo.tick(now)
+            if (demo.phase == DemoSession.Phase.ALERT) voice.speak(VoicePrompts.Phrase.ALERT_CREATED)
             if (demo.phase == DemoSession.Phase.CHECK_IN) {
                 val seconds = ((demo.deadlineMillis!! - now + 999) / 1000).coerceAtLeast(0)
                 timerText?.text = "Simulated alert in $seconds seconds"
@@ -160,6 +166,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        voice = VoicePrompts(this, lifecycleScope)
         window.statusBarColor = color("#F6F7F4")
         window.navigationBarColor = color("#F6F7F4")
         scroll = ScrollView(this).apply {
@@ -193,6 +200,7 @@ class MainActivity : ComponentActivity() {
             demo.disarm()
             handler.removeCallbacks(countdown)
         }
+        voice.stop()
         stopWearableSession()
         // Heart-rate screening is foreground-only as well.
         stopHeartRateSource()
@@ -218,6 +226,7 @@ class MainActivity : ComponentActivity() {
         triggers.pause()
         handler.removeCallbacks(countdown)
         stopHeartRateSource()
+        voice.release()
         super.onDestroy()
     }
 
@@ -270,6 +279,12 @@ class MainActivity : ComponentActivity() {
             deviceCard.addView(button("Open Meta AI registration", false) { Wearables.startRegistration(this) })
         }
         if (mode != null && hasActiveDevice && !triggers.controller.armed) {
+            if (mode == IntegrationMode.REAL) {
+                deviceCard.addView(button("Open live glasses diagnostics", false) {
+                    stopWearableSession()
+                    startActivity(Intent(this, LiveGlassesActivity::class.java))
+                })
+            }
             if (wearableSession == null) {
                 deviceCard.addView(button("Start device session", false) { startWearableSession() })
             } else {
@@ -323,6 +338,7 @@ class MainActivity : ComponentActivity() {
         when (demo.phase) {
             DemoSession.Phase.DISARMED -> sessionCard.addView(button("Start rehearsal", true) {
                 demo.arm()
+                voice.prefetch()
                 stopWearableSession()
                 refreshTriggerAvailability()
                 triggers.arm()
@@ -343,6 +359,7 @@ class MainActivity : ComponentActivity() {
                 sessionCard.addView(button("I'm okay — cancel", true) {
                     demo.cancel()
                     triggers.cancel()
+                    voice.speak(VoicePrompts.Phrase.CHECK_IN_CANCELLED)
                     handler.removeCallbacks(countdown)
                     render()
                 })
@@ -359,6 +376,8 @@ class MainActivity : ComponentActivity() {
                     DemoSession.Trigger.FALL_CANDIDATE -> "Trigger: replayed fall candidate"
                     DemoSession.Trigger.REPLAYED_CANDIDATE -> "Trigger: replayed incident"
                     DemoSession.Trigger.HEART_RATE_ANOMALY -> "Trigger: smartwatch ${heartRateAnomalySummary ?: "heart-rate anomaly"}"
+                    DemoSession.Trigger.LIVE_VISION -> "Trigger: live glasses video"
+                    DemoSession.Trigger.LOUD_SOUND -> "Trigger: sustained loud sound"
                     null -> "Trigger unavailable"
                 }
                 sessionCard.addView(label(triggerText, 13, "#71817A").apply { setPadding(0, dp(10), 0, 0) })

@@ -2,7 +2,7 @@
 
 Implementation and configuration templates are in the repository. These steps require account owners or physical hardware.
 
-1. Add working Verda and ElevenLabs credentials to ignored `server/.env`. Confirm the endpoint/model and ElevenLabs voice/model access. Bootstrap has already created local encryption, signing and client secrets; keep them out of chat/git. Run `node scripts/doctor.mjs --require-ready`.
+1. Add working Verda and ElevenLabs credentials to ignored `.env`. Confirm the endpoint/model and ElevenLabs voice/model access. Bootstrap has already created local encryption, signing and client secrets; keep them out of chat/git. Run `node scripts/doctor.mjs --require-ready`.
 2. On a Mac with Xcode 26.4+ and Swift 6.3+, open the shared RayGuardian project, set an Apple signing team and unique bundle ID if needed, and run Debug. Enter the backend URL/client token in Setup or the ignored Debug xcconfig. The current implementation host cannot run this native build because it has no iOS SDK.
 3. For real glasses, enable Meta Developer Mode or configure the app/release channel with the correct Meta application credentials and URL callback. Enable the camera/audio/motion/speech capabilities available to the account. Pair the glasses in Meta AI and explicitly grant camera/microphone permissions. Grant optional phone microphone/on-device speech/location permissions during setup.
 4. Prepare the replay files with `scripts/prepare_demo_media.py` if using a fresh checkout. The files are intentionally excluded from git. Use bundled files or fetch/download through Replay lab. Twelve development clips with original audio are already prepared on the implementation host.

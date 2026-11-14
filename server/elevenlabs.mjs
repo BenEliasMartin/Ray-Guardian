@@ -8,7 +8,7 @@ export const VOICE_PROMPTS = Object.freeze({
   demo_dispatch:'This is the Ray Guardian demonstration dispatch line. This is not an emergency service. The demonstration operator is receiving your incident report.',
 });
 
-export function createElevenLabs({ apiKey, voiceId='JBFqnCBsd6RMkjVDRZzb', ttsModel='eleven_multilingual_v2', sttModel='scribe_v2',
+export function createVoiceProvider({ apiKey, voiceId='JBFqnCBsd6RMkjVDRZzb', ttsModel='eleven_multilingual_v2', sttModel='scribe_v2',
   baseURL='https://api.elevenlabs.io', enableLogging=true, fetchImpl=fetch }) {
   const base=httpsEndpoint(baseURL,'');
   if (!/^[A-Za-z0-9_-]{1,128}$/.test(voiceId)) throw new Error('Invalid ELEVENLABS_VOICE_ID.');
@@ -39,3 +39,5 @@ export function createElevenLabs({ apiKey, voiceId='JBFqnCBsd6RMkjVDRZzb', ttsMo
     },
   };
 }
+
+export {createElevenLabs,PHRASES,validatePhrase,API_URL,MODEL_ID,VOICE_ID,OUTPUT_FORMAT} from './legacy-speech.mjs';
