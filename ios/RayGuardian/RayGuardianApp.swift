@@ -13,12 +13,10 @@ import GuardianCore
             model.settings.usesEphemeralUITestConfiguration = true
             model.settings.input = .mock
             model.settings.mockUsesReplay = true
-            model.settings.automaticSceneChecks = false
             model.settings.preTriggerFrames = false
             model.settings.handGestures = false
             model.settings.recordClipAudio = true
             model.settings.phoneMotionTesting = false
-            model.settings.elevenLabsListening = false
             model.settings.speakWithoutDisplay = false
             model.settings.heartRateEnabled = false
             model.settings.audio = .replay

@@ -9,6 +9,7 @@ import { GuardianService } from './guardian.mjs';
 import { createDemoCalls } from './demo-calls.mjs';
 import { createDetector } from './detection.mjs';
 import { createVoiceProvider } from './elevenlabs.mjs';
+import { CaptureSealService, decodeSealBase64, MAX_CLIP_BYTES } from './capture-seal.mjs';
 
 const MAX_ANALYZE_BODY = 1100 * 1024;
 const MAX_SMALL_BODY = 16 * 1024;
@@ -67,6 +68,11 @@ export function createGuardianHTTP({
   let ownedStore = null;
   let ownedGuardian = null;
   let sweepTimer = null;
+  // Persistent originals must expire after a restart even without another upload.
+  let captureSeals = guardian ? new CaptureSealService({store:guardian.store,now}) : null;
+  function ensureCaptureSeals() {
+    return captureSeals ??= new CaptureSealService({store:ensureGuardian().store,now});
+  }
 
   const aiReady = () => configured ?? (guardian ?? ownedGuardian)?.providerStatus?.nemotron?.configured ?? Boolean(analyze);
   const speechReady = () => speechConfigured ?? (guardian ?? ownedGuardian)?.providerStatus?.elevenlabs?.configured ?? Boolean(speak);
@@ -78,6 +84,7 @@ export function createGuardianHTTP({
       sweeping = true;
       try {
         await service.sweep();
+        captureSeals?.purge();
       } catch {
         console.error('Incident maintenance failed; inspect service configuration.');
       } finally {
@@ -209,6 +216,25 @@ export function createGuardianHTTP({
         throw new ApiError(429, 'rate_limited', 'Request budget exceeded.');
       }
 
+      if(path==='/v1/capture-attempts'&&req.method==='POST') {
+        return sendJSON(res,200,ensureCaptureSeals().challenge(owner,await readJSON(req,MAX_SMALL_BODY)));
+      }
+      const recording=path.match(/^\/v1\/incidents\/([a-f0-9-]{36})\/recording(?:\/(original))?$/);
+      if(recording) {
+        const seals=ensureCaptureSeals(),[,id,original]=recording;
+        if(req.method==='GET')return original?binary(res,seals.original(owner,id)):sendJSON(res,200,seals.status(owner,id));
+        if(req.method==='DELETE'&&!original){seals.delete(owner,id);return sendJSON(res,200,{deleted:true});}
+        if(req.method==='POST'&&!original){
+          if(!/^video\/mp4(?:;|$)/i.test(req.headers['content-type']??''))throw new ApiError(415,'mp4_required','Send video/mp4 with the original file as the body.');
+          const rawReceipt=req.headers['x-guardian-receipt'],rawSignature=req.headers['x-guardian-signature'];
+          const receipt=rawReceipt==null?null:decodeSealBase64(rawReceipt,4096);
+          const signature=rawSignature==null?null:decodeSealBase64(rawSignature,80);
+          const video=await readBody(req,MAX_CLIP_BYTES);
+          try{return sendJSON(res,200,seals.accept(owner,id,video,receipt,signature));}
+          finally{video.fill(0);receipt?.fill(0);signature?.fill(0);}
+        }
+      }
+
       if (path === '/v1/speech/briefing' && req.method === 'POST') {
         if (!speak || typeof speak.briefing !== 'function') {
           throw new ApiError(503, 'speech_not_configured', 'Speech briefing synthesis is not configured.');
@@ -329,6 +355,7 @@ export function createGuardianHTTP({
           await g.callTasks.get(id);
           g.store.delete('call_job', id, owner);
           g.store.delete('incident', id, owner);
+          captureSeals?.delete(owner,id);
           return sendJSON(res, 200, { deleted: true });
         }
         if (req.method === 'POST') {

@@ -200,6 +200,11 @@ struct MonitorView: View {
                         .accessibilityIdentifier("guardian.arm")
                 }
                 if model.armed {
+                    if settings.consent.capture, settings.consent.cloud {
+                        Button("Check scene now") { model.sendTrigger(.manual_check) }
+                            .buttonStyle(GuardianActionStyle(prominent: false))
+                            .disabled(model.capturing || model.processing)
+                    }
                     Button("Activate SOS") { model.sendTrigger(.manual_sos) }
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(GuardianPalette.attention)
@@ -324,6 +329,17 @@ struct GlassesPreview: View {
                     .frame(maxHeight: .infinity, alignment: .bottomTrailing)
                 }
             }
+            .overlay(alignment: .topTrailing) {
+                if showsOverlay && model.incident?.state != "check_in" && !model.capturing {
+                    QuietHaloView(
+                        state: model.incident?.state == "cancelled"
+                            ? QuietHalo.State("Alert cancelled", "Confirmed", "checkmark", .mint, .confirmation)
+                            : QuietHalo.state(incidentState: nil, processing: model.processing),
+                        incidentID: model.incident?.id, countdown: nil, updatedAt: model.incident?.updatedAt
+                    )
+                    .padding(14)
+                }
+            }
             .overlay(alignment: .topLeading) {
                 Text(model.practiceGesture != nil ? "Glasses camera" : model.preview != nil && !model.continuousCamera && !model.capturing
                      ? "Last captured frame"
@@ -440,6 +456,11 @@ struct IncidentView: View {
                 .font(.system(.largeTitle, design: .serif).weight(.medium))
                 .accessibilityAddTraits(.isHeader)
                 .accessibilityIdentifier("guardian.activeIncident")
+            if incident.trigger == "keyword_distress" {
+                Text(incident.triggerDescription)
+                    .font(.subheadline)
+                    .foregroundStyle(GuardianPalette.muted)
+            }
             if let deadline = incident.checkInDeadline, incident.state == "check_in", model.audibleAlertID != incident.id {
                 CheckInCountdown(deadline: deadline)
                     .font(.title3.weight(.semibold))
@@ -559,8 +580,9 @@ struct SettingsView: View {
                 Toggle("Use glasses camera", isOn: $settings.consent.capture)
                 Toggle("Recognize hand gestures", isOn: $settings.handGestures)
                     .disabled(!settings.consent.capture)
-                Toggle("Listen for spoken distress", isOn: $settings.elevenLabsListening)
-                    .disabled((!settings.consent.audio || !settings.consent.cloud) && !settings.elevenLabsListening)
+                Picker("Local speech", selection: $settings.keywords) {
+                    ForEach(KeywordMode.allCases) { Text($0.rawValue).tag($0) }
+                }
                 Toggle("Speak check-ins on glasses", isOn: $settings.speakWithoutDisplay)
             } footer: {
                 Text("Hold a fist to start a check-in, or hold 🤙 with your thumb and pinky out to cancel. Hold either for about a second.")
@@ -581,7 +603,6 @@ struct SettingsView: View {
                     get: { settings.consent.cloud },
                     set: { enabled in
                         if !enabled {
-                            settings.elevenLabsListening = false
                             settings.consent.audio = false
                         }
                         settings.consent.cloud = enabled
@@ -589,10 +610,7 @@ struct SettingsView: View {
                 ))
                 Toggle("Include audio in cloud analysis", isOn: Binding(
                     get: { settings.consent.audio },
-                    set: { enabled in
-                        if !enabled { settings.elevenLabsListening = false }
-                        settings.consent.audio = enabled
-                    }
+                    set: { settings.consent.audio = $0 }
                 ))
                 .disabled(!settings.consent.cloud)
                 Toggle("Share location during an incident", isOn: $settings.consent.location)
@@ -633,15 +651,10 @@ struct SettingsView: View {
     private var advanced: some View {
         Form {
             Section("Monitoring options") {
-                Toggle("Automatically check the scene", isOn: $settings.automaticSceneChecks)
-                    .disabled(!settings.consent.capture || !settings.consent.cloud)
                 Toggle("Keep the camera preview live", isOn: $settings.preTriggerFrames)
                     .disabled(!settings.consent.capture)
                 Button("Test alert tone") { model.playAlertTone() }.disabled(model.armed || model.starting)
                 Button("Test spoken check-in") { model.playSpokenCheckIn() }.disabled(model.armed || model.starting)
-                Picker("Local speech", selection: $settings.keywords) {
-                    ForEach(KeywordMode.allCases) { Text($0.rawValue).tag($0) }
-                }
                 Picker("Capture microphone", selection: $settings.audio) {
                     ForEach(AudioMode.allCases.filter { settings.input == .mock || $0 != .replay }) { Text($0.rawValue).tag($0) }
                 }
@@ -732,10 +745,6 @@ struct ReplayView: View {
                     Toggle("Allow cloud analysis",isOn: $settings.consent.cloud)
                     Toggle("Allow cloud audio",isOn: $settings.consent.audio)
                         .disabled(!settings.consent.cloud && !settings.consent.audio)
-                    Toggle("ElevenLabs listening while armed",isOn: $settings.elevenLabsListening)
-                        .disabled((!settings.consent.audio || !settings.consent.cloud) && !settings.elevenLabsListening)
-                    Toggle("Automatically check the scene",isOn: $settings.automaticSceneChecks)
-                        .disabled(!settings.consent.capture || !settings.consent.cloud)
                 }
                 if !model.armed {
                     if settings.input == .mock {
@@ -746,12 +755,11 @@ struct ReplayView: View {
                         Button("Switch to mock glasses") { settings.input = .mock }
                     }
                 } else if settings.input == .mock {
-                    Button("Check scene now",systemImage: "camera") { model.sendTrigger(.scene_check) }.font(.headline)
-                        .disabled(!settings.automaticSceneChecks || !settings.consent.capture || !settings.consent.cloud || model.capturing || model.processing)
+                    Button("Check scene now",systemImage: "camera") { model.sendTrigger(.manual_check) }.font(.headline)
+                        .disabled(!settings.consent.capture || !settings.consent.cloud || model.capturing || model.processing)
                     Button("Stop mock session",role: .destructive) { model.stop() }.font(.headline)
                 }
                 if settings.input == .mock {
-                    if settings.elevenLabsListening { Text("ElevenLabs · \(model.cloudSpeechStatus)").font(.callout) }
                     if model.capturing || model.processing {
                         ProgressView(model.capturing ? "Capturing evidence" : "Nemotron processing")
                         Text("\(model.frameCount)/6 frames").font(.callout)
@@ -783,6 +791,8 @@ struct ReplayView: View {
                 Text("Stands in for the Meta glasses IMU in Mock mode: the same free-fall, rapid-tilt and slow-collapse detection runs on the iPhone's motion, and its motion summary goes to Nemotron. Hold the phone at head height or strap it to a helmet, and drop it only onto something soft. \(model.phoneMotion.status)").font(.caption)
             }.disabled(model.armed)
             Section("Simulate events · arm first") {
+                Button("Simulate ‘I’m in danger’") { model.glasses.injectSpeech("I'm in danger") }.accessibilityIdentifier("guardian.injectDanger")
+                Button("Simulate ‘No, please don’t’") { model.glasses.injectSpeech("No, please don't") }.accessibilityIdentifier("guardian.injectRefusal")
                 Button("Simulate spoken threat") { model.glasses.injectSpeech("I’m going to kill you") }
                 Button("Inject ‘Guardian help me’") { model.glasses.injectSpeech("Guardian help me") }.accessibilityIdentifier("guardian.injectDistress")
                 Button("Replay free-fall and impact samples") { model.replayMotion() }.accessibilityIdentifier("guardian.injectMotion")

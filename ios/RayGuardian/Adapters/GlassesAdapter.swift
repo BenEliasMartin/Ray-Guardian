@@ -42,6 +42,7 @@ import MWDATMockDevice
     var onUnavailable: ((String) -> Void)?
     var onDisplayCancel: ((String) -> Void)?
     private var session: DeviceSession?, camera: Camera?, motion: Motion?, speech: Speech?
+    private var stoppingCamera: Camera?
     private var closingSession: DeviceSession?
     private var pauseTask: Task<Void, Never>?
     private var linkLossTask: Task<Void, Never>?
@@ -52,6 +53,10 @@ import MWDATMockDevice
     private let standbyTokens = ListenerTokenBag(), cameraTokens = ListenerTokenBag()
     private let inputTokens = ListenerTokenBag()
     private var motionTask: Task<Void,Never>?
+    private var motionSamplesReceived = 0
+    private var speechFailure: String?
+    private var speechSuppressed = false
+    private var speechResumeTask: Task<Void,Never>?
     private var display: Display?
     private var displayTask: Task<Void,Never>?
     private var inputTask: Task<Void,Never>?
@@ -274,12 +279,12 @@ import MWDATMockDevice
         if MockDeviceKit.shared.isEnabled { await MockDeviceKit.shared.disable() }
         #endif
     }
-    func startStandby(useSpeech: Bool) async throws {
+    func startStandby(useSpeech: Bool, requireSpeech: Bool = false) async throws {
         guard !checkingConnection, !requestingPermission else {
             throw DeviceError.message("Wait for the glasses check to finish, then arm again.")
         }
         let deviceSession = try await connect()
-        try await startStandbyCapabilities(deviceSession, useSpeech: useSpeech)
+        try await startStandbyCapabilities(deviceSession, useSpeech: useSpeech, requireSpeech: requireSpeech)
     }
 
     private func connect() async throws -> DeviceSession {
@@ -419,7 +424,7 @@ import MWDATMockDevice
         }
     }
 
-    private func startStandbyCapabilities(_ deviceSession: DeviceSession, useSpeech: Bool) async throws {
+    private func startStandbyCapabilities(_ deviceSession: DeviceSession, useSpeech: Bool, requireSpeech: Bool) async throws {
         let token = generation
         if let device = deviceSession.device {
             device.addDeviceStateListener { [weak self] state in Task { @MainActor in
@@ -453,6 +458,10 @@ import MWDATMockDevice
                 motionTask = Task { [weak self] in
                     for await sample in attached.samples {
                         guard !Task.isCancelled, let self, self.generation == token else { break }
+                        self.motionSamplesReceived += 1
+                        if self.motionSamplesReceived == 1 || self.motionSamplesReceived % 30 == 0 {
+                            self.motionStatus = "Receiving \(String(describing: sample.source)) samples (\(self.motionSamplesReceived))"
+                        }
                         if sample.source == .glasses, let a = sample.accelerometer {
                             let r = sample.gyroscope
                             self.onMotion?(MotionPoint(time: Double(sample.timestampNs)/1e9, x: Double(a.x), y: Double(a.y), z: Double(a.z),
@@ -464,16 +473,35 @@ import MWDATMockDevice
             } else { motionStatus = "Motion unavailable on this device" }
         } catch { motionStatus = "Motion unavailable: \(error.localizedDescription)" }
         if useSpeech {
-            guard try await Wearables.shared.checkPermissionStatus(.microphone) == .granted else { speechStatus = "Glasses microphone permission required"; return }
             do {
+                guard try await Wearables.shared.checkPermissionStatus(.microphone) == .granted else { throw DeviceError.message("Glasses microphone permission required.") }
                 if let attached = try deviceSession.addSpeech() {
                     speech = attached
+                    speechFailure = nil; speechSuppressed = false
                     attached.transcriptionPublisher.listen { [weak self] result in Task { @MainActor in guard self?.generation == token else { return }; self?.onTranscript?(result.text,result.isFinal,result.confidence) } }.store(in: standbyTokens)
                     attached.statePublisher.listen { [weak self] state in Task { @MainActor in guard self?.generation == token else { return }; self?.speechStatus = String(describing: state) } }.store(in: standbyTokens)
-                    attached.errorPublisher.listen { [weak self] error in Task { @MainActor in guard self?.generation == token else { return }; self?.speechStatus = error.localizedDescription } }.store(in: standbyTokens)
+                    attached.errorPublisher.listen { [weak self] error in Task { @MainActor in
+                        guard let self,self.generation == token else { return }
+                        self.speechFailure = error.localizedDescription; self.speechStatus = error.localizedDescription
+                        if requireSpeech,!self.speechSuppressed { self.onUnavailable?("Selected glasses speech failed: \(error.localizedDescription)") }
+                    } }.store(in: standbyTokens)
                     attached.start()
-                } else { speechStatus = "Speech unavailable; select phone local speech if needed" }
-            } catch { speechStatus = "Speech unavailable: \(error.localizedDescription)" }
+                    if requireSpeech {
+                        let speechDeadline = ProcessInfo.processInfo.systemUptime+5
+                        while attached.state != .started {
+                            try Task.checkCancellation()
+                            guard generation == token,session === deviceSession else { throw CancellationError() }
+                            guard speechFailure == nil,ProcessInfo.processInfo.systemUptime < speechDeadline else {
+                                throw DeviceError.message(speechFailure ?? "Glasses speech did not start.")
+                            }
+                            try await Task.sleep(for:.milliseconds(100))
+                        }
+                    }
+                } else { throw DeviceError.message("Speech unavailable on these glasses or this Meta developer configuration.") }
+            } catch {
+                speechStatus = "Speech unavailable: \(error.localizedDescription)"
+                if requireSpeech { throw DeviceError.message("\(speechStatus) Enable Meta Speech capability and microphone permission, or choose iPhone local speech under Settings → Monitoring.") }
+            }
         }
     }
     private func sessionErrorMessage(_ error: DeviceSessionError) -> String {
@@ -516,6 +544,7 @@ import MWDATMockDevice
     func startCapture(includeGlassesAudio: Bool, verifyFirstFrame: Bool = false) async throws {
         try requireConfiguration()
         stopCapture(); let token = cameraGeneration
+        try await waitForCameraStopped()
         guard let session, session.state == .started else { throw DeviceError.message("No started glasses session.") }
         guard try await Wearables.shared.checkPermissionStatus(.camera) == .granted else {
             throw DeviceError.message("Glasses connected. Allow camera access under Settings → Pairing and permissions.")
@@ -579,11 +608,21 @@ import MWDATMockDevice
         receivedCameraFrame = false
         cameraStartupFailure = nil
         cameraTokens.clear()
-        camera?.stop()
+        if let camera { stoppingCamera = camera; camera.stop() }
         camera = nil
         imageDecoder?.close()
         imageDecoder = nil
         cameraStatus = "Off"
+    }
+    func waitForCameraStopped() async throws {
+        guard let camera = stoppingCamera else { return }
+        let deadline = ProcessInfo.processInfo.systemUptime+2
+        while camera.state != .stopped {
+            try Task.checkCancellation()
+            guard ProcessInfo.processInfo.systemUptime < deadline else { throw DeviceError.message("The glasses camera is still stopping. Try again shortly.") }
+            try await Task.sleep(for:.milliseconds(50))
+        }
+        if stoppingCamera === camera { stoppingCamera = nil }
     }
     var hasDisplay: Bool {
         guard let device = session?.device else { return false }
@@ -734,6 +773,9 @@ import MWDATMockDevice
         standbyTokens.clear()
         motionTask?.cancel()
         motionTask = nil
+        speechResumeTask?.cancel()
+        speechResumeTask = nil
+        speechSuppressed = false
         speech?.stop()
         motion?.stop()
         if let session {
@@ -746,11 +788,29 @@ import MWDATMockDevice
         motion = nil
         session = nil
         selector = nil
+        motionSamplesReceived = 0
         motionStatus = "Off"
         speechStatus = "Off"
         status = "Stopped"
     }
-    func setVoiceSuppressed(_ value: Bool) { if value { speech?.stop() } else { speech?.start() } }
+    func setVoiceSuppressed(_ value: Bool) {
+        guard speechSuppressed != value else { return }
+        speechSuppressed = value
+        speechResumeTask?.cancel()
+        if value { speech?.stop(); return }
+        guard let speech,session?.state == .started else { return }
+        let token = generation
+        speechResumeTask = Task { [weak self] in
+            let deadline = ProcessInfo.processInfo.systemUptime+2
+            while speech.state == .stopping || speech.state == .starting {
+                guard !Task.isCancelled,let self,self.generation == token,!self.speechSuppressed else { return }
+                guard ProcessInfo.processInfo.systemUptime < deadline else { self.onUnavailable?("Glasses speech did not resume after the spoken cue."); return }
+                try? await Task.sleep(for:.milliseconds(50))
+            }
+            guard !Task.isCancelled,let self,self.generation == token,!self.speechSuppressed,self.session?.state == .started else { return }
+            if speech.state == .stopped { speech.start() }
+        }
+    }
     func injectSpeech(_ text: String) {
         #if DEBUG
         mock?.services.speech.simulateTranscription(text: text, isFinal: true, confidence: 0.95)
@@ -768,7 +828,20 @@ import MWDATMockDevice
         for ms in stride(from: 1_000, to: 1_300, by: 33) { add(ms, 0.6, 1.5, spin: 4) }
         add(1_330, 22, 18, spin: 7); add(1_363, 14, 6, spin: 3)
         for ms in stride(from: 1_396, to: 6_000, by: 33) { add(ms, 9.8, 0.2) }
-        mock?.services.motion.setMotionFeed(samples)
+        let token = generation
+        Task { [weak self] in
+            guard let self, let motion = self.motion, let mock = self.mock else { return }
+            motion.stop()
+            let deadline = ProcessInfo.processInfo.systemUptime+2
+            while motion.state != .stopped && ProcessInfo.processInfo.systemUptime < deadline {
+                try? await Task.sleep(for:.milliseconds(20))
+                guard self.generation == token else { return }
+            }
+            guard self.generation == token,motion.state == .stopped else { self.motionStatus = "Mock motion restart timed out"; return }
+            self.motionSamplesReceived = 0
+            mock.services.motion.setMotionFeed(samples)
+            motion.start()
+        }
         #endif
     }
     func mockFault(_ fault: String) {

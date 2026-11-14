@@ -60,6 +60,7 @@ class LiveGlassesActivity : ComponentActivity() {
     private lateinit var cancelButton: Button
     private lateinit var retryButton: Button
     private lateinit var voice: VoicePrompts
+    private lateinit var captureSealPanel: CaptureSealPanel
     private val state = DemoSession()
     private val visionApi = AiClient()
     private val dispatchApi = AiClient()
@@ -77,6 +78,8 @@ class LiveGlassesActivity : ComponentActivity() {
     private var nextAnalysisAt = 0L
     private var candidateContext: String? = null
     private var dispatchId: String? = null
+    // Shared with the recorder/seal hook when connected; never wait on it to deliver SOS.
+    private var recordingIncidentId: String? = null
     private var foreground = false
     private var streaming = false
 
@@ -115,6 +118,9 @@ class LiveGlassesActivity : ComponentActivity() {
         cancelButton = action("I'm OK · Cancel check-in") { cancelCheckIn() }.apply { isEnabled = false }
         action("Simulate SOS now") { manualSos() }
         receipt = label("")
+        captureSealPanel = CaptureSealPanel(this,lifecycleScope) { recordingIncidentId ?: dispatchId }
+        panel.addView(captureSealPanel)
+        action("Capture signing key · admin enrollment") { showCaptureKeyEnrollment(this,lifecycleScope) }
         retryButton = action("Retry simulated dispatch") { sendDispatch() }.apply { isEnabled = false }
         microphone = option("Include glasses microphone levels (loudness never triggers alone)")
         shareFrames = option("Send sampled camera frames to Verda / Nemotron")
@@ -183,6 +189,8 @@ class LiveGlassesActivity : ComponentActivity() {
             return
         }
         captureStarts.addLast(now)
+        recordingIncidentId = UUID.randomUUID().toString()
+        captureSealPanel.show(CaptureSealStatus.UNTRUSTED)
         retainAnalysisOnCaptureEnd = false
         if (state.phase == DemoSession.Phase.DISARMED) state.arm()
         captureButton.text = "Stop diagnostic capture"
@@ -396,7 +404,9 @@ class LiveGlassesActivity : ComponentActivity() {
 
     private fun finishCheckIn() {
         cancelButton.isEnabled = false
-        dispatchId = UUID.randomUUID().toString()
+        dispatchId = recordingIncidentId ?: UUID.randomUUID().toString()
+        recordingIncidentId = null
+        captureSealPanel.show(CaptureSealStatus.UNTRUSTED)
         incident.text = "Check-in ended. Sending to test dispatch…"
         voice.speak(VoicePrompts.Phrase.ALERT_CREATED)
         sendDispatch()

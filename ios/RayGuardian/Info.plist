@@ -62,7 +62,7 @@
 		<true/>
 	</dict>
 	<key>NSBluetoothAlwaysUsageDescription</key>
-	<string>Connect to your glasses and optional heart-rate sensor while a demonstration is armed.</string>
+	<string>Connect to your glasses and optional heart-rate sensor while monitoring is armed.</string>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_bonjour._tcp</string>
@@ -70,13 +70,13 @@
 	<key>NSCameraUsageDescription</key>
 	<string>Use the iPhone camera only when explicitly selected as a MockDeviceKit camera source.</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Connect to the Guardian demo API on your local development network.</string>
+	<string>Connect to the Guardian API on your local development network.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Share your current location with the demonstration operator only when incident location sharing is enabled.</string>
+	<string>Share your current location with the configured Guardian service only when incident location sharing is enabled.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Process selected microphone input locally for triggers and upload only a consented short incident window.</string>
 	<key>NSMotionUsageDescription</key>
-	<string>Read movement indicators from the glasses or simulated device while a demonstration is armed.</string>
+	<string>Read glasses movement or explicitly enabled iPhone motion for Mock testing while monitoring is armed.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Recognize Guardian wake and cancellation phrases on this iPhone using on-device speech recognition.</string>
 	<key>UIBackgroundModes</key>

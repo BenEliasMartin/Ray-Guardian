@@ -7,6 +7,60 @@ import Vision
 import FoundationNetworking
 #endif
 final class GuardianCoreTests: XCTestCase {
+    func testScreenlessCheckInHasVoiceControlsAndSuppressesItsOwnInstructions() throws {
+        let prompt = try XCTUnwrap(HandsFreePrompt.text(state:"check_in",voiceCommands:true))
+        XCTAssertTrue(prompt.contains("Guardian cancel"))
+        XCTAssertTrue(prompt.contains("Guardian SOS"))
+        XCTAssertNil(KeywordDetector.intent(prompt,isFinal:true,confidence:0.9,isPlayingVoice:true))
+        XCTAssertTrue(try XCTUnwrap(HandsFreePrompt.text(state:"check_in",voiceCommands:false)).contains("phone"))
+        XCTAssertTrue(try XCTUnwrap(HandsFreePrompt.text(state:"call_unknown",voiceCommands:true)).contains("unknown"))
+        XCTAssertNil(HandsFreePrompt.text(state:"future_unknown_state",voiceCommands:true))
+    }
+    func testQuietHaloUsesServerDeadlineAndDoesNotInventAlertSuccess() throws {
+        let clock=try XCTUnwrap(QuietHalo.Countdown(startedAt:100000,deadline:115000))
+        XCTAssertEqual(clock.reading(at:103001)?.seconds,12)
+        XCTAssertEqual(clock.reading(at:114999)?.seconds,1)
+        XCTAssertEqual(clock.reading(at:115000)?.seconds,0)
+        XCTAssertEqual(clock.reading(at:125000)?.fraction,0)
+        XCTAssertEqual(clock.reading(at:90000)?.fraction,1)
+        XCTAssertNil(clock.reading(at:.nan))
+        XCTAssertNil(QuietHalo.Countdown(startedAt:115000,deadline:100000))
+        XCTAssertNil(QuietHalo.state(incidentState:nil))
+        XCTAssertEqual(QuietHalo.state(incidentState:"check_in",capturing:true,processing:true)?.kind,.checkIn)
+        XCTAssertEqual(QuietHalo.state(incidentState:"call_queued")?.title,"Preparing demo alert")
+        XCTAssertEqual(QuietHalo.state(incidentState:"demo_call_active",transport:"playback")?.title,"Demo playback active")
+        XCTAssertEqual(QuietHalo.state(incidentState:"call_unknown")?.title,"Check demo status")
+        XCTAssertEqual(QuietHalo.state(incidentState:"cancelled")?.kind,.confirmation)
+    }
+    func testSpeechRegressionCorpus() throws {
+        struct Example: Decodable { let text: String, expected: String?; let isFinal: Bool?, confidence: Float?, isPlayingVoice: Bool? }
+        let url = URL(fileURLWithPath:#filePath).deletingLastPathComponent().appendingPathComponent("../Fixtures/speech-intents.json")
+        for example in try JSONDecoder().decode([Example].self,from:Data(contentsOf:url)) {
+            let result = KeywordDetector.intent(example.text,isFinal:example.isFinal ?? true,confidence:example.confidence ?? 0.9,isPlayingVoice:example.isPlayingVoice ?? false)
+            XCTAssertEqual(result.map { String(describing:$0) },example.expected,example.text)
+        }
+    }
+    func testPhoneMotionConvertsGravityUnitsAndKeepsItsOwnCooldown() {
+        var phone = FallCandidateDetector(), glasses = FallCandidateDetector()
+        let rest = MotionPoint.phoneAcceleration(time:1,x:0,y:0,z:-1)
+        XCTAssertEqual(rest.g,1,accuracy:0.00001)
+        XCTAssertFalse(phone.consume(rest))
+        XCTAssertFalse(phone.consume(.phoneAcceleration(time:1.1,x:0.1,y:0,z:0)))
+        XCTAssertTrue(phone.consume(.phoneAcceleration(time:1.3,x:3,y:0,z:0)))
+        XCTAssertFalse(phone.consume(.phoneAcceleration(time:1.4,x:0.1,y:0,z:0)))
+        XCTAssertFalse(phone.consume(.phoneAcceleration(time:1.6,x:3,y:0,z:0)))
+        XCTAssertFalse(glasses.consume(.phoneAcceleration(time:1.4,x:0.1,y:0,z:0)))
+        XCTAssertTrue(glasses.consume(.phoneAcceleration(time:1.6,x:3,y:0,z:0)))
+    }
+    func testPhoneMotionOptInIsIncludedInSessionContract() throws {
+        let normal = try JSONSerialization.jsonObject(with:JSONEncoder().encode(CreateSession(consent:Consent(),source:.meta_mock))) as! [String:Any]
+        XCTAssertEqual(normal["phoneMotionTesting"] as? Bool,false)
+        XCTAssertEqual(normal["automaticSceneChecks"] as? Bool,false)
+        XCTAssertEqual(normal["speechMonitoring"] as? Bool,false)
+        let optedIn = try JSONSerialization.jsonObject(with:JSONEncoder().encode(CreateSession(consent:Consent(),source:.meta_mock,phoneMotionTesting:true))) as! [String:Any]
+        XCTAssertEqual(optedIn["phoneMotionTesting"] as? Bool,true)
+        XCTAssertEqual(TriggerSignal.motion_phone.rawValue,"motion_phone")
+    }
     #if canImport(Vision)
     func testShakaAcceptsEitherHandAndRejectsOtherPoses() {
         typealias Joint = VNHumanHandPoseObservation.JointName
@@ -214,6 +268,15 @@ final class GuardianCoreTests: XCTestCase {
         var nodding = FallCandidateDetector()
         let nod = timeline(0,3) { self.pose($0,0) } + timeline(3,3.3) { self.pose($0,($0-3)/0.3*45,spin: 3) } + timeline(3.3,8) { self.pose($0,0) }
         XCTAssertTrue(nod.compactMap { nodding.detect($0) }.isEmpty)
+    }
+    func testLateCaptureTimerDoesNotExtendMotionEvidence() throws {
+        var recorder = MotionRecorder()
+        for p in timeline(98,111,{ pose($0,0,g: $0 > 108 ? 10 : 1) }) { recorder.append(p) }
+        let summary = try XCTUnwrap(recorder.summary(triggerAt:100,endAt:111))
+        XCTAssertLessThanOrEqual(summary.coveredToMs,8000)
+        XCTAssertEqual(summary.peakImpactG,1)
+        XCTAssertLessThanOrEqual(summary.stillSecondsAtEnd,11)
+        XCTAssertNil(recorder.summary(triggerAt:.nan,endAt:111))
     }
     func testMotionSummaryAndKeyframesCoverTheFall() throws {
         var recorder = MotionRecorder()

@@ -3,9 +3,13 @@ import AVFoundation
 import Speech
 import GuardianCore
 
-@MainActor private func activateGuardianAudio() throws {
+@MainActor private func activateGuardianAudio(phoneMicrophone: Bool) throws {
     let session = AVAudioSession.sharedInstance()
-    try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetoothA2DP])
+    if phoneMicrophone {
+        try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetoothA2DP])
+    } else {
+        try session.setCategory(.playback, mode: .spokenAudio)
+    }
     try session.setActive(true)
 }
 
@@ -22,6 +26,7 @@ enum PCMConverter {
 }
 @MainActor final class PhoneAudio: ObservableObject {
     @Published var status = "Off"
+    var captureEnabled = false
     var onPCM: (([Int16],Double) -> Void)?, onTranscript: ((String,Bool,Float) -> Void)?, onFailure: ((String) -> Void)?
     private var engine: AVAudioEngine?, recognizer: SFSpeechRecognizer?, request: SFSpeechAudioBufferRecognitionRequest?, recognition: SFSpeechRecognitionTask?
     private var restart: Task<Void,Never>?, epoch = UUID(), wantsASR = false, suppressed = false
@@ -52,13 +57,12 @@ enum PCMConverter {
         wantsASR = recognizer != nil
         requiresLocalASR = localASR
         keepsCommandListenerDuringPlayback = listenForCancel
-        let audioSession = AVAudioSession.sharedInstance(); try activateGuardianAudio()
+        let audioSession = AVAudioSession.sharedInstance(); try activateGuardianAudio(phoneMicrophone: true)
         guard let microphone = audioSession.availableInputs?.first(where: { $0.portType == .builtInMic }) else { throw DeviceError.message("The selected phone microphone is unavailable.") }; try audioSession.setPreferredInput(microphone)
         let engine = AVAudioEngine(); self.engine = engine
         if wantsASR { beginRecognition(token: token) }
         engine.inputNode.installTap(onBus: 0,bufferSize: 1024,format: nil) { [weak self] buffer,_ in
             let arrivedAt = ProcessInfo.processInfo.systemUptime
-            let pcm = PCMConverter.samples(buffer)
             guard let copy = AVAudioPCMBuffer(pcmFormat:buffer.format,frameCapacity:buffer.frameLength) else { return }
             copy.frameLength = buffer.frameLength
             let source = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating:buffer.audioBufferList)), destination = UnsafeMutableAudioBufferListPointer(copy.mutableAudioBufferList)
@@ -66,7 +70,7 @@ enum PCMConverter {
             Task { @MainActor in
                 guard let self, self.epoch == token else { return }
                 if !self.suppressed || self.keepsCommandListenerDuringPlayback { self.request?.append(copy) }
-                if !self.suppressed { self.onPCM?(pcm,arrivedAt) }
+                if !self.suppressed, self.captureEnabled { self.onPCM?(PCMConverter.samples(copy),arrivedAt) }
             }
         }
         engine.prepare(); try engine.start()
@@ -115,6 +119,7 @@ enum PCMConverter {
 }
 @MainActor final class VoicePlayer: NSObject, ObservableObject, AVAudioPlayerDelegate, AVSpeechSynthesizerDelegate {
     @Published private(set) var playing = false
+    var usesPhoneMicrophone = false
     private var suppressedUntil = 0.0
     var suppressInput: Bool { playing || ProcessInfo.processInfo.systemUptime < suppressedUntil }
     private var player: AVAudioPlayer?
@@ -123,7 +128,7 @@ enum PCMConverter {
 
     func speakCheckIn() throws {
         stop()
-        try activateGuardianAudio()
+        try activateGuardianAudio(phoneMicrophone: usesPhoneMicrophone)
         synthesizer.delegate = self
         let message = AVSpeechUtterance(string: "Are you okay? You can cancel the check-in.")
         message.voice = AVSpeechSynthesisVoice(language: "en-US")
@@ -134,7 +139,7 @@ enum PCMConverter {
     }
 
     func play(_ data: Data) throws {
-        stop(); try activateGuardianAudio()
+        stop(); try activateGuardianAudio(phoneMicrophone: usesPhoneMicrophone)
         let player = try AVAudioPlayer(data: data); self.player = player; player.delegate = self; player.prepareToPlay()
         guard player.play() else { throw DeviceError.message("Voice playback failed.") }; playing = true; suppressedUntil = .infinity
     }

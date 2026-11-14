@@ -3,6 +3,7 @@ package com.rayguardian.app
 import java.io.ByteArrayOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
+import android.util.Base64
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
@@ -24,6 +25,56 @@ class AiClient {
 
     fun cancel() {
         active?.disconnect()
+    }
+
+    internal suspend fun createCaptureAttempt(identity: AndroidCaptureIdentity.Enrollment, incidentId: String): JSONObject =
+        postJson("/v1/capture-attempts",JSONObject().put("keyId",identity.keyId).put("installationId",identity.installationId).put("incidentId",incidentId),5_000,8192)
+
+    /** Upload bytes only. This endpoint/client never generates capture signatures. */
+    internal suspend fun uploadSignedRecording(artifact: SealedCaptureUpload): CaptureSealStatus = withContext(Dispatchers.IO) {
+        ensureActive()
+        check(artifact.original.length() in 12..LiveCaptureSeal.MAX_BYTES)
+        val connection=openCaptureConnection("/v1/incidents/${artifact.incidentId}/recording")
+        active=connection
+        try {
+            connection.requestMethod="POST";connection.doOutput=true
+            connection.setRequestProperty("Content-Type","video/mp4")
+            connection.setRequestProperty("X-Guardian-Receipt",Base64.encodeToString(artifact.receiptBytes,Base64.NO_WRAP))
+            connection.setRequestProperty("X-Guardian-Signature",Base64.encodeToString(artifact.signatureBytes,Base64.NO_WRAP))
+            connection.setFixedLengthStreamingMode(artifact.original.length())
+            connection.outputStream.use { output -> artifact.original.inputStream().use { it.copyTo(output) } }
+            ensureActive()
+            check(connection.responseCode==200) { "Recording verification failed (${connection.responseCode}); the original upload can be retried. SOS is independent." }
+            val response=readBoundedJson(connection,8192)
+            val status=CaptureSealStatus.fromWire(response.optString("status"))
+            if(status==CaptureSealStatus.MATCHES) {
+                val signed=JSONObject(String(artifact.receiptBytes,Charsets.UTF_8))
+                check(response.getString("incidentId")==artifact.incidentId && response.getString("keyId")==signed.getString("keyId") && response.getString("videoSha256")==signed.getString("videoSha256")) { "Verification response did not match this recording." }
+            }
+            status
+        } finally { if(active===connection)active=null;connection.disconnect() }
+    }
+
+    internal suspend fun captureSealStatus(incidentId: String): CaptureSealStatus = withContext(Dispatchers.IO) {
+        check(java.util.UUID.fromString(incidentId).toString()==incidentId)
+        val connection=openCaptureConnection("/v1/incidents/$incidentId/recording")
+        active=connection
+        try {
+            connection.requestMethod="GET"
+            check(connection.responseCode==200) { "Recording verification is unavailable." }
+            val json=readBoundedJson(connection,8192)
+            val status=CaptureSealStatus.fromWire(json.optString("status"))
+            if(status==CaptureSealStatus.MATCHES)check(json.getString("incidentId")==incidentId)
+            status
+        }finally{if(active===connection)active=null;connection.disconnect()}
+    }
+
+    private fun openCaptureConnection(path: String): HttpURLConnection {
+        check(BuildConfig.AI_BASE_URL.isNotBlank()&&BuildConfig.AI_CLIENT_TOKEN.isNotBlank()) { "Backend connection is not configured." }
+        return (URL(BuildConfig.AI_BASE_URL.trimEnd('/')+path).openConnection() as HttpURLConnection).apply {
+            instanceFollowRedirects=false;connectTimeout=5_000;readTimeout=20_000
+            setRequestProperty("Authorization","Bearer ${BuildConfig.AI_CLIENT_TOKEN}")
+        }
     }
 
     suspend fun analyze(description: String, imageDataUrl: String?): AiContext = withContext(Dispatchers.IO) {

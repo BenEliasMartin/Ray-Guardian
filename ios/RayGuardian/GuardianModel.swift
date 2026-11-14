@@ -39,7 +39,7 @@ import GuardianCore
     @Published private(set) var historyError = false
     private var api: GuardianAPI?, gate = PrivacyGate(), operation = UUID(), fall = FallCandidateDetector(), loudness = LoudnessDetector()
     private var captureTask: Task<Void,Never>?, replayAudioTask: Task<Void,Never>?, heartbeatTask: Task<Void,Never>?, uploadTask: Task<Void,Never>?
-    private var candidates: [IncidentFrame] = [], pcm: [Int16] = [], captureStart = 0.0, lastFrameAt = -10.0, activeCapture: UUID?
+    private var candidates: [IncidentFrame] = [], pcm: [Int16] = [], captureStart = 0.0, captureDeadline = 0.0, lastFrameAt = -10.0, activeCapture: UUID?
     private var localEvidenceIncident: Incident?
     private var clipAudio: IncidentClipAudio?
     /// The camera stays on while armed for preview, pre-trigger frames, or hand gestures.
@@ -67,19 +67,14 @@ import GuardianCore
     private var alertSoundTask: Task<Void, Never>?
     private var lastThreatAt: Double?
     private var lastDistressAt: Double?
-    private var speechTask: Task<Void,Never>?
-    private var speechBuffer = SpeechClipBuffer()
-    private var pendingSpeech: [([Int16], Double)] = []
     /// In-memory only: at most the last three seconds, uploaded only inside an accepted capture window.
     private var recentPreviewFrames: [IncidentFrame] = []
-    @Published private(set) var cloudSpeechStatus = "Off"
     private var spoken = Set<String>(), relays = Set<AnyCancellable>(), isForeground = true
     init() {
         heartRate.onMeasurement = { [weak self] bpm in guard let self,self.armed,self.settings.heartRateEnabled else { return }; if self.heartRateDetector.consume(bpm:bpm,threshold:self.settings.heartRateThreshold,time:self.monotonic) { self.sendTrigger(.heart_rate) } }
         voice.$playing.sink { [weak self] playing in
             guard let self else { return }
             self.phone.setSuppressed(playing); self.glasses.setVoiceSuppressed(playing)
-            if playing { self.speechBuffer = SpeechClipBuffer() }
         }.store(in:&relays)
         glasses.onFrame = { [weak self] in self?.receiveFrame($0) }
         glasses.onPCM = { [weak self] in self?.receivePCM($0,source: .glasses,arrivedAt:$1) }
@@ -149,9 +144,6 @@ import GuardianCore
         defer { if operation == token { starting = false } }
         do {
             guard !settings.consent.audio || settings.consent.cloud else { throw DeviceError.message("Audio sharing also requires cloud sharing consent.") }
-            guard !settings.elevenLabsListening || (settings.consent.audio && settings.consent.cloud) else {
-                throw DeviceError.message("ElevenLabs listening requires cloud analysis and audio sharing.")
-            }
             guard settings.input != .real || settings.audio != .replay else { throw DeviceError.message("Choose a real microphone source for real-glasses mode.") }
             await disarmTask?.value; try checkOperation(token)
             try settings.save(); let client = try makeAPI(); api?.invalidate(); api = client
@@ -164,7 +156,7 @@ import GuardianCore
                 #endif
             } else { await glasses.useReal() }
             try checkOperation(token)
-            try await glasses.startStandby(useSpeech: settings.keywords == .glasses || settings.input == .mock); try checkOperation(token)
+            try await glasses.startStandby(useSpeech: settings.keywords == .glasses || settings.input == .mock, requireSpeech: settings.input == .real && settings.keywords == .glasses); try checkOperation(token)
             #if DEBUG
             if settings.input == .mock, !settings.mockUsesReplay, settings.consent.capture {
                 try await glasses.startCapture(includeGlassesAudio: glassesCaptureAudio)
@@ -181,26 +173,23 @@ import GuardianCore
                 try await phone.start(localASR: settings.keywords == .phone, listenForCancel: true)
                 try checkOperation(token)
             }
-            let sceneChecks = settings.automaticSceneChecks && settings.consent.capture && settings.consent.cloud
             let phoneMotionTesting = settings.input == .mock && settings.phoneMotionTesting
             var localAlertConsent = settings.consent
             localAlertConsent.demoCalls = false
             localAlertConsent.backgroundEscalation = false
-            let created: GuardianSession = try await client.post("v1/sessions",body: CreateSession(consent: localAlertConsent,source: settings.input == .mock ? .meta_mock : .meta_glasses,automaticSceneChecks: sceneChecks,speechMonitoring: settings.elevenLabsListening,phoneMotionTesting: phoneMotionTesting,handGestures: handGesturesActive)); try checkOperation(token)
+            let created: GuardianSession = try await client.post("v1/sessions",body: CreateSession(consent: localAlertConsent,source: settings.input == .mock ? .meta_mock : .meta_glasses,phoneMotionTesting: phoneMotionTesting,handGestures: handGesturesActive)); try checkOperation(token)
             let active: GuardianSession = try await client.post("v1/sessions/\(created.id)/arm"); try checkOperation(token)
             let remaining = ((active.armedUntil ?? 0) / 1000) - Date().timeIntervalSince1970
             session = active
             guard active.armed, remaining > 0 else { throw DeviceError.message("The backend arming window expired.") }
             incident = nil; detection = nil; lastEvidence = ""; spoken.removeAll(); fall = FallCandidateDetector(); motionRecorder.reset(); lastFallPattern = nil; lastThreatAt = nil; lastDistressAt = nil
-            cloudSpeechStatus = settings.elevenLabsListening ? "Listening on iPhone mic" : "Off"
             gate.arm(consent: settings.consent,now: monotonic,duration: remaining)
-            armed = true; status = "Armed · up to 30 minutes"
+            armed = true; status = continuousCamera ? "Armed · live camera" : "Armed · camera off until triggered"
             audibleAlertID = nil
             glasses.showMonitoring()
             phoneFall = FallCandidateDetector()
             if phoneMotionTesting { try phoneMotion.start(); phoneMotionActive = true }
             heartbeatTask?.cancel(); heartbeatTask = Task { [weak self] in
-                var nextSceneCheck = ProcessInfo.processInfo.systemUptime
                 while !Task.isCancelled {
                     try? await Task.sleep(for: .seconds(5)); guard let self,!Task.isCancelled,self.operation == token,self.armed else { return }
                     do {
@@ -208,11 +197,6 @@ import GuardianCore
                         self.session = refreshed
                         if !refreshed.armed || (refreshed.armedUntil ?? 0) <= Date().timeIntervalSince1970*1000 { self.stop(); return }
                         await self.refreshIncident()
-                        if sceneChecks, self.operation == token, self.isForeground, !self.capturing, !self.processing,
-                           self.incident?.terminal != false, self.monotonic >= nextSceneCheck {
-                            nextSceneCheck = self.monotonic + 20
-                            self.sendTrigger(.scene_check)
-                        }
                     } catch { guard self.operation == token else { return }; self.error = "Backend heartbeat lost: \(error.localizedDescription)"; self.stop(); return }
                 }
             }
@@ -232,8 +216,7 @@ import GuardianCore
         alertSoundTask?.cancel(); alertSoundTask = nil
         audibleAlertID = nil
         captureTask?.cancel(); replayAudioTask?.cancel(); uploadTask?.cancel(); heartbeatTask?.cancel()
-        speechTask?.cancel(); speechTask = nil; speechBuffer = SpeechClipBuffer(); pendingSpeech.removeAll()
-        recentPreviewFrames.removeAll(); cloudSpeechStatus = "Off"
+        recentPreviewFrames.removeAll()
         handHold = HandGestureHold(); handSampleAt = -10; handIncidentID = nil; gestureTriggerPending = false
         setGesturePractice(nil)
         setGestureFeedback(.waiting)
@@ -303,7 +286,7 @@ import GuardianCore
         // Offsets are measured from the trigger itself; the capture never runs past eight seconds after it.
         let duration = min(8-(now-start),max(0,(window.captureEndsAt-Date().timeIntervalSince1970*1000)/1000))
         guard duration > 0 else { gate.endCapture(); endEarlyCamera(early); error = "Capture window expired before camera startup."; return }
-        clearMedia(); capturing = true; activeCapture = epoch; captureStart = start; lastFrameAt = -10; status = "Capturing up to 8 seconds in memory"
+        clearMedia(); capturing = true; activeCapture = epoch; captureStart = start; captureDeadline = now + duration; lastFrameAt = -10; status = "Capturing up to 8 seconds in memory"
         if settings.recordClipAudio { clipAudio = IncidentClipAudio(start: start) }
         candidates = recentPreviewFrames.filter { start-$0.time <= 3 && $0.time <= now }
         if !continuousCamera { recentPreviewFrames.removeAll() }
@@ -328,7 +311,7 @@ import GuardianCore
         let now = monotonic
         if continuousCamera || practiceGesture != nil { preview = image }
         recognizeHandGesture(in: image, at: now)
-        let captureFrame = capturing && activeCapture.map { gate.accepts($0,now: now) } == true &&
+        let captureFrame = capturing && now <= captureDeadline && activeCapture.map { gate.accepts($0,now: now) } == true &&
             candidates.count < 80 && now - captureStart - lastFrameAt >= 0.125
         let preTriggerBuffer = continuousCamera && (settings.preTriggerFrames || liveMockPreview)
         let bufferFrame = armed && (preTriggerBuffer || earlyCameraRequests > 0) && settings.consent.capture &&
@@ -466,77 +449,12 @@ import GuardianCore
     private func receivePCM(_ samples: [Int16],source: AudioMode,arrivedAt:Double) {
         guard armed else { return }
         if voice.suppressInput { return }
-        if source == .phone, settings.elevenLabsListening { monitorSpeech(samples) }
         if loudness.consume(samples,time: monotonic) { status = capturing ? "Loud audio during capture · evidence only" : "Loud audio detected locally · no capture triggered" }
-        guard arrivedAt >= captureStart, capturing, settings.audio == source,
+        guard arrivedAt >= captureStart, arrivedAt <= captureDeadline, capturing, settings.audio == source,
               let epoch = activeCapture, gate.accepts(epoch, now: monotonic) else { return }
         clipAudio?.append(samples, endingAt: arrivedAt)
         guard localEvidenceIncident == nil, session?.consent.audio == true else { return }
         pcm.append(contentsOf: samples.prefix(max(0,128000-pcm.count))); audioSeconds = Double(pcm.count)/16000
-    }
-    private func monitorSpeech(_ samples: [Int16]) {
-        for clip in speechBuffer.consume(samples) {
-            if pendingSpeech.count >= 3 { pendingSpeech.removeFirst() }
-            pendingSpeech.append((clip, monotonic))
-        }
-        submitNextSpeechClip()
-    }
-    private func submitNextSpeechClip() {
-        guard speechTask == nil, armed, let api, let session else { return }
-        let now = monotonic
-        pendingSpeech.removeAll { now - $0.1 > 15 }
-        guard !pendingSpeech.isEmpty else { return }
-        let (clip, _) = pendingSpeech.removeFirst()
-        struct Transcript: Decodable {
-            let text: String
-            let detection: Detection?
-            let trigger: TriggerReply?
-        }
-        let token = operation
-        cloudSpeechStatus = "Checking speech…"
-        speechTask = Task { [weak self] in
-            guard let self else { return }
-            defer {
-                if self.operation == token {
-                    self.speechTask = nil
-                    self.submitNextSpeechClip()
-                }
-            }
-            do {
-                let body = AudioPayload(wav: PCM16WAV.encode(clip),source: "phone")
-                let result: Transcript = try await api.post("v1/sessions/\(session.id)/speech",body: body)
-                try self.checkOperation(token)
-                self.receiveTranscript(result.text,final: true,confidence: -1,commandsOnly: true)
-                try self.checkOperation(token)
-                if let assessment = result.detection {
-                    if assessment.source == "nemotron_unavailable" {
-                        self.cloudSpeechStatus = "Speech assessment unavailable"
-                    } else if result.trigger?.incident != nil {
-                        self.cloudSpeechStatus = "Speech triggered a check-in"
-                    } else {
-                        self.cloudSpeechStatus = "Speech assessed · no check-in"
-                    }
-                } else {
-                    self.cloudSpeechStatus = result.text.isEmpty ? "No speech in last clip" : "Speech recognized"
-                }
-                if let trigger = result.trigger {
-                    self.session = trigger.session
-                    self.incident = trigger.incident ?? self.incident
-                    self.detection = result.detection
-                    self.lastEvidence = "Speech transcribed by ElevenLabs"
-                    self.shareLocationIfConsented()
-                    if let window = trigger.window, !self.capturing, !self.processing {
-                        self.beginCapture(window,token: token,triggeredAt: self.monotonic,early: false)
-                    } else if let incident = trigger.incident {
-                        self.recordLocalEvidence(for: incident, token: token)
-                    }
-                    await self.handleVoice()
-                }
-            } catch {
-                guard self.operation == token else { return }
-                self.cloudSpeechStatus = error.localizedDescription
-            }
-        }
     }
     private func receivePhoneTranscript(_ text: String, final: Bool, confidence: Float) {
         guard armed else { return }
@@ -548,28 +466,27 @@ import GuardianCore
         if settings.keywords == .phone { receiveTranscript(text, final: final, confidence: confidence) }
     }
 
-    private func receiveTranscript(_ text: String,final: Bool,confidence: Float,commandsOnly: Bool = false) {
+    private func receiveTranscript(_ text: String,final: Bool,confidence: Float) {
         guard armed,!voice.suppressInput else { return }
         guard let intent = KeywordDetector.intent(text,isFinal: final,confidence: confidence,isPlayingVoice: voice.suppressInput) else { return }
         switch intent {
         case .cancel: cancelIncident()
         case .sos: sendTrigger(.keyword_sos)
         case .distress:
-            guard !commandsOnly, !settings.elevenLabsListening else { return }
             guard lastDistressAt.map({ monotonic - $0 >= 30 }) ?? true else { return }
             lastDistressAt = monotonic
             sendTrigger(.keyword_distress)
         case .threat:
-            guard !commandsOnly, !settings.elevenLabsListening else { return }
             guard lastThreatAt.map({ monotonic - $0 >= 30 }) ?? true else { return }
             lastThreatAt = monotonic
             sendTrigger(.spoken_threat)
         }
     }
-    private var phoneListensWhileArmed: Bool { settings.keywords == .phone || settings.elevenLabsListening }
+    private var phoneListensWhileArmed: Bool { settings.keywords == .phone }
 
     private func startCaptureAudio(token: UUID, epoch: UUID, allowCloud: Bool) async {
         guard allowCloud || clipAudio != nil else { return }
+        if settings.audio == .phone { phone.captureEnabled = true }
         do {
             if settings.audio == .phone, !phoneListensWhileArmed {
                 try await phone.start(localASR: false)
@@ -609,7 +526,7 @@ import GuardianCore
         let recordedAudio = clipAudio
         let knownIncident = incident.flatMap { $0.sessionId == session.id && !$0.terminal ? $0 : nil }
         if let knownIncident { saveEvidence(recordedFrames, audio: recordedAudio, for: knownIncident) }
-        let motion = motionRecorder.summary(triggerAt: captureStart,endAt: monotonic,fallPattern: [TriggerSignal.motion.rawValue,TriggerSignal.motion_phone.rawValue].contains(window.signal) ? lastFallPattern : nil)
+        let motion = motionRecorder.summary(triggerAt: captureStart,endAt: min(monotonic,captureDeadline),fallPattern: [TriggerSignal.motion.rawValue,TriggerSignal.motion_phone.rawValue].contains(window.signal) ? lastFallPattern : nil)
         let payload = ObservationPayload(windowId: window.id,frames: frames,audio: audio,transcript: nil,source: session.source,motion: motion)
         let hasEvidence = !frames.isEmpty || audio != nil
         clearMedia(); guard hasEvidence else {
@@ -633,7 +550,7 @@ import GuardianCore
             await self.handleVoice()
         } }
     }
-    private func clearMedia() { clipAudio = nil; localEvidenceIncident = nil; candidates.removeAll(keepingCapacity: false); pcm.withUnsafeMutableBufferPointer { $0.initialize(repeating: 0) }; pcm.removeAll(keepingCapacity: false); if !armed && !continuousCamera { preview = nil }; frameCount = 0; audioSeconds = 0 }
+    private func clearMedia() { phone.captureEnabled = false; clipAudio = nil; localEvidenceIncident = nil; candidates.removeAll(keepingCapacity: false); pcm.withUnsafeMutableBufferPointer { $0.initialize(repeating: 0) }; pcm.removeAll(keepingCapacity: false); if !armed && !continuousCamera { preview = nil }; frameCount = 0; audioSeconds = 0 }
     func refreshIncident() async {
         guard let id = session?.incidentId ?? incident?.id,let api else { return }; let epoch = operation
         do {
@@ -697,18 +614,27 @@ import GuardianCore
     private func handleVoice() async {
         guard isForeground, armed, let incident, incident.state == "check_in", audibleAlertID != incident.id,
               let deadline = incident.checkInDeadline, Date().timeIntervalSince1970 * 1000 < deadline else { return }
+        let screenless = !glasses.hasDisplay && settings.speakWithoutDisplay
+        if screenless, settings.input == .real, !continuousCamera {
+            guard !capturing else { return }
+            try? await glasses.waitForCameraStopped()
+            guard isForeground, armed, self.incident?.id == incident.id, self.incident?.state == "check_in",
+                  audibleAlertID != incident.id, Date().timeIntervalSince1970 * 1000 < deadline else { return }
+        }
         let key = incident.id + ":check_in"
         guard spoken.insert(key).inserted else { return }
-        if !glasses.hasDisplay, settings.speakWithoutDisplay { playSpokenCheckIn() }
+        if screenless { playSpokenCheckIn() }
         else { playAlertTone() }
     }
 
     func playAlertTone() {
+        voice.usesPhoneMicrophone = phoneListensWhileArmed && armed
         do { try voice.playAlertTone() }
         catch { self.error = "Couldn’t play the alert tone." }
     }
 
     func playSpokenCheckIn() {
+        voice.usesPhoneMicrophone = phoneListensWhileArmed && armed
         do { try voice.speakCheckIn() }
         catch { self.error = "Spoken check-in unavailable: \(error.localizedDescription)" }
     }
@@ -742,6 +668,7 @@ import GuardianCore
         localEvidenceIncident = incident
         candidates = recentPreviewFrames.filter { now - $0.time <= 3 }
         captureStart = now
+        captureDeadline = now + 5
         if settings.recordClipAudio { clipAudio = IncidentClipAudio(start: now) }
         lastFrameAt = -10
         activeCapture = epoch
@@ -770,6 +697,7 @@ import GuardianCore
             self.activeCapture = nil
             self.gate.endCapture()
             self.clearMedia()
+            await self.handleVoice()
         }
     }
 

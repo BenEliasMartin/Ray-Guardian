@@ -58,46 +58,34 @@ test('encrypted store enforces owner/revision/expiry and does not write plaintex
   const store=new EncryptedStore({path,key:'a'.repeat(64),now:()=>now});
   try{const row=store.put('incident',{id:'x',summary:'unique-secret-incident'},{owner:'a',expires:100});assert.equal(store.get('incident','x','b'),null);assert.throws(()=>store.put('incident',row,{owner:'a',expires:100,expectedRevision:0}),{code:'revision_conflict'});assert.equal(store.get('incident','x','a').summary,row.summary);store.db.exec('PRAGMA wal_checkpoint(TRUNCATE)');assert.equal(readFileSync(path).includes('unique-secret-incident'),false);now=101;assert.equal(store.get('incident','x','a'),null);}finally{store.close();rmSync(dir,{recursive:true,force:true});}
 });
-test('speech monitoring starts a check-in for semantic distress and ignores ordinary speech', async t => {
-  const text = 'The handle snapped and I cannot get out of this room.';
-  let label = 'ordinary_activity';
-  const {g, placed} = fixture(t, {
-    voice: { transcribe: async () => ({text}) },
-    detect: async input => {
-      assert.equal(input.transcript, text);
-      assert.equal(input.trigger, 'speech_monitoring');
-      assert.deepEqual(input.frames, []);
-      return {...fall, label, observations: [text]};
-    },
-  });
-  const session = g.createSession('speech-owner', {speechMonitoring: true, consent: {cloud: true, audio: true, capture: true}});
-  g.arm('speech-owner', session.id);
-  const body = {base64: wav(8000).toString('base64')};
-  assert.equal((await g.monitorSpeech('speech-owner', session.id, body)).trigger, undefined);
-  label = 'distress_request';
-  const result = await g.monitorSpeech('speech-owner', session.id, body);
-  assert.equal(result.trigger.incident.state, 'check_in');
-  assert.equal(result.trigger.incident.detectedBy, 'nemotron');
-  assert.ok(result.trigger.window);
-  assert.equal(placed(), 0);
+test('screenless voice check-in gives spoken commands without requiring a display', async t => {
+  const {g,s}=fixture(t);
+  const incident=g.trigger('owner',s.id,{signal:'keyword_distress'}).incident;
+  assert.equal(incident.state,'check_in');
+  const {VOICE_PROMPTS}=await import('../elevenlabs.mjs');
+  assert.match(VOICE_PROMPTS.check_in,/Say Guardian cancel/);
+  assert.match(VOICE_PROMPTS.check_in,/Guardian SOS/);
+  assert.doesNotMatch(VOICE_PROMPTS.check_in,/Use the cancel button/);
+  assert.equal((await g.prompt('owner',{purpose:'check_in',incidentId:incident.id})).contentType,'audio/mpeg');
 });
-test('speech monitoring admits the next clip after an in-flight transcription completes', async t => {
-  let finish;
-  const {g} = fixture(t, {voice: {transcribe: () => new Promise(resolve => { finish = resolve; })}});
-  const session = g.createSession('speech-owner', {speechMonitoring: true, consent: {cloud: true, audio: true}});
-  g.arm('speech-owner', session.id);
-  const body = {base64: wav().toString('base64')};
-  const first = g.monitorSpeech('speech-owner', session.id, body);
-  await assert.rejects(g.monitorSpeech('speech-owner', session.id, body), {code: 'speech_busy'});
-  finish({text: ''});
-  await first;
-  const second = g.monitorSpeech('speech-owner', session.id, body);
-  finish({text: ''});
-  await second;
-  assert.equal(g.recentBudget('speech-owner','speech_monitoring').length, 2);
+test('real glasses allow capture teardown and an audible response without extending recording', async t => {
+  const {g,advance,placed}=fixture(t);
+  const session=g.createSession('real-owner',{source:'meta_glasses',consent:{capture:true,cloud:true,voice:true,demoCalls:true,backgroundEscalation:true}});
+  g.arm('real-owner',session.id);
+  const reply=g.trigger('real-owner',session.id,{signal:'keyword_distress'});
+  assert.equal(reply.incident.checkInDeadline-reply.incident.createdAt,30000);
+  assert.equal(reply.window.captureEndsAt-reply.window.startedAt,8000);
+  advance(15001);await g.sweep();
+  assert.equal(g.requireIncident('real-owner',reply.incident.id).state,'check_in');
+  assert.equal(placed(),0);
+  await g.cancel('real-owner',reply.incident.id);
+  advance(16000);await g.sweep();
+  assert.equal(g.requireIncident('real-owner',reply.incident.id).state,'cancelled');
+  assert.equal(placed(),0);
 });
 test('strict bounded audio and media validation rejects malformed data',()=>{
   assert.equal(inspectWAV(wav()).durationMs,1000);assert.throws(()=>inspectWAV(wav(8001)));const b=wav();b.writeUInt16LE(2,22);assert.throws(()=>inspectWAV(b));assert.throws(()=>validateObservation({windowId:'a'.repeat(36),frames:[]}));assert.throws(()=>validateObservation({windowId:'a'.repeat(36),frames:Array(7).fill({offsetMs:0,imageDataUrl:png})}));
+  assert.throws(()=>validateObservation({windowId:'a'.repeat(36),frames:[{offsetMs:-1,imageDataUrl:png}]}),{code:'invalid_media'});
 });
 test('fall result starts check-in then one demo call; completed upload is idempotent',async t=>{
   const {g,s,advance,placed,observation}=fixture(t);const trigger=g.trigger('owner',s.id,{signal:'motion'});
@@ -116,17 +104,74 @@ test('normal activity and uncertain low confidence do not auto-escalate',async t
   const {g,s,observation}=fixture(t,{detect:async()=>ordinary});const tr=g.trigger('owner',s.id,{signal:'motion'});assert.equal((await g.observe('owner',s.id,observation(tr.window))).incident,null);
   assert.equal(shouldCheckIn({...fall,confidence:'low'}),false);assert.equal(shouldCheckIn({...fall,wearerInvolved:false}),false);assert.equal(shouldCheckIn({...fall,label:'uncertain'}),false);assert.throws(()=>parseDetection('{"label":"fall"}'));
 });
-test('opted-in scene checks replace expired empty windows and assess visible threats',async t=>{
+test('speech check-in keeps its reason when later visuals look ordinary',async t=>{
+  const {g,s,observation,placed}=fixture(t,{detect:async()=>ordinary});
+  const tr=g.trigger('owner',s.id,{signal:'keyword_distress'});
+  assert.equal(tr.incident.state,'check_in');assert.equal(tr.incident.detectedBy,'speech_trigger');
+  assert.equal(tr.incident.checkInDeadline,115000);assert.equal(tr.incident.detection,null);assert.equal(placed(),0);
+  const duplicate=g.trigger('owner',s.id,{signal:'keyword_distress'});
+  assert.equal(duplicate.incident.id,tr.incident.id);assert.equal(g.store.list('incident').length,1);
+  const result=await g.observe('owner',s.id,observation(tr.window));
+  assert.equal(result.detection.label,'ordinary_activity');assert.equal(result.incident.state,'check_in');
+  assert.equal(result.incident.detectedBy,'speech_trigger');
+  assert.match(g.callScript(result.incident),/report of danger/);
+  await g.cancel('owner',tr.incident.id);await g.sweep();assert.equal(placed(),0);
+});
+test('speech triggers work without capture, respect source selection, and preserve demo consent',async t=>{
+  const {g,advance,placed}=fixture(t);
+  for(const signal of ['keyword_distress','spoken_threat']){
+    const owner=`local-${signal}`,s=g.createSession(owner,{});g.arm(owner,s.id);
+    const tr=g.trigger(owner,s.id,{signal});
+    assert.equal(tr.window,null);assert.equal(tr.incident.state,'check_in');assert.equal(tr.incident.detectedBy,'speech_trigger');
+    advance(16000);await g.sweep();assert.equal(g.requireIncident(owner,tr.incident.id).state,'needs_demo_call_consent');
+  }
+  assert.equal(placed(),0);
+  const disabled=g.createSession('disabled',{enabledSignals:['motion']});g.arm('disabled',disabled.id);
+  assert.equal(g.trigger('disabled',disabled.id,{signal:'keyword_distress'}).reason,'source_disabled');
+  assert.equal(g.requireSession('disabled',disabled.id).incidentId,null);
+});
+test('speech during an existing scene capture survives an ordinary visual result',async t=>{
+  const {g,observation}=fixture(t,{detect:async()=>ordinary});
+  const s=g.createSession('scene-speech',{consent:{capture:true,cloud:true}});g.arm('scene-speech',s.id);
+  const scene=g.trigger('scene-speech',s.id,{signal:'manual_check'});
+  const speech=g.trigger('scene-speech',s.id,{signal:'keyword_distress'});
+  assert.equal(speech.reason,'window_already_active');assert.equal(speech.incident.trigger,'keyword_distress');
+  const result=await g.observe('scene-speech',s.id,observation(scene.window));
+  assert.equal(result.incident.id,speech.incident.id);assert.equal(result.incident.detectedBy,'speech_trigger');
+  assert.equal(result.incident.state,'check_in');assert.equal(result.detection.label,'ordinary_activity');
+});
+test('provider failure and subsequent cancellation cannot erase or recreate speech check-in',async t=>{
+  const {g,s,observation,placed}=fixture(t,{detect:async()=>{throw new Error('Provider offline');}});
+  const tr=g.trigger('owner',s.id,{signal:'keyword_distress'});
+  await assert.rejects(g.observe('owner',s.id,observation(tr.window)),/Provider offline/);
+  assert.equal(g.requireIncident('owner',tr.incident.id).state,'check_in');
+  await g.cancel('owner',tr.incident.id);
+  assert.equal(g.requireIncident('owner',tr.incident.id).state,'cancelled');await g.sweep();assert.equal(placed(),0);
+});
+test('phone motion requires Mock opt-in and remains an unconfirmed phone event',async t=>{
+  const {g,observation}=fixture(t,{detect:async()=>ordinary});
+  for(const [owner,body] of [['off',{source:'meta_mock',enabledSignals:['motion_phone']}],['real',{source:'meta_glasses',phoneMotionTesting:true}]]){
+    const s=g.createSession(owner,body);g.arm(owner,s.id);
+    assert.equal(g.trigger(owner,s.id,{signal:'motion_phone'}).reason,'source_disabled');
+  }
+  const s=g.createSession('phone-owner',{source:'meta_mock',phoneMotionTesting:true,consent:{capture:true,cloud:true}});g.arm('phone-owner',s.id);
+  const tr=g.trigger('phone-owner',s.id,{signal:'motion_phone'});
+  assert.equal(tr.incident.state,'check_in');assert.equal(tr.incident.detectedBy,'phone_motion');assert.equal(tr.incident.detection,null);
+  const result=await g.observe('phone-owner',s.id,observation(tr.window));
+  assert.equal(result.incident.detectedBy,'phone_motion');assert.equal(result.detection.label,'ordinary_activity');
+  assert.match(g.callScript(result.incident),/wearer fall is unconfirmed/);
+});
+test('manual scene requests replace expired empty windows and assess visible threats',async t=>{
   const danger={...fall,label:'immediate_danger',confidence:'high',observations:['A weapon is pointed toward the wearer.']};
   const {g,s,advance,observation}=fixture(t,{detect:async()=>danger});
-  assert.equal(g.trigger('owner',s.id,{signal:'scene_check'}).reason,'source_disabled');
-  const optedIn=g.createSession('owner',{consent:{capture:true,cloud:true},automaticSceneChecks:true});
+  assert.throws(()=>g.trigger('owner',s.id,{signal:'scene_check'}),{code:'invalid_signal'});
+  const optedIn=g.createSession('owner',{consent:{capture:true,cloud:true}});
   g.arm('owner',optedIn.id);
-  const empty=g.trigger('owner',optedIn.id,{signal:'scene_check'}).window;
+  const empty=g.trigger('owner',optedIn.id,{signal:'manual_check'}).window;
   assert.ok(empty);
   advance(65_000);
   g.heartbeat('owner',optedIn.id);
-  const next=g.trigger('owner',optedIn.id,{signal:'scene_check'}).window;
+  const next=g.trigger('owner',optedIn.id,{signal:'manual_check'}).window;
   assert.notEqual(next.id,empty.id);
   assert.equal((await g.observe('owner',optedIn.id,observation(next))).incident.state,'check_in');
   assert.equal(shouldCheckIn({...danger,wearerInvolved:null}),false);
@@ -144,19 +189,31 @@ test('disarming during provider work aborts and cannot resurrect incident',async
   let release;const pending=new Promise(r=>release=r);const {g,s,observation}=fixture(t,{detect:async()=>{await pending;return fall;}});
   const tr=g.trigger('owner',s.id,{signal:'motion'}),work=g.observe('owner',s.id,observation(tr.window));await g.disarm('owner',s.id);release();await assert.rejects(work,{code:'request_cancelled'});assert.equal(g.store.list('incident').length,0);assert.equal(g.requireSession('owner',s.id).activeWindow,null);
 });
-test('routine scene checks cannot spend the event capture allowance',async t=>{
-  const {g,advance,observation}=fixture(t,{detect:async()=>ordinary});
-  const s=g.createSession('scene-owner',{consent:{capture:true,cloud:true},automaticSceneChecks:true});
-  g.arm('scene-owner',s.id);
+test('armed standby never opens capture or invokes providers; manual checks are bounded',async t=>{
+  let detections=0,transcriptions=0;
+  const {g,s,advance,observation}=fixture(t,{detect:async()=>{detections++;return ordinary;},voice:{transcribe:async()=>{transcriptions++;return {text:'help'};}}});
   for(let i=0;i<30;i++){
-    g.heartbeat('scene-owner',s.id);
-    const check=g.trigger('scene-owner',s.id,{signal:'scene_check'});
-    assert.ok(check.window);
-    await g.observe('scene-owner',s.id,observation(check.window));
-    if(i<29)advance(20_000);
+    g.heartbeat('owner',s.id);await g.sweep();
+    assert.equal(g.requireSession('owner',s.id).activeWindow,null);
+    advance(20_000);
   }
-  assert.equal(g.trigger('scene-owner',s.id,{signal:'scene_check'}).reason,'capture_budget');
-  assert.ok(g.trigger('scene-owner',s.id,{signal:'motion'}).window);
+  assert.equal(detections,0);assert.equal(transcriptions,0);
+  assert.equal(g.recentBudget('owner','capture').length,0);
+  g.heartbeat('owner',s.id);
+  const check=g.trigger('owner',s.id,{signal:'manual_check'});
+  assert.ok(check.window);assert.equal(check.window.captureEndsAt-check.window.startedAt,8000);
+  await g.observe('owner',s.id,observation(check.window));assert.equal(detections,1);
+  assert.equal(g.trigger('owner',s.id,{signal:'manual_check'}).reason,'trigger_cooldown');
+});
+test('standby recording opt-ins and legacy speech uploads are rejected without providers',async t=>{
+  let transcriptions=0;
+  const {g,s}=fixture(t,{voice:{transcribe:async()=>{transcriptions++;return {text:'no please dont'};}}});
+  for(const flags of [{automaticSceneChecks:true},{speechMonitoring:true}]){
+    assert.throws(()=>g.createSession('owner',{consent:{capture:true,cloud:true,audio:true},...flags}),{code:'event_trigger_required'});
+  }
+  await assert.rejects(g.monitorSpeech('owner',s.id,{base64:wav().toString('base64')}),{code:'event_trigger_required'});
+  assert.equal(transcriptions,0);assert.equal(g.requireSession('owner',s.id).activeWindow,null);
+  await assert.rejects(g.observe('owner',s.id,{windowId:'a'.repeat(36),frames:[{offsetMs:0,imageDataUrl:png}]}),{code:'window_mismatch'});
 });
 test('cancel during check-in prevents dispatch; stale heartbeat disarms',async t=>{
   const {g,s,observation,advance,placed}=fixture(t);const tr=g.trigger('owner',s.id,{signal:'motion'}),r=await g.observe('owner',s.id,observation(tr.window));await g.cancel('owner',r.incident.id);advance(40000);await g.sweep();assert.equal(placed(),0);assert.equal(g.requireSession('owner',s.id).armed,false);
@@ -278,9 +335,9 @@ test('background continuation off needs a post-deadline foreground challenge bef
   await g.disarm('foreground-owner',s.id);assert.throws(()=>g.confirmEscalation('foreground-owner',waiting.id,waiting.escalationToken),{code:'not_armed'});await g.sweep();assert.equal(placed(),0);
 });
 
-test('glasses motion summary is validated, bounded and forwarded to Nemotron with pre-trigger frames',async()=>{
+test('glasses motion summary is validated, bounded and forwarded to Nemotron with post-trigger frames',async()=>{
   const motion={fallPattern:'rapid_tilt',peakImpactG:2.91,minG:0.12,tiltDegrees:84.6,peakRotationDegPerSec:401.1,stillSecondsAtEnd:4.2,coveredFromMs:-3000,coveredToMs:7900,samples:300};
-  const base={windowId:'a'.repeat(36),frames:[{offsetMs:-1200,imageDataUrl:png},{offsetMs:400,imageDataUrl:png}],source:'meta_glasses'};
+  const base={windowId:'a'.repeat(36),frames:[{offsetMs:0,imageDataUrl:png},{offsetMs:400,imageDataUrl:png}],source:'meta_glasses'};
   const parsed=validateObservation({...base,motion});
   assert.deepEqual(parsed.motion,motion);
   assert.equal(validateObservation(base).motion,null);
@@ -290,9 +347,9 @@ test('glasses motion summary is validated, bounded and forwarded to Nemotron wit
   let body;const detect=createDetector({apiKey:'test',fetchImpl:async(_,o)=>{body=JSON.parse(o.body);return new Response(JSON.stringify({choices:[{finish_reason:'stop',message:{content:JSON.stringify(fall)}}]}));}});
   await detect({frames:parsed.frames,transcript:'',trigger:'motion',source:'meta_glasses',motion:parsed.motion});
   const evidence=JSON.parse(body.messages[1].content[0].text);
-  assert.deepEqual(evidence.motionSummary,motion);assert.deepEqual(evidence.frameOffsetsMs,[-1200,400]);
+  assert.deepEqual(evidence.motionSummary,motion);assert.deepEqual(evidence.frameOffsetsMs,[0,400]);
   assert.match(body.messages[0].content,/motionSummary/);assert.match(body.messages[0].content,/possible_fall with at least medium confidence/);
-  await detect({frames:parsed.frames,transcript:'',trigger:'scene_check',source:'meta_glasses'});
+  await detect({frames:parsed.frames,transcript:'',trigger:'manual_check',source:'meta_glasses'});
   assert.equal(JSON.parse(body.messages[1].content[0].text).motionSummary,null);
 });
 
@@ -304,7 +361,7 @@ test('observation forwards the motion summary from the iPhone to the detector',a
   const s=g.createSession('owner',{consent:{capture:true,cloud:true}});g.arm('owner',s.id);
   const reply=g.trigger('owner',s.id,{signal:'motion'});
   const motion={fallPattern:'free_fall_impact',peakImpactG:3,minG:0.1,tiltDegrees:88,peakRotationDegPerSec:null,stillSecondsAtEnd:5,coveredFromMs:-2900,coveredToMs:7800,samples:280};
-  await g.observe('owner',s.id,{windowId:reply.window.id,frames:[{offsetMs:-900,imageDataUrl:png}],source:'meta_glasses',motion});
+  await g.observe('owner',s.id,{windowId:reply.window.id,frames:[{offsetMs:100,imageDataUrl:png}],source:'meta_glasses',motion});
   assert.deepEqual(seen.motion,motion);assert.equal(seen.trigger,'motion');
 });
 

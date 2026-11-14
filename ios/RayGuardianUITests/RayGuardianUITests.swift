@@ -77,4 +77,27 @@ final class RayGuardianUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Cryptographically verified"].waitForExistence(timeout: 15))
         XCTAssertTrue(app.staticTexts["Clip with audio · Saved on this iPhone"].exists)
     }
+    func testRefusalPleaStartsCheckInWithCameraOffInStandby() {
+        let app = launch()
+        let arm = app.buttons["guardian.arm"]
+        XCTAssertTrue(arm.waitForExistence(timeout:15)); arm.tap()
+        XCTAssertTrue(app.staticTexts["Guardian is armed"].waitForExistence(timeout:25))
+        XCTAssertTrue(app.staticTexts["guardian.status"].label.contains("camera off until triggered"))
+        XCTAssertTrue(app.staticTexts["guardian.lastCaptureFrames"].label.contains("0 SDK frames"))
+        app.tabBars.buttons["Mock glasses"].tap(); tap("guardian.injectRefusal",in:app)
+        app.tabBars.buttons["Guardian"].tap()
+        XCTAssertTrue(app.staticTexts["guardian.activeIncident"].waitForExistence(timeout:5))
+        XCTAssertTrue(app.staticTexts["Speech recognized a request for help or a report of danger"].exists)
+        app.tabBars.buttons["Mock glasses"].tap(); tap("guardian.injectCancel",in:app)
+        app.tabBars.buttons["Guardian"].tap()
+        XCTAssertTrue(app.staticTexts["Your camera is off"].waitForExistence(timeout:10))
+    }
+    func testDangerPhraseStartsCheckInBeforeAssessment() {
+        let app = launch(); armAndInject(app,event:"guardian.injectDanger")
+        XCTAssertTrue(app.staticTexts["guardian.activeIncident"].waitForExistence(timeout:5))
+        XCTAssertTrue(app.staticTexts["Speech recognized a request for help or a report of danger"].exists)
+        app.tabBars.buttons["Mock glasses"].tap(); tap("guardian.injectCancel",in:app)
+        app.tabBars.buttons["Guardian"].tap()
+        XCTAssertTrue(app.staticTexts["Your camera is off"].waitForExistence(timeout:5))
+    }
 }

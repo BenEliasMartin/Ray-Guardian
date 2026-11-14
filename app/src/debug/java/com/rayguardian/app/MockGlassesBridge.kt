@@ -17,6 +17,7 @@ object MockGlassesBridge {
     val available = true
     private var glasses: MockGlasses? = null
     val isReady: Boolean get() = glasses != null
+    fun liveCaptureSealingAllowed(context: Context): Boolean = !MockDeviceKit.getInstance(context.applicationContext).isEnabled
 
     suspend fun start(context: Context): String? {
         val kit = MockDeviceKit.getInstance(context.applicationContext)
@@ -40,7 +41,9 @@ object MockGlassesBridge {
     suspend fun prepareFeed(context: Context, selected: Uri?): ReplaySource = withContext(Dispatchers.IO) {
         val device = checkNotNull(glasses) { "Start simulated glasses first." }
         val file = File(context.cacheDir, "mock-glasses-replay.mp4")
-        val source = if (selected == null) context.assets.open("simulator_path.mp4")
+        val source = if (selected == null) runCatching { context.assets.open("simulator_path.mp4") }.getOrElse {
+            error("Generate the bundled synthetic clip before building, or choose a local HEVC video. See the Android mock setup in README.")
+        }
             else context.contentResolver.openInputStream(selected) ?: error("Could not open the selected video.")
         try {
             source.use { input ->

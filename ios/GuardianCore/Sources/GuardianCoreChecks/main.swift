@@ -7,6 +7,24 @@ verify(KeywordDetector.intent("Guardian SOS",isFinal:true,confidence:-1) == .sos
 verify(KeywordDetector.intent("Guardian cancel",isFinal:false,confidence:0.9) == nil,"Partial ASR cannot trigger")
 verify(KeywordDetector.intent("Guardian SOS",isFinal:true,confidence:0.9,isPlayingVoice:true) == nil,"Voice echo suppressed")
 verify(KeywordDetector.intent("Loud concert",isFinal:true,confidence:0.9) == nil,"Everyday speech ignored")
+// The XCTest target and this Command Line Tools executable share the same corpus.
+struct SpeechExample: Decodable { let text: String, expected: String?; let isFinal: Bool?, confidence: Float?, isPlayingVoice: Bool? }
+let corpusURL = URL(fileURLWithPath:#filePath).deletingLastPathComponent().appendingPathComponent("../../Tests/Fixtures/speech-intents.json")
+for example in try JSONDecoder().decode([SpeechExample].self,from:Data(contentsOf:corpusURL)) {
+    let result = KeywordDetector.intent(example.text,isFinal:example.isFinal ?? true,confidence:example.confidence ?? 0.9,isPlayingVoice:example.isPlayingVoice ?? false)
+    verify(result.map { String(describing:$0) } == example.expected,"Speech regression: \(example.text)")
+}
+var phoneFall = FallCandidateDetector()
+verify(abs(MotionPoint.phoneAcceleration(time:0,x:0,y:0,z:-1).g-1)<0.00001,"Phone acceleration uses gravity-inclusive g")
+verify(!phoneFall.consume(.phoneAcceleration(time:1,x:0.1,y:0,z:0)),"Phone free-fall candidate")
+verify(phoneFall.consume(.phoneAcceleration(time:1.2,x:3,y:0,z:0)),"Phone impact after free-fall")
+verify(!phoneFall.consume(.phoneAcceleration(time:1.3,x:0.1,y:0,z:0)),"Phone trigger cooldown")
+verify(!phoneFall.consume(.phoneAcceleration(time:1.5,x:3,y:0,z:0)),"Phone cooldown suppresses duplicate impact")
+let requestData = try JSONEncoder().encode(CreateSession(consent:Consent(),source:.meta_mock,phoneMotionTesting:true))
+let requestJSON = try JSONSerialization.jsonObject(with:requestData) as! [String:Any]
+verify(requestJSON["phoneMotionTesting"] as? Bool == true,"Explicit phone motion session contract")
+verify(requestJSON["automaticSceneChecks"] as? Bool == false,"No periodic camera captures")
+verify(requestJSON["speechMonitoring"] as? Bool == false,"No standby cloud audio uploads")
 var detector = FallCandidateDetector()
 verify(!detector.consume(MotionPoint(time:1,x:0,y:0,z:30)),"Impact alone rejected")
 verify(!detector.consume(MotionPoint(time:1.2,x:0,y:0,z:1)),"Free fall is a candidate only")
@@ -19,6 +37,8 @@ verify(continuousMotion.consume(MotionPoint(time:1.066,x:0,y:0,z:30)),"30 Hz imp
 var gate = PrivacyGate(), consent = Consent(); gate.arm(consent:consent,now:0)
 verify(gate.beginCapture(now:1) == nil,"Default capture denied")
 consent.capture = true; consent.cloud = true; gate.arm(consent:consent,now:2)
+verify(gate.captureEndsAt == nil,"Arming alone does not start capture")
+verify(!gate.accepts(gate.epoch,now:2.5),"No evidence accepted before a capture trigger")
 let epoch = gate.beginCapture(now:3)!
 verify(gate.accepts(epoch,now:4),"Current capture accepted")
 verify(!gate.accepts(epoch,now:12),"Capture expires")
@@ -71,6 +91,12 @@ if let summary = recorder.summary(triggerAt: 103.42,endAt: 107,fallPattern: .rap
     verify((summary.peakRotationDegPerSec ?? 0) > 300,"Summary converts rotation rate to degrees per second")
 } else { verify(false,"Summary is produced") }
 verify(MotionRecorder().summary(triggerAt: 1,endAt: 2) == nil,"No summary without samples")
+var lateRecorder = MotionRecorder()
+for p in timeline(98,111,{ pose($0,0,g: $0 > 108 ? 10 : 1) }) { lateRecorder.append(p) }
+if let summary = lateRecorder.summary(triggerAt:100,endAt:111) {
+    verify(summary.coveredToMs <= 8000 && summary.peakImpactG == 1,"Delayed capture completion excludes sensor samples after eight seconds")
+} else { verify(false,"Bounded delayed summary is produced") }
+verify(lateRecorder.summary(triggerAt:.nan,endAt:111) == nil,"Nonfinite motion window is rejected")
 let offsets = stride(from: -2.8, through: 7.9, by: 0.35).map { $0 }
 var sharp = offsets.map { _ in 1.0 }; sharp[3] = 50; sharp[9] = 80
 let picked = KeyframeSelector.select(offsets: offsets,sharpness: sharp)
@@ -80,4 +106,36 @@ verify(picked.contains { offsets[$0] < 0 } && picked.contains { offsets[$0] >= 0
 verify(KeyframeSelector.select(offsets: [0.1,0.5],sharpness: [1,2]).count == 2 && KeyframeSelector.select(offsets: [0.1,0.2],sharpness: [1,2]) == [1],"Few candidates are kept unless near-duplicates")
 let flat = [UInt8](repeating: 128,count: 100), edges = (0..<100).map { UInt8(($0 % 2) * 255) }
 verify(FrameSharpness.laplacianVariance(flat,width: 10,height: 10) == 0 && FrameSharpness.laplacianVariance(edges,width: 10,height: 10) > 1000,"Sharpness separates flat and detailed images")
+verify(QuietHalo.state(incidentState:nil) == nil,"Quiet halo is absent during standby")
+verify(QuietHalo.state(incidentState:"closed") == nil,"Closed incident has no halo")
+verify(QuietHalo.state(incidentState:"check_in",capturing:true,processing:true)?.kind == .checkIn,"Check-in outranks media processing")
+verify(QuietHalo.state(incidentState:"call_queued")?.title == "Preparing demo alert","Queued does not claim connected")
+verify(QuietHalo.state(incidentState:"call_ringing")?.title == "Test phone ringing","Ringing is distinct from connected")
+verify(QuietHalo.state(incidentState:"call_in_progress")?.title == "Demo call connected","Connection requires confirmed state")
+verify(QuietHalo.state(incidentState:"demo_call_active",transport:"playback")?.title == "Demo playback active","Playback is not a telephone call")
+verify(QuietHalo.state(incidentState:"call_completed")?.title == "Demo call ended","Ended call is not shown as active")
+verify(QuietHalo.state(incidentState:"cancelled")?.kind == .confirmation,"Cancellation is a brief confirmation")
+verify(QuietHalo.state(incidentState:"acknowledged")?.kind == .confirmation,"Acknowledgment is explicit")
+verify(QuietHalo.state(incidentState:"future_unknown_state")?.title == "Check demo status","Unknown state never claims success")
+verify(QuietHalo.state(incidentState:nil,capturing:true)?.title == "Checking on you","Capture is an event cue")
+let haloClock = QuietHalo.Countdown(startedAt:100000,deadline:115000)!
+verify(haloClock.reading(at:100000)?.seconds == 15,"Server interval starts at 15 seconds")
+verify(haloClock.reading(at:103001)?.seconds == 12,"Delayed rendering uses elapsed server time")
+verify(haloClock.reading(at:114999)?.seconds == 1,"Last millisecond stays at one second")
+verify(haloClock.reading(at:115000)?.seconds == 0,"Deadline reaches zero")
+verify(haloClock.reading(at:125000)?.fraction == 0,"Expired timer never goes negative")
+verify(haloClock.reading(at:90000)?.fraction == 1,"Backward clock drift cannot overfill the halo")
+verify(haloClock.reading(at:.nan) == nil,"Invalid clock is not rendered as a countdown")
+verify(QuietHalo.Countdown(startedAt:115000,deadline:100000) == nil,"Reversed deadline is rejected")
+verify(QuietHalo.Countdown(startedAt:0,deadline:.infinity) == nil,"Nonfinite deadline is rejected")
+let handsFreeCheckIn = HandsFreePrompt.text(state:"check_in",voiceCommands:true)!
+verify(handsFreeCheckIn.contains("Guardian cancel") && handsFreeCheckIn.contains("Guardian SOS"),"Screenless check-in explains both voice commands")
+verify(KeywordDetector.intent("Guardian cancel",isFinal:true,confidence:0.9) == .cancel,"Spoken cancellation works without display input")
+verify(KeywordDetector.intent("Guardian SOS",isFinal:true,confidence:0.9) == .sos,"Spoken SOS works without display input")
+verify(KeywordDetector.intent(handsFreeCheckIn,isFinal:true,confidence:0.9,isPlayingVoice:true) == nil,"Spoken instructions cannot cancel their own incident")
+verify(HandsFreePrompt.text(state:"check_in",voiceCommands:false)?.contains("phone") == true,"Manual-only mode does not promise voice commands")
+verify(HandsFreePrompt.text(state:"call_unknown",voiceCommands:true)?.contains("unknown") == true,"Unknown dispatch status is announced honestly")
+verify(HandsFreePrompt.text(state:"call_failed",voiceCommands:true)?.contains("No help is confirmed") == true,"Failure cue never claims help was sent")
+verify(HandsFreePrompt.text(state:"demo_call_active",voiceCommands:true) == nil,"Actual demo audio has its own transport")
+verify(HandsFreePrompt.text(state:"future_unknown_state",voiceCommands:true) == nil,"Unknown state does not invent a spoken confirmation")
 print("Passed \(checks) GuardianCore checks")

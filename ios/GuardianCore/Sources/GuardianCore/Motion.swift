@@ -145,9 +145,13 @@ public struct MotionRecorder: Sendable {
         }
     }
 
-    /// Summarizes samples from three seconds before `triggerAt` until `endAt`.
+    /// Summarizes samples from three seconds before `triggerAt` until `endAt`, capped at
+    /// eight seconds after the trigger. The capture timer may resume late under UI load;
+    /// later sensor samples must not leak into the evidence window or its statistics.
     public func summary(triggerAt: Double, endAt: Double, fallPattern: FallPattern? = nil) -> MotionSummary? {
-        let window = points.filter { $0.time >= triggerAt-3 && $0.time <= endAt }
+        guard triggerAt.isFinite, endAt.isFinite else { return nil }
+        let boundedEnd = min(endAt,triggerAt+8)
+        let window = points.filter { $0.time >= triggerAt-3 && $0.time <= boundedEnd }
         guard window.count >= 5, let first = window.first, let last = window.last else { return nil }
         func meanDirection(_ items: [MotionPoint]) -> (Double, Double, Double)? {
             let sum = items.reduce((0.0, 0.0, 0.0)) { ($0.0+$1.x, $0.1+$1.y, $0.2+$1.z) }
