@@ -660,6 +660,9 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        if(liveSession.phase in setOf(DemoSession.Phase.CHECK_IN,DemoSession.Phase.ALERT,DemoSession.Phase.ACKNOWLEDGED)) {
+            pipelineCard.addView(CaptureSealPanel(this,lifecycleScope) { liveIncidentId })
+        }
         content.addView(pipelineCard)
     }
 

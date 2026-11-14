@@ -17,6 +17,7 @@ object MockGlassesBridge {
     val available = true
     private var glasses: MockGlasses? = null
     val isReady: Boolean get() = glasses != null
+    fun liveCaptureSealingAllowed(context: Context): Boolean = !MockDeviceKit.getInstance(context.applicationContext).isEnabled
 
     suspend fun start(context: Context): String? {
         val kit = MockDeviceKit.getInstance(context.applicationContext)

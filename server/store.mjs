@@ -4,7 +4,7 @@ import { mkdirSync,chmodSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { ApiError } from './nemotron.mjs';
 
-/** Only session/incident metadata is persisted. Raw frames, audio and provider keys never enter this store. */
+/** Encrypted metadata; explicitly sealed originals use a separate immutable BLOB table. */
 export class EncryptedStore {
   constructor({path='data/guardian.sqlite',key,now=Date.now}) {
     if(typeof key!=='string'||!/^[a-fA-F0-9]{64}$/.test(key))throw new Error('DATA_ENCRYPTION_KEY must contain 64 hexadecimal characters.');
@@ -18,15 +18,21 @@ export class EncryptedStore {
       CREATE INDEX IF NOT EXISTS records_expiry ON records(expires);`);
   }
   encrypt(value,kind,id,owner) {
+    const plain=Buffer.from(JSON.stringify(value));
+    try{return this.encryptBytes(plain,kind,id,owner);}finally{plain.fill(0);}
+  }
+  encryptBytes(plain,kind,id,owner) {
     const iv=randomBytes(12),cipher=createCipheriv('aes-256-gcm',this.key,iv);
     cipher.setAAD(Buffer.from(`${kind}:${id}:${owner}`));
-    const plain=Buffer.from(JSON.stringify(value));
-    try{return Buffer.concat([iv,cipher.update(plain),cipher.final(),cipher.getAuthTag()]);}finally{plain.fill(0);}
+    return Buffer.concat([iv,cipher.update(plain),cipher.final(),cipher.getAuthTag()]);
+  }
+  decryptBytes(payload,kind,id,owner) {
+    const bytes=Buffer.from(payload),decipher=createDecipheriv('aes-256-gcm',this.key,bytes.subarray(0,12));
+    decipher.setAAD(Buffer.from(`${kind}:${id}:${owner}`));decipher.setAuthTag(bytes.subarray(-16));
+    return Buffer.concat([decipher.update(bytes.subarray(12,-16)),decipher.final()]);
   }
   decrypt(row) {
-    const bytes=Buffer.from(row.payload),decipher=createDecipheriv('aes-256-gcm',this.key,bytes.subarray(0,12));
-    decipher.setAAD(Buffer.from(`${row.kind}:${row.id}:${row.owner}`));decipher.setAuthTag(bytes.subarray(-16));
-    const plain=Buffer.concat([decipher.update(bytes.subarray(12,-16)),decipher.final()]);
+    const plain=this.decryptBytes(row.payload,row.kind,row.id,row.owner);
     try{return {...JSON.parse(plain.toString()),revision:Number(row.revision)};}finally{plain.fill(0);}
   }
   get(kind,id,owner) {
@@ -52,6 +58,11 @@ export class EncryptedStore {
     return rows.map(row=>this.decrypt(row));
   }
   delete(kind,id,owner) {return this.db.prepare('DELETE FROM records WHERE kind=? AND id=? AND owner=?').run(kind,id,owner).changes>0;}
+  transaction(operation) {
+    this.db.exec('BEGIN IMMEDIATE');
+    try { const result=operation();this.db.exec('COMMIT');return result; }
+    catch(error) { this.db.exec('ROLLBACK');throw error; }
+  }
   purge(){return this.db.prepare('DELETE FROM records WHERE expires<=?').run(this.now()).changes;}
   close(){this.db.close();this.key.fill(0);}
 }

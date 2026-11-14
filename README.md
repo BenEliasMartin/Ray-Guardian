@@ -162,3 +162,7 @@ swift scripts/generate_simulator_clip.swift app/src/debug/assets/simulator_path.
 ## Existing browser demonstration
 
 `npm --prefix web-simulator start` preserves the local browser rehearsal at `http://127.0.0.1:4173`. It uses the same root `.env` and the compatible summary API. `prepare_demo_media.py` also prepares its ignored `captures/browser-pov.mp4`; alternatively choose a local video in the page. Browser simulated-dispatch receipts remain a separate local rehearsal, not the iOS/Twilio incident workflow.
+
+## Android capture signature preparation
+
+The Android Keystore P-256 signer, one-time administrator key enrollment, server nonce, exact-byte verifier, encrypted original retention and incident-view status are prepared for the separately implemented MP4 recorder. The current recorder callback is **not connected yet** and no existing live flow generates seals. See [capture seal integration handoff](docs/capture-seal.md) for the three recorder-side calls, upload contract and acceptance tests. The UI/pitch claim is **“Signed by the capture app”**: the file matches what the enrolled app signed; compromised-phone footage injection before signing is outside this guarantee. SOS remains independent.
