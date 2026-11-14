@@ -44,7 +44,7 @@ The checked-in [Xcode project](ios/RayGuardian.xcodeproj) includes a shared RayG
 3. In **Setup**, enter/check the backend URL and client token. Provider keys do not belong here. Grant glasses permissions through the explicit setup buttons; grant location before arming if using it.
 4. Choose Mock glasses or Real glasses, local keyword source, and capture audio source. Every capture/cloud/audio/voice/demo-call consent starts off. Enable the choices needed for the rehearsal.
 5. In the iPhone Debug build, open **Mock glasses** and allow camera capture, then arm the mock session. The rear-camera preview stays live while armed. Enable cloud analysis to submit sampled frames through automatic scene checks. Phone local speech can start a check-in when it recognizes a direct threat such as “I’m going to kill you.” **Simulate spoken threat** injects that phrase through MockDeviceKit without using the microphone. To use a video instead, enable **Use video replay** and select available replay media.
-6. Arm for 30 minutes. In **Replay lab**, inject ‘Guardian help me’ or replay the motion sequence. The SDK delivers those events to the same listeners as real glasses. The accepted indicator opens a maximum eight-second window. The monitoring screen reports the actual Nemotron result.
+6. Arm for 30 minutes. In **Mock glasses**, inject ‘Guardian help me’ or replay the motion sequence. The SDK delivers those events to the same listeners as real glasses. The accepted indicator opens a maximum eight-second window. The monitoring screen reports the actual Nemotron result.
 7. A qualifying result starts a 15-second check-in. ‘Guardian cancel’ or **I'm okay** cancels it. If demo escalation is enabled, an unanswered check-in advances to the configured demo transport. **SOS** is a deliberate request and can escalate before visual assessment; it is labeled separately from Nemotron detection.
 
 With `META_APP_ID=0`, the build omits all three Meta attestation keys for Developer Mode. Registered apps require the Meta app ID, client token and Apple team together; partial configuration fails the build.
@@ -99,7 +99,7 @@ For deployment, `docker compose up --build -d` starts the API with encrypted per
 
 ## Privacy behavior
 
-The camera is off in armed standby. Selected local speech recognition and motion/heart-rate sensing can remain active while the app is foregrounded. Loudness alone does not trigger capture. A successful trigger permits at most six compressed frames and eight seconds of optional audio, with a 20-second interval for scene checks and a 10-second interval for event captures. Arming expires after thirty minutes. The backend allows up to thirty check-ins and three queued demo calls per ten minutes; cancelling a check-in before a call is queued leaves the call allowance untouched.
+For indicator-only monitoring, disable automatic scene checks, pre-trigger frames, and ElevenLabs listening; use replay or real glasses rather than the live mock-camera preview. The camera then stays off in armed standby, and selected local speech recognition and motion/heart-rate sensing can remain active while the app is foregrounded. Automatic scene checks permit periodic cloud assessment; the live mock preview and pre-trigger option keep a camera running while armed. ElevenLabs listening sends short speech clips to the cloud while armed. Each mode is shown in Setup and requires its corresponding consent. Loudness alone does not trigger capture. A successful trigger permits at most six compressed frames and eight seconds of optional audio, with a 20-second interval for scene checks and a 10-second interval for event captures. Arming expires after thirty minutes. The backend allows up to thirty check-ins and three queued demo calls per ten minutes; cancelling a check-in before a call is queued leaves the call allowance untouched.
 
 Leaving the app, changing consent, device removal/disconnection, thermal/battery faults, or losing the backend heartbeat disarms capture. Epoch guards reject queued old callbacks. Cancellation aborts in-flight inference and prevents later results from recreating an incident. By default no pre-event video is kept. The opt-in **Keep the last 3 seconds of camera frames in memory** setting keeps the glasses camera on while armed and holds at most three seconds of frames in RAM, discarding older ones continuously; they are uploaded only inside an accepted capture window. iOS background transitions do not provide continuous monitoring; optional background escalation only permits the server to continue an already-created demo incident.
 
@@ -132,6 +132,13 @@ node --env-file=.env scripts/smoke_guardian.mjs --demo-call
 A normal/uncertain result is reported faithfully; the smoke tool does not manufacture a positive incident. Live runs consume provider credits. Results and MP3 output are ignored under `validation/results/`. The original participant-separated 36-clip evaluation pipeline and its limitations remain in [validation](validation/README.md). The new replay evaluator is a component check, not proof of trigger recall, assault detection or emergency readiness.
 
 See [implementation and API notes](docs/implementation.md) and [manual handoff](docs/manual-handoff.md). The Android companion under `app/` has bounded camera context and local trigger rehearsals. In a Debug build, select **Try simulated glasses** → **Open glasses POV feed** to replay a synthetic clip through Meta MockDeviceKit. You can select a local HEVC clip instead and freeze a frame for Nemotron analysis with separate consent. Previous research is preserved in the [research archive](docs/research-archive.md).
+
+The Android synthetic video is also generated locally rather than committed. On macOS, run the following before building Debug; CI performs this step automatically and passes the generated asset to the Android build. Other build hosts can use a selected local HEVC video in the app.
+
+```sh
+swift scripts/generate_simulator_clip.swift app/src/debug/assets/simulator_path.mp4
+./gradlew assembleDebug
+```
 
 ## Existing browser demonstration
 

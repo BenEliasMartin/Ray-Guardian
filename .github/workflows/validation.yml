@@ -24,6 +24,13 @@ jobs:
       - run: python3 -m unittest discover -s scripts -p 'test_ios_config.py'
       - run: swift test --package-path ios/GuardianCore
       - run: swift run --package-path ios/GuardianCore GuardianCoreChecks
+      - name: Generate synthetic Android mock media from source
+        run: swift scripts/generate_simulator_clip.swift app/src/debug/assets/simulator_path.mp4
+      - uses: actions/upload-artifact@v4
+        with:
+          name: generated-android-mock-media
+          path: app/src/debug/assets/simulator_path.mp4
+          retention-days: 1
   ios-build:
     runs-on: macos-latest
     steps:
@@ -90,9 +97,14 @@ jobs:
             /tmp/guardian-ui-attachments
             /tmp/guardian-runtime-diagnostics
   android:
+    needs: swift-core
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: generated-android-mock-media
+          path: app/src/debug/assets
       - uses: actions/setup-java@v4
         with:
           distribution: temurin

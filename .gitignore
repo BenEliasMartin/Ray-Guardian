@@ -34,3 +34,4 @@ ios/RayGuardian/Resources/ReplayMedia/*
 **/xcuserdata/
 
 web-simulator/demo-pov.mp4
+app/src/debug/assets/simulator_path.mp4
