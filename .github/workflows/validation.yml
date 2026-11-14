@@ -43,7 +43,7 @@ jobs:
         run: >-
           xcodebuild -project ios/RayGuardian.xcodeproj -scheme RayGuardian
           -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator'
-          -derivedDataPath /tmp/guardian-ios CODE_SIGNING_ALLOWED=NO build
+          -derivedDataPath /tmp/guardian-ios CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- build
       - name: Build real-device Release configuration
         run: >-
           xcodebuild -project ios/RayGuardian.xcodeproj -scheme RayGuardian
@@ -57,10 +57,13 @@ jobs:
           device_id=$(xcrun simctl list devices available --json | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for values in d["devices"].values() for x in values if "iPhone" in x["name"]))')
           xcodebuild -project ios/RayGuardian.xcodeproj -scheme RayGuardian -configuration Debug \
             -destination "platform=iOS Simulator,id=$device_id" -derivedDataPath /tmp/guardian-ios \
-            -resultBundlePath /tmp/guardian-ui-tests.xcresult CODE_SIGNING_ALLOWED=NO test
+            -resultBundlePath /tmp/guardian-ui-tests.xcresult CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- test
       - name: Export readable Simulator failure diagnostics
         if: failure()
         run: |
+          mkdir -p /tmp/guardian-runtime-diagnostics
+          xcrun simctl spawn booted log show --last 10m --style compact --predicate 'process == "RayGuardian"' > /tmp/guardian-runtime-diagnostics/app.log 2>&1 || true
+          find "$HOME/Library/Logs/DiagnosticReports" -name 'RayGuardian*.ips' -exec cp {} /tmp/guardian-runtime-diagnostics/ \; || true
           if [ -d /tmp/guardian-ui-tests.xcresult ]; then
             xcrun xcresulttool export attachments --path /tmp/guardian-ui-tests.xcresult --output-path /tmp/guardian-ui-attachments || true
           fi
@@ -72,6 +75,7 @@ jobs:
             /tmp/guardian-ui-tests.xcresult
             /tmp/guardian-fixture-api.log
             /tmp/guardian-ui-attachments
+            /tmp/guardian-runtime-diagnostics
   android:
     runs-on: ubuntu-latest
     steps:

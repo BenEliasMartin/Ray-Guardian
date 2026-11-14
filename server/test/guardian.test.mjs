@@ -73,7 +73,7 @@ test('Twilio only uses configured allowlist, signed expiring audio and callbacks
   assert.throws(()=>createDemoCalls({...config,to:'112'}));assert.throws(()=>createDemoCalls({...config,allowlist:[]}));
   const calls=createDemoCalls({...config,fetchImpl:async(url,o)=>{request={url,o};return new Response(JSON.stringify({sid:'CA'+'b'.repeat(32),status:'queued'}));}});
   const link=new URL(calls.mediaURL('id'));assert.equal(calls.verifyMedia('id',link.searchParams.get('expires'),link.searchParams.get('signature')),true);assert.equal(calls.verifyMedia('different',link.searchParams.get('expires'),link.searchParams.get('signature')),false);
-  await calls.place({id:'id',mode:'demo',to:'911'});assert.equal(request.o.body.get('To'),config.to);assert.match(request.o.body.get('Twiml'),/<Play>/);
+  await calls.place({id:'id',mode:'demo',to:'911'});assert.equal(request.o.body.get('To'),config.to);assert.equal(request.o.body.get('TimeLimit'),'120');assert.equal(request.o.body.get('Timeout'),'20');assert.match(request.o.body.get('Twiml'),/<Play>/);
   const params={CallSid:'CA'+'b'.repeat(32),CallStatus:'completed'},url='https://demo.example/v1/twilio/status/id';const signature=createHmac('sha1','secret').update(url+Object.keys(params).sort().map(k=>k+params[k]).join('')).digest('base64');assert.equal(validTwilioSignature({url,params,signature,authToken:'secret'}),true);assert.equal(validTwilioSignature({url,params:{...params,CallStatus:'failed'},signature,authToken:'secret'}),false);
 });
 test('HTTP authentication, bounded observation, voice consent and full demo flow',async t=>{
@@ -118,4 +118,18 @@ test('a valid late callback supplies an unknown call SID and honors prior cancel
 test('local ASR text cannot be uploaded without separate audio sharing consent',async t=>{
   const {g}=fixture(t);const s=g.createSession('text-owner',{consent:{capture:true,cloud:true,audio:false}});g.arm('text-owner',s.id);const trigger=g.trigger('text-owner',s.id,{signal:'keyword_distress'});
   await assert.rejects(g.observe('text-owner',s.id,{windowId:trigger.window.id,frames:[{offsetMs:0,imageDataUrl:png}],transcript:'A locally recognized phrase.'}),{code:'audio_consent_required'});
+});
+test('capture and incident budgets survive disarm, new sessions and history deletion',async t=>{
+  const {g,advance}=fixture(t);
+  for(let n=0;n<3;n++){
+    const s=g.createSession('budget-owner',{consent:{capture:true,cloud:true,voice:true,demoCalls:true}});g.arm('budget-owner',s.id);
+    const tr=g.trigger('budget-owner',s.id,{signal:'manual_sos'});assert.ok(tr.window);await g.disarm('budget-owner',s.id);g.store.delete('incident',tr.incident.id,'budget-owner');advance(61000);
+  }
+  const next=g.createSession('budget-owner',{consent:{capture:true,cloud:true,voice:true,demoCalls:true}});g.arm('budget-owner',next.id);
+  assert.equal(g.trigger('budget-owner',next.id,{signal:'motion'}).reason,'capture_budget');
+  assert.throws(()=>g.trigger('budget-owner',next.id,{signal:'manual_sos'}),{code:'incident_budget'});
+});
+test('Twilio cancellation handles an already-answered call without retrying a dial',async()=>{
+  const statuses=[];const calls=createDemoCalls({transport:'twilio',accountSid:'AC'+'a'.repeat(32),authToken:'secret',from:'+15551234567',to:'+15557654321',allowlist:['+15557654321'],publicBaseURL:'https://demo.example',mediaSecret:'s'.repeat(32),fetchImpl:async(url,options)=>{assert.match(url,/Calls\/CA/);statuses.push(options.body.get('Status'));return statuses.length===1?new Response('already answered',{status:400}):new Response('{}');}});
+  await calls.cancel('CA'+'b'.repeat(32));assert.deepEqual(statuses,['canceled','completed']);
 });

@@ -23,6 +23,11 @@ export class GuardianService {
     }
   }
   health(){return {mode:'demo',providers:this.providerStatus,callTransport:this.calls.transport,ready:Object.values(this.providerStatus).every(p=>p.configured!==false)};}
+  recentBudget(owner,kind){return (this.store.get('budget',`${kind}_${owner}`,owner)?.times??[]).filter(t=>this.now()-t<10*MINUTE);}
+  reserveBudget(owner,kind){
+    const id=`${kind}_${owner}`,times=this.recentBudget(owner,kind);
+    this.store.put('budget',{id,owner,times:[...times,this.now()]},{owner,expires:this.now()+10*MINUTE});
+  }
   requireSession(owner,id){return this.store.get('session',id,owner)??fail(404,'not_found','Session not found.');}
   requireIncident(owner,id){return this.store.get('incident',id,owner)??fail(404,'not_found','Incident not found.');}
   saveSession(value){return this.store.put('session',value,{owner:value.owner,expires:value.expiresAt,expectedRevision:value.revision??0});}
@@ -63,10 +68,11 @@ export class GuardianService {
     if(intentional&&!incident){incident=this.newIncident(s,null,body.signal,true);s=this.requireSession(owner,id);}
     if(intentional&&incident?.state==='check_in')incident=this.queueCall({...incident,checkInDeadline:null});
     if(s.activeWindow&&['capturing','processing'].includes(s.activeWindow.state))return {accepted:true,reason:'window_already_active',session:s,incident};
-    const recent=s.windows.filter(t=>this.now()-t<10*MINUTE);
+    const recent=this.recentBudget(owner,'capture');
     const canCapture=s.consent.capture&&s.consent.cloud&&recent.length<3&&(!recent.length||this.now()-recent.at(-1)>=MINUTE);
     const window=canCapture?{id:randomUUID(),startedAt:this.now(),captureEndsAt:this.now()+8000,uploadEndsAt:this.now()+28000,
       signal:body.signal,state:'capturing',result:null}:null;
+    if(window)this.reserveBudget(owner,'capture');
     s=this.saveSession({...s,lastAutomaticAt:intentional?s.lastAutomaticAt:this.now(),windows:window?[...recent,this.now()]:recent,
       activeWindow:window,incidentId:incident?.id??s.incidentId});
     return {accepted:true,reason:window?'capture_allowed':!s.consent.capture||!s.consent.cloud?'capture_or_cloud_consent_missing':'capture_budget',
@@ -119,7 +125,8 @@ export class GuardianService {
     }finally{clearObservation(observation);}
   }
   newIncident(session,detection,trigger,intentional){
-    if(this.store.list('incident',session.owner).filter(i=>this.now()-i.createdAt<10*MINUTE).length>=3)fail(429,'incident_budget','Three demonstration incidents per ten minutes are allowed.');
+    if(this.recentBudget(session.owner,'incident').length>=3)fail(429,'incident_budget','Three demonstration incidents per ten minutes are allowed.');
+    this.reserveBudget(session.owner,'incident');
     const incident=this.saveIncident({id:randomUUID(),owner:session.owner,sessionId:session.id,mode:'demo',state:'check_in',
       trigger,detection,detectedBy:detection?.source??null,createdAt:this.now(),updatedAt:this.now(),expiresAt:this.now()+RECORD_TTL,
       checkInDeadline:intentional?this.now():this.now()+this.checkInMs,call:null,acknowledgedAt:null,cancelledAt:null,location:null,

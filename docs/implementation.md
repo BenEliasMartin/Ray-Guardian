@@ -8,6 +8,8 @@
 
 The SQLite store encrypts each metadata record with AES-256-GCM and record/owner-bound authenticated data. It does not store raw images, audio or STT transcripts. Stored model observations may quote reported speech. Session and incident records expire after 24 hours. A deterministic owner derives from the private client bearer token; all normal read/write routes are owner scoped. This is a private demo instance, not a tenant/user identity system.
 
+Capture and incident budgets are persisted separately from session/history records, so rearming or deleting an incident cannot reset their ten-minute limits. Twilio demonstrations have a twenty-second ringing timeout and two-minute connected-call limit.
+
 A ready outbox job is marked sending before the external dial. Restarted sending jobs become unknown, never automatically retried. Cancellation is recorded before provider cancellation. A dial that completes after cancellation is immediately cancelled using its returned SID. Deletion waits for an active dial task to settle before removing its metadata. Twilio callbacks use the configured public URL for signature verification, never an untrusted Host header. Signed media links expire in ten minutes. Callback order cannot undo terminal states.
 
 ## HTTP contract

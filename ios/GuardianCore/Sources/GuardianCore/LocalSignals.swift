@@ -28,7 +28,7 @@ public struct FallCandidateDetector: Sendable {
         if let lastTime, p.time-lastTime > 1 { lowAt = nil }
         lastTime = p.time
         if let lastTrigger, p.time-lastTrigger < 60 { return false }
-        if p.g < 0.55 { lowAt = p.time; return false }
+        if p.g < 0.55 { if lowAt == nil { lowAt = p.time }; return false }
         guard let start = lowAt else { return false }
         if p.time-start > 1.5 { lowAt = nil; return false }
         if p.g >= 2.4, p.time-start >= 0.04 { lowAt = nil; lastTrigger = p.time; return true }

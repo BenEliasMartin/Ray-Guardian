@@ -22,6 +22,12 @@ final class GuardianCoreTests: XCTestCase {
         XCTAssertFalse(detector.consume(p(2.4,0.2))); XCTAssertFalse(detector.consume(p(2.6,3)))
         XCTAssertFalse(detector.consume(p(64,0.2))); XCTAssertTrue(detector.consume(p(64.2,3)))
     }
+    func testConsecutiveFreeFallSamplesAtThirtyHertzPreserveTheStart() {
+        var detector = FallCandidateDetector()
+        XCTAssertFalse(detector.consume(MotionPoint(time:1,x:0,y:0,z:1)))
+        XCTAssertFalse(detector.consume(MotionPoint(time:1.033,x:0,y:0,z:1)))
+        XCTAssertTrue(detector.consume(MotionPoint(time:1.066,x:0,y:0,z:30)))
+    }
     func testMotionRejectsStaleSamplesAndGaps() {
         var detector = FallCandidateDetector()
         XCTAssertFalse(detector.consume(MotionPoint(time:3,x:0,y:0,z:1)))

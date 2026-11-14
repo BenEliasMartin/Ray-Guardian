@@ -50,7 +50,7 @@ export function createDemoCalls({transport='playback',accountSid,authToken,from,
       if(incident.mode!=='demo')throw new ApiError(403,'demo_only','Only demonstration calls are implemented.');
       if(transport==='playback')return {transport:'playback',status:'in_app',providerCallId:null};
       const body=new URLSearchParams({To:to,From:from,Twiml:this.twiml(incident.id),
-        StatusCallback:`${base}/v1/twilio/status/${incident.id}`,StatusCallbackMethod:'POST'});
+        StatusCallback:`${base}/v1/twilio/status/${incident.id}`,StatusCallbackMethod:'POST',Timeout:'20',TimeLimit:'120'});
       ['initiated','ringing','answered','completed'].forEach(event=>body.append('StatusCallbackEvent',event));
       const {bytes}=await providerRequest(fetchImpl,`https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Calls.json`,{
         method:'POST',headers:{Authorization:'Basic '+Buffer.from(`${accountSid}:${authToken}`).toString('base64'),'Content-Type':'application/x-www-form-urlencoded'},body,
@@ -62,10 +62,13 @@ export function createDemoCalls({transport='playback',accountSid,authToken,from,
     },
     async cancel(providerCallId,signal){
       if(transport!=='twilio'||!/^CA[a-fA-F0-9]{32}$/.test(providerCallId??''))return;
-      await providerRequest(fetchImpl,`https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Calls/${providerCallId}.json`,{
+      const update=async status=>providerRequest(fetchImpl,`https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Calls/${providerCallId}.json`,{
         method:'POST',headers:{Authorization:'Basic '+Buffer.from(`${accountSid}:${authToken}`).toString('base64'),'Content-Type':'application/x-www-form-urlencoded'},
-        body:new URLSearchParams({Status:'completed'}),
+        body:new URLSearchParams({Status:status}),
       },{signal,timeoutMs:10000,limit:64*1024});
+      // Twilio cancels queued/ringing calls and completes answered calls. Handle an answer racing cancellation.
+      try{await update('canceled');}catch(error){if(signal?.aborted)throw error;await update('completed');}
+
     },
   };
 }
