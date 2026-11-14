@@ -34,6 +34,7 @@ enum Keychain {
     @Published var automaticSceneChecks = false
     /// Keeps the camera on while armed so that up to three seconds before a trigger are available. Off by default.
     @Published var preTriggerFrames = false
+    @Published var phoneMotionTesting = false
     @Published var elevenLabsListening = false
     @Published var heartRateEnabled = false
     @Published var heartRateThreshold = 160

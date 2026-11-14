@@ -32,8 +32,8 @@ struct MonitorView: View {
             }
             if let incident = model.incident { IncidentView(model: model,incident: incident) }
             HStack {
-                Button { Task { await model.arm() } } label: { Label("Arm for 30 minutes",systemImage: "shield.checkered").frame(maxWidth: .infinity) }.buttonStyle(.borderedProminent).disabled(model.armed || model.starting)
-                Button("Stop",role: .destructive) { model.stop() }.buttonStyle(.bordered)
+                Button { Task { await model.arm() } } label: { Label("Arm for 30 minutes",systemImage: "shield.checkered").frame(maxWidth: .infinity) }.buttonStyle(.borderedProminent).disabled(model.armed || model.starting).accessibilityIdentifier("guardian.arm")
+                Button("Stop",role: .destructive) { model.stop() }.buttonStyle(.bordered).accessibilityIdentifier("guardian.stop")
             }
             Button { model.sendTrigger(.manual_sos) } label: { Label("SOS · Start demo escalation",systemImage: "sos").font(.headline).frame(maxWidth: .infinity).padding(.vertical,12) }.buttonStyle(.borderedProminent).tint(.red).disabled(!model.armed)
             if model.armed && model.settings.automaticSceneChecks && model.settings.consent.capture && model.settings.consent.cloud {
@@ -338,11 +338,16 @@ struct ReplayView: View {
                 Button("Clear downloaded replay cache",role: .destructive) { do { try library.clearCache() } catch { model.error = error.localizedDescription } }
             }.disabled(model.armed)
             }
+            Section("iPhone as the glasses motion sensor") {
+                Toggle("Use iPhone accelerometer and gyroscope for fall tests",isOn: $settings.phoneMotionTesting)
+                    .accessibilityIdentifier("guardian.phoneMotion")
+                Text("Stands in for the Meta glasses IMU in Mock mode: the same free-fall, rapid-tilt and slow-collapse detection runs on the iPhone's motion, and its motion summary goes to Nemotron. Hold the phone at head height or strap it to a helmet, and drop it only onto something soft. \(model.phoneMotion.status)").font(.caption)
+            }.disabled(model.armed)
             Section("Simulate events · arm first") {
                 Button("Simulate spoken threat") { model.glasses.injectSpeech("I’m going to kill you") }
-                Button("Inject ‘Guardian help me’") { model.glasses.injectSpeech("Guardian help me") }
-                Button("Replay free-fall and impact samples") { model.replayMotion() }
-                Button("Inject ‘Guardian cancel’") { model.glasses.injectSpeech("Guardian cancel") }
+                Button("Inject ‘Guardian help me’") { model.glasses.injectSpeech("Guardian help me") }.accessibilityIdentifier("guardian.injectDistress")
+                Button("Replay free-fall and impact samples") { model.replayMotion() }.accessibilityIdentifier("guardian.injectMotion")
+                Button("Inject ‘Guardian cancel’") { model.glasses.injectSpeech("Guardian cancel") }.accessibilityIdentifier("guardian.injectCancel")
                 Button("Inject ‘Guardian SOS’") { model.glasses.injectSpeech("Guardian SOS") }
                 Text("Events pass through SDK listeners and the same local detectors as real streams. Replay WAV is paced through the PCM pipeline because MockDeviceKit has no public PCM injection API.").font(.caption)
             }.disabled(!model.armed || settings.input != .mock)

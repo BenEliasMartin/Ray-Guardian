@@ -17,7 +17,21 @@ public enum KeywordDetector {
                            "im going to stab you", "im gonna stab you", "i will stab you", "ill stab you"]
             if threats.contains(where: { value.contains(" " + $0 + " ") }) { return .threat }
             let cries = ["help me", "somebody help", "someone help", "i need help", "please help"]
-            if (words == ["help"] || cries.contains(where: { value.contains(" " + $0 + " ") })),
+            // Direct first-person danger reports need no wake word or separate plea.
+            // Anchor these to the speaker, so negations, hypotheticals and reported
+            // speech such as "she said I'm in danger" do not become new triggers.
+            let direct = words.joined(separator: " ")
+            let firstPerson = "(?:i am|im|i m)"
+            let reports = [
+                "\(firstPerson) (?:in (?:immediate )?danger(?! of\\b)|not safe|unsafe|being (?:attacked|followed|threatened)|trapped|hurt|injured|bleeding|choking)",
+                "i (?:cant|cannot|can not) (?:breathe|get up|move)",
+                "(?:ive|i have) fallen|i fell",
+                "(?:call (?:an ambulance|the police)|send help)"
+            ]
+            let directDistress = reports.contains {
+                direct.range(of: "^(?:guardian )?(?:please )?(?:\($0))(?: |$)",options: .regularExpression) != nil
+            }
+            if (directDistress || words == ["help"] || cries.contains(where: { value.contains(" " + $0 + " ") })),
                isFinal || !value.contains(" guardian ") { return .distress }
         }
         return nil

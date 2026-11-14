@@ -7,7 +7,7 @@ import { VOICE_PROMPTS } from './elevenlabs.mjs';
 const MINUTE=60_000,SESSION_MS=30*MINUTE,RECORD_TTL=24*60*MINUTE;
 const SCENE_LIMIT=30, EVENT_LIMIT=12;
 const SCENE_INTERVAL=20_000, EVENT_INTERVAL=10_000;
-const SIGNALS=['manual_sos','keyword_sos','keyword_distress','spoken_threat','motion','heart_rate','loud_voice','scene_check'];
+const SIGNALS=['manual_sos','keyword_sos','keyword_distress','spoken_threat','motion','motion_phone','heart_rate','loud_voice','scene_check'];
 const TERMINAL=new Set(['cancelled','acknowledged','closed']);
 const CONSENTS=['capture','cloud','audio','voice','demoCalls','location','backgroundEscalation'];
 const fail=(status,code,message)=>{throw new ApiError(status,code,message);};
@@ -43,8 +43,10 @@ export class GuardianService {
     const source=['meta_mock','meta_glasses','phone','file_replay'].includes(body.source)?body.source:'meta_mock';
     const enabledSignals=body.enabledSignals??['manual_sos','keyword_sos','keyword_distress','spoken_threat','motion','heart_rate'];
     if(!Array.isArray(enabledSignals)||enabledSignals.some(s=>!SIGNALS.includes(s)))fail(400,'invalid_signals','Unknown trigger source.');
-    const allowedSignals=enabledSignals.filter(signal=>signal!=='scene_check');
+    const allowedSignals=enabledSignals.filter(signal=>signal!=='scene_check'&&signal!=='motion_phone');
     if(body.automaticSceneChecks===true&&consent.capture&&consent.cloud)allowedSignals.push('scene_check');
+    // A test iPhone standing in for the glasses IMU is only accepted for explicit mock sessions.
+    if(body.phoneMotionTesting===true&&source==='meta_mock')allowedSignals.push('motion_phone');
     return this.saveSession({id:randomUUID(),owner,mode:'demo',source,consent,enabledSignals:[...new Set(allowedSignals)],
       armed:false,armedUntil:null,createdAt:this.now(),expiresAt:this.now()+RECORD_TTL,heartbeatAt:this.now(),
       windows:[],activeWindow:null,lastAutomaticAt:null,incidentId:null});
@@ -206,6 +208,8 @@ export class GuardianService {
   }
   location(owner,id,location){
     const i=this.requireIncident(owner,id),s=this.requireSession(owner,i.sessionId);
+    if(TERMINAL.has(i.state))fail(409,'incident_closed','Location cannot be added after an incident closes.');
+    this.requireArmed(s);
     if(!s.consent.location)fail(403,'location_consent_required','Location sharing is disabled.');
     if(!Number.isFinite(location?.latitude)||Math.abs(location.latitude)>90||!Number.isFinite(location.longitude)||Math.abs(location.longitude)>180||
       !Number.isFinite(location.accuracyMeters)||location.accuracyMeters<0||location.accuracyMeters>10000||!Number.isFinite(location.timestamp)||Math.abs(this.now()-location.timestamp)>120000)fail(400,'invalid_location','Send a fresh location with accuracy and timestamp.');

@@ -15,6 +15,11 @@ public struct MotionPoint: Sendable, Equatable {
         let value = sqrt(rotationX*rotationX+rotationY*rotationY+rotationZ*rotationZ)
         return value.isFinite ? value : nil
     }
+    /// Core Motion includes gravity and reports g; DAT reports m/s².
+    public static func phoneAcceleration(time: Double, x: Double, y: Double, z: Double,
+                                         rotationX: Double? = nil, rotationY: Double? = nil, rotationZ: Double? = nil) -> MotionPoint {
+        MotionPoint(time: time, x: x*9.80665, y: y*9.80665, z: z*9.80665, rotationX: rotationX, rotationY: rotationY, rotationZ: rotationZ)
+    }
     public func retimed(_ time: Double) -> MotionPoint {
         MotionPoint(time: time, x: x, y: y, z: z, rotationX: rotationX, rotationY: rotationY, rotationZ: rotationZ)
     }

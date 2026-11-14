@@ -214,3 +214,21 @@ test('observation forwards the motion summary from the iPhone to the detector',a
   await g.observe('owner',s.id,{windowId:reply.window.id,frames:[{offsetMs:-900,imageDataUrl:png}],source:'meta_glasses',motion});
   assert.deepEqual(seen.motion,motion);assert.equal(seen.trigger,'motion');
 });
+
+test('late location cannot be written after cancellation or disarming',async t=>{
+  const {g}=fixture(t);const s=g.createSession('location-owner',{consent:{location:true}});g.arm('location-owner',s.id);const tr=g.trigger('location-owner',s.id,{signal:'manual_sos'}),point={latitude:60,longitude:24,accuracyMeters:8,timestamp:100000};
+  assert.equal(g.location('location-owner',tr.incident.id,point).location.latitude,60);await g.cancel('location-owner',tr.incident.id);assert.throws(()=>g.location('location-owner',tr.incident.id,point),{code:'incident_closed'});
+});
+
+test('phone motion test trigger is accepted only for opted-in mock sessions',async t=>{
+  const {g}=fixture(t);
+  const consent={capture:true,cloud:true};
+  const mock=g.createSession('phone-owner',{consent,source:'meta_mock',phoneMotionTesting:true});g.arm('phone-owner',mock.id);
+  const reply=g.trigger('phone-owner',mock.id,{signal:'motion_phone'});
+  assert.equal(reply.accepted,true);assert.equal(reply.window.signal,'motion_phone');
+  const off=g.createSession('phone-owner',{consent,source:'meta_mock'});g.arm('phone-owner',off.id);
+  assert.equal(g.trigger('phone-owner',off.id,{signal:'motion_phone'}).reason,'source_disabled');
+  const real=g.createSession('phone-owner',{consent,source:'meta_glasses',phoneMotionTesting:true});g.arm('phone-owner',real.id);
+  assert.equal(g.trigger('phone-owner',real.id,{signal:'motion_phone'}).reason,'source_disabled');
+  assert.throws(()=>g.createSession('phone-owner',{consent,enabledSignals:['motion_phone','bogus']}),{code:'invalid_signals'});
+});

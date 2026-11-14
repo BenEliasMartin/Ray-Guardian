@@ -10,7 +10,8 @@ import GuardianCore
     var debugStopAfterFirstFrame = false
     #endif
     let settings = Settings(), glasses = GlassesAdapter(), phone = PhoneAudio(), voice = VoicePlayer(), replays = ReplayLibrary()
-    let heartRate = HeartRateMonitor(), locator = IncidentLocation()
+    let heartRate = HeartRateMonitor(), locator = IncidentLocation(), phoneMotion = PhoneMotion()
+    private var phoneFall = FallCandidateDetector(), phoneMotionActive = false
     private var heartRateDetector = SustainedHeartRate(), located = Set<String>()
     @Published private(set) var session: GuardianSession?
     @Published private(set) var incident: Incident?
@@ -57,9 +58,16 @@ import GuardianCore
         phone.onTranscript = { [weak self] in self?.receiveTranscript($0,final: $1,confidence: $2) }
         glasses.onMotion = { [weak self] point in
             guard let self,self.armed else { return }
-            self.motionRecorder.append(point.retimed(self.monotonic))
+            // While the iPhone stands in for the glasses IMU, its samples alone feed the motion summary.
+            if !self.phoneMotionActive { self.motionRecorder.append(point.retimed(self.monotonic)) }
             if let pattern = self.fall.detect(point) { self.lastFallPattern = pattern; self.sendTrigger(.motion) }
         }
+        phoneMotion.onMotion = { [weak self] point in
+            guard let self,self.armed,self.phoneMotionActive else { return }
+            self.motionRecorder.append(point.retimed(self.monotonic))
+            if let pattern = self.phoneFall.detect(point) { self.lastFallPattern = pattern; self.sendTrigger(.motion_phone) }
+        }
+        phoneMotion.onFailure = { [weak self] message in self?.error = message; self?.stop() }
         glasses.onUnavailable = { [weak self] message in guard let self,self.armed || self.capturing else { return }; self.error = message; self.stop() }
         settings.objectWillChange.sink { [weak self] _ in guard let self else { return }; if self.armed { self.stop() } }.store(in: &relays)
         NotificationCenter.default.publisher(for: AVAudioSession.interruptionNotification).sink { [weak self] _ in Task { @MainActor in guard let self,self.armed else { return }; self.error = "Audio interrupted; session stopped."; self.stop() } }.store(in: &relays)
@@ -99,7 +107,7 @@ import GuardianCore
             try checkOperation(token)
             try await glasses.startStandby(useSpeech: settings.keywords == .glasses || settings.input == .mock); try checkOperation(token)
             if settings.keywords == .phone || settings.elevenLabsListening {
-                let useLocalSpeech = settings.keywords == .phone && !settings.elevenLabsListening
+                let useLocalSpeech = settings.keywords == .phone
                 try await phone.start(localASR: useLocalSpeech)
                 try checkOperation(token)
             }
@@ -116,7 +124,8 @@ import GuardianCore
                 continuousCamera = true
             }
             let sceneChecks = settings.automaticSceneChecks && settings.consent.capture && settings.consent.cloud
-            let created: GuardianSession = try await client.post("v1/sessions",body: CreateSession(consent: settings.consent,source: settings.input == .mock ? .meta_mock : .meta_glasses,automaticSceneChecks: sceneChecks,speechMonitoring: settings.elevenLabsListening)); try checkOperation(token)
+            let phoneMotionTesting = settings.input == .mock && settings.phoneMotionTesting
+            let created: GuardianSession = try await client.post("v1/sessions",body: CreateSession(consent: settings.consent,source: settings.input == .mock ? .meta_mock : .meta_glasses,automaticSceneChecks: sceneChecks,speechMonitoring: settings.elevenLabsListening,phoneMotionTesting: phoneMotionTesting)); try checkOperation(token)
             let active: GuardianSession = try await client.post("v1/sessions/\(created.id)/arm"); try checkOperation(token)
             let remaining = ((active.armedUntil ?? 0) / 1000) - Date().timeIntervalSince1970
             session = active
@@ -125,6 +134,8 @@ import GuardianCore
             cloudSpeechStatus = settings.elevenLabsListening ? "Listening on iPhone mic" : "Off"
             gate.arm(consent: settings.consent,now: monotonic,duration: remaining)
             armed = true; status = "Armed · up to 30 minutes"
+            phoneFall = FallCandidateDetector()
+            if phoneMotionTesting { try phoneMotion.start(); phoneMotionActive = true }
             heartbeatTask?.cancel(); heartbeatTask = Task { [weak self] in
                 var nextSceneCheck = ProcessInfo.processInfo.systemUptime
                 while !Task.isCancelled {
@@ -153,7 +164,7 @@ import GuardianCore
         captureTask?.cancel(); replayAudioTask?.cancel(); uploadTask?.cancel(); heartbeatTask?.cancel(); promptTask?.cancel()
         speechTask?.cancel(); speechTask = nil; speechPCM.removeAll(); speechHasSound = false
         recentPreviewFrames.removeAll(); cloudSpeechStatus = "Off"
-        glasses.stop(); phone.stop(); voice.stop(); locator.cancel(); clearMedia(); status = "Disarmed · camera and local triggers off"
+        glasses.stop(); phone.stop(); phoneMotion.stop(); phoneMotionActive = false; voice.stop(); locator.cancel(); clearMedia(); status = "Disarmed · camera and local triggers off"
         if let id = oldSession?.id,let client { disarmTask = Task { [weak self] in
             do { struct Disarm: Encodable { let cancelPending: Bool }; let _: GuardianSession = try await client.post("v1/sessions/\(id)/disarm",body: Disarm(cancelPending: cancelPending)); if self?.session?.id == id { await self?.refreshIncident() } }
             catch { self?.error = "Stopped locally. Server cancellation was not confirmed: \(error.localizedDescription)" }
@@ -335,7 +346,7 @@ import GuardianCore
         let audio = pcm.count >= 1600 ? AudioPayload(wav: PCM16WAV.encode(pcm),source: settings.audio.rawValue) : nil
         let picked = KeyframeSelector.select(offsets: candidates.map { $0.time-captureStart },sharpness: candidates.map { $0.sharpness })
         let frames = picked.map { FramePayload(offsetMs: min(8000,max(-3000,((candidates[$0].time-captureStart)*1000).rounded())),jpeg: candidates[$0].jpeg) }
-        let motion = motionRecorder.summary(triggerAt: captureStart,endAt: monotonic,fallPattern: window.signal == TriggerSignal.motion.rawValue ? lastFallPattern : nil)
+        let motion = motionRecorder.summary(triggerAt: captureStart,endAt: monotonic,fallPattern: [TriggerSignal.motion.rawValue,TriggerSignal.motion_phone.rawValue].contains(window.signal) ? lastFallPattern : nil)
         let payload = ObservationPayload(windowId: window.id,frames: frames,audio: audio,transcript: nil,source: session.source,motion: motion)
         let hasEvidence = !frames.isEmpty || audio != nil
         clearMedia(); guard hasEvidence else { error = "No usable frames or bounded microphone audio arrived in the capture window."; return }
@@ -364,7 +375,7 @@ import GuardianCore
         } catch { if operation == epoch { self.error = error.localizedDescription } }
     }
     private func handleVoice() async {
-        guard isForeground,!capturing,!processing,let incident,incident.voiceConsent,let api else { return }
+        guard isForeground,!capturing,!processing,let incident,incident.voiceConsent,settings.consent.voice,let api else { return }
         let key = incident.id+":"+incident.state
         guard !spoken.contains(key) else { return }
         let prompt: String?

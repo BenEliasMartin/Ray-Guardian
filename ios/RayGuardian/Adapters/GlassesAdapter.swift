@@ -26,6 +26,7 @@ import MWDATMockDevice
     var onMotion: ((MotionPoint) -> Void)?
     var onUnavailable: ((String) -> Void)?
     private var session: DeviceSession?, camera: Camera?, motion: Motion?, speech: Speech?
+    private var imageDecoder: StreamImageDecoder?
     private let standbyTokens = ListenerTokenBag(), cameraTokens = ListenerTokenBag()
     private var motionTask: Task<Void,Never>?
     private var generation = UUID()
@@ -144,11 +145,13 @@ import MWDATMockDevice
         guard try await Wearables.shared.checkPermissionStatus(.camera) == .granted else { throw DeviceError.message("Glasses camera permission required.") }
         if includeGlassesAudio, try await Wearables.shared.checkPermissionStatus(.microphone) != .granted { throw DeviceError.message("Glasses microphone permission required.") }
         guard token == cameraGeneration, self.session === session, session.state == .started, !Task.isCancelled else { throw CancellationError() }
-        let config = StreamConfiguration(videoCodec: .raw, audioCodec: includeGlassesAudio ? .pcm(sampleRate: .rate16000, numberOfChannels: 1) : nil, resolution: .low, frameRate: Self.captureFrameRate)
+        let config = StreamConfiguration(videoCodec: .hvc1, audioCodec: includeGlassesAudio ? .pcm(sampleRate: .rate16000, numberOfChannels: 1) : nil, resolution: .low, frameRate: Self.captureFrameRate)
         guard let attached = try session.addCamera(config: config) else { throw DeviceError.message("Camera unavailable.") }
         camera = attached
+        let decoder = StreamImageDecoder(); imageDecoder = decoder
         attached.stream.videoFramePublisher.listen { [weak self] frame in
-            Task { @MainActor in guard let self, self.cameraGeneration == token, let image = frame.makeUIImage() else { return }; self.onFrame?(image) }
+            guard let image = decoder.decode(frame.sampleBuffer) else { return }
+            Task { @MainActor in guard let self, self.cameraGeneration == token else { return }; self.onFrame?(image) }
         }.store(in: cameraTokens)
         attached.stream.audioFramePublisher.listen { [weak self] frame in
             let arrivedAt = ProcessInfo.processInfo.systemUptime
@@ -159,7 +162,7 @@ import MWDATMockDevice
         attached.stream.statePublisher.listen { [weak self] state in Task { @MainActor in guard self?.cameraGeneration == token else { return }; self?.cameraStatus = String(describing: state) } }.store(in: cameraTokens)
         attached.stream.start(); cameraStatus = "Starting bounded stream"
     }
-    func stopCapture() { cameraGeneration = UUID(); cameraTokens.clear(); camera?.stop(); camera = nil; cameraStatus = "Off" }
+    func stopCapture() { cameraGeneration = UUID(); cameraTokens.clear(); camera?.stop(); camera = nil; imageDecoder?.close(); imageDecoder = nil; cameraStatus = "Off" }
     func stop() { generation = UUID(); stopCapture(); standbyTokens.clear(); motionTask?.cancel(); motionTask = nil; speech?.stop(); motion?.stop(); session?.stop(); speech = nil; motion = nil; session = nil; selector = nil; motionStatus = "Off"; speechStatus = "Off"; status = "Stopped" }
     func setVoiceSuppressed(_ value: Bool) { if value { speech?.stop() } else { speech?.start() } }
     func injectSpeech(_ text: String) {
