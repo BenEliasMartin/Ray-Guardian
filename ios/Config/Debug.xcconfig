@@ -1,3 +1,4 @@
+#include "Defaults.xcconfig"
 // Local overrides are ignored by git. Do not place provider keys in the app.
 GUARDIAN_API_URL = http:/$()/127.0.0.1:8787
 GUARDIAN_CLIENT_TOKEN =

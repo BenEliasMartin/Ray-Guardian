@@ -1,0 +1,7 @@
+// Configuration defaults live here so ignored Local.xcconfig overrides take precedence.
+DEVELOPMENT_TEAM =
+META_APP_ID = 0
+META_CLIENT_TOKEN =
+GUARDIAN_BUNDLE_ID = com.rayguardian.companion
+GUARDIAN_API_URL = http:/$()/127.0.0.1:8787
+GUARDIAN_CLIENT_TOKEN =

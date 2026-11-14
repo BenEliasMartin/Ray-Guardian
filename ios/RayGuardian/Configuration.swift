@@ -32,6 +32,7 @@ enum Keychain {
     @Published var audio: AudioMode = .phone
     @Published var consent = Consent()
     @Published var automaticSceneChecks = false
+    @Published var phoneMotionTesting = false
     @Published var elevenLabsListening = false
     @Published var heartRateEnabled = false
     @Published var heartRateThreshold = 160

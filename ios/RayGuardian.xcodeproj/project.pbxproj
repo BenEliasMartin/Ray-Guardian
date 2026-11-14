@@ -11,6 +11,7 @@
 		0EFDE40216BBE27587E5884D /* Configuration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46B9B6DAB6A9CAC341F77FD4 /* Configuration.swift */; };
 		1BC1CEECBE8ACCD57E266F4B /* RayGuardianUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71DB5A6D5B8ECB74FE6126A8 /* RayGuardianUITests.swift */; };
 		20837E3C0B269555CED7A0CE /* GuardianModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D28734A405CA466C5341C4D7 /* GuardianModel.swift */; };
+		312F02B13B124BAEEEDA1D30 /* PhoneMotion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 928B0EFDB0634DABCBA7E826 /* PhoneMotion.swift */; };
 		38520740661C303B6C427F0D /* MWDATMotion in Frameworks */ = {isa = PBXBuildFile; productRef = 039B17C87BA077347BA649EC /* MWDATMotion */; };
 		424B180B34BF0105C19FFB34 /* HeartRateMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91850367A3F52267F85F601C /* HeartRateMonitor.swift */; };
 		42D9B1BC001D08968928F162 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3DF00DB6237907EACBAF966C /* ContentView.swift */; };
@@ -42,17 +43,18 @@
 /* Begin PBXFileReference section */
 		00EBC70A765FEBC77AEB530B /* IncidentLocation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IncidentLocation.swift; sourceTree = "<group>"; };
 		14E23221338668B14E283230 /* RayGuardianApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RayGuardianApp.swift; sourceTree = "<group>"; };
-		15B607E4FE51DAD92A975A38 /* GuardianCore */ = {isa = PBXFileReference; lastKnownFileType = folder; path = GuardianCore; sourceTree = SOURCE_ROOT; };
+		15B607E4FE51DAD92A975A38 /* GuardianCore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = GuardianCore; path = GuardianCore; sourceTree = SOURCE_ROOT; };
 		213B6A8BEDA9D601ABC657C1 /* GlassesAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlassesAdapter.swift; sourceTree = "<group>"; };
 		3D220C2C42836B777980A1D4 /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Release.xcconfig; sourceTree = "<group>"; };
 		3DF00DB6237907EACBAF966C /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		46B9B6DAB6A9CAC341F77FD4 /* Configuration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Configuration.swift; sourceTree = "<group>"; };
-		603BCDD80FECDBF272586594 /* RayGuardianUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RayGuardianUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		603BCDD80FECDBF272586594 /* RayGuardianUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = RayGuardianUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		71DB5A6D5B8ECB74FE6126A8 /* RayGuardianUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RayGuardianUITests.swift; sourceTree = "<group>"; };
-		8E6557896DE3E9CD9CB0B41B /* RayGuardian.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = RayGuardian.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		8E6557896DE3E9CD9CB0B41B /* RayGuardian.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = RayGuardian.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		91850367A3F52267F85F601C /* HeartRateMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeartRateMonitor.swift; sourceTree = "<group>"; };
+		928B0EFDB0634DABCBA7E826 /* PhoneMotion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneMotion.swift; sourceTree = "<group>"; };
 		9919DC4493884B03A640942F /* AudioIO.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioIO.swift; sourceTree = "<group>"; };
-		9F8310980943FFD67729B9D5 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		9F8310980943FFD67729B9D5 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		D28734A405CA466C5341C4D7 /* GuardianModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GuardianModel.swift; sourceTree = "<group>"; };
 		E5780C13BBF12BE849793957 /* ReplayLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReplayLibrary.swift; sourceTree = "<group>"; };
 		EDE3CD7026C5892AA2771CB3 /* ReplayMedia */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ReplayMedia; path = RayGuardian/Resources/ReplayMedia; sourceTree = SOURCE_ROOT; };
@@ -119,6 +121,7 @@
 				213B6A8BEDA9D601ABC657C1 /* GlassesAdapter.swift */,
 				91850367A3F52267F85F601C /* HeartRateMonitor.swift */,
 				00EBC70A765FEBC77AEB530B /* IncidentLocation.swift */,
+				928B0EFDB0634DABCBA7E826 /* PhoneMotion.swift */,
 				FDA8E16351C735087A36BC2E /* StreamImageDecoder.swift */,
 			);
 			path = Adapters;
@@ -229,6 +232,7 @@
 						TestTargetID = 3C6AF1B9F8A35DC5BE19B9F6;
 					};
 					3C6AF1B9F8A35DC5BE19B9F6 = {
+						DevelopmentTeam = "";
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -307,6 +311,7 @@
 				20837E3C0B269555CED7A0CE /* GuardianModel.swift in Sources */,
 				424B180B34BF0105C19FFB34 /* HeartRateMonitor.swift in Sources */,
 				06866B9FC75A465DAD21395B /* IncidentLocation.swift in Sources */,
+				312F02B13B124BAEEEDA1D30 /* PhoneMotion.swift in Sources */,
 				A967AD3F9A93DBF9A99B2DF4 /* RayGuardianApp.swift in Sources */,
 				C9426D6E0C9A607AC6D73D1C /* ReplayLibrary.swift in Sources */,
 				8DD0CE117EC31ECF4B362A13 /* StreamImageDecoder.swift in Sources */,
@@ -370,7 +375,6 @@
 				COPY_PHASE_STRIP = NO;
 				CURRENT_PROJECT_VERSION = 2;
 				DEBUG_INFORMATION_FORMAT = dwarf;
-				DEVELOPMENT_TEAM = "";
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
@@ -390,8 +394,6 @@
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.2;
 				MARKETING_VERSION = 0.2.0;
-				META_APP_ID = 0;
-				META_CLIENT_TOKEN = "";
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -443,7 +445,6 @@
 				COPY_PHASE_STRIP = NO;
 				CURRENT_PROJECT_VERSION = 2;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				DEVELOPMENT_TEAM = "";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
@@ -457,8 +458,6 @@
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.2;
 				MARKETING_VERSION = 0.2.0;
-				META_APP_ID = 0;
-				META_CLIENT_TOKEN = "";
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -476,14 +475,13 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				DEVELOPMENT_TEAM = 2JPNVU63JU;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = "$(DERIVED_FILE_DIR)/GuardianInfo.plist";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.rayguardian.companion;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(GUARDIAN_BUNDLE_ID)";
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -511,14 +509,13 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				DEVELOPMENT_TEAM = 2JPNVU63JU;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = "$(DERIVED_FILE_DIR)/GuardianInfo.plist";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.rayguardian.companion;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(GUARDIAN_BUNDLE_ID)";
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};

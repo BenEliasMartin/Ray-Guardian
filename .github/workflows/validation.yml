@@ -35,6 +35,18 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
+      - name: Check human configuration overrides reach Xcode
+        run: |
+          trap 'rm -f ios/Config/Local.xcconfig' EXIT
+          cat > ios/Config/Local.xcconfig <<'CONFIG'
+          DEVELOPMENT_TEAM = TESTTEAM00
+          META_APP_ID = 12345
+          META_CLIENT_TOKEN = configuration-test-value
+          GUARDIAN_BUNDLE_ID = com.example.guardian.configurationtest
+          GUARDIAN_CLIENT_TOKEN = configuration-test-client-token-123456
+          CONFIG
+          xcodebuild -quiet -project ios/RayGuardian.xcodeproj -scheme RayGuardian -configuration Debug -sdk iphonesimulator -showBuildSettings -json > /tmp/guardian-build-settings.json
+          python3 -c 'import json; a=next(x["buildSettings"] for x in json.load(open("/tmp/guardian-build-settings.json")) if x["target"]=="RayGuardian"); assert a["DEVELOPMENT_TEAM"]=="TESTTEAM00"; assert a["META_APP_ID"]=="12345"; assert a["GUARDIAN_CLIENT_TOKEN"]=="configuration-test-client-token-123456"; assert a["PRODUCT_BUNDLE_IDENTIFIER"]=="com.example.guardian.configurationtest"; print("Local Apple/Meta/client settings override defaults correctly")'
       - name: Prepare one genuine wearer-POV fixture (media is not committed)
         run: |
           python3 -m venv /tmp/guardian-media
