@@ -184,3 +184,33 @@ test('background continuation off needs a post-deadline foreground challenge bef
   assert.throws(()=>g.confirmEscalation('foreground-owner',waiting.id,'old-token'),{code:'confirmation_expired'});
   await g.disarm('foreground-owner',s.id);assert.throws(()=>g.confirmEscalation('foreground-owner',waiting.id,waiting.escalationToken),{code:'not_armed'});await g.sweep();assert.equal(placed(),0);
 });
+
+test('glasses motion summary is validated, bounded and forwarded to Nemotron with pre-trigger frames',async()=>{
+  const motion={fallPattern:'rapid_tilt',peakImpactG:2.91,minG:0.12,tiltDegrees:84.6,peakRotationDegPerSec:401.1,stillSecondsAtEnd:4.2,coveredFromMs:-3000,coveredToMs:7900,samples:300};
+  const base={windowId:'a'.repeat(36),frames:[{offsetMs:-1200,imageDataUrl:png},{offsetMs:400,imageDataUrl:png}],source:'meta_glasses'};
+  const parsed=validateObservation({...base,motion});
+  assert.deepEqual(parsed.motion,motion);
+  assert.equal(validateObservation(base).motion,null);
+  assert.equal(validateObservation({...base,motion:{...motion,peakRotationDegPerSec:null}}).motion.peakRotationDegPerSec,null);
+  for(const bad of [{...motion,fallPattern:'tripped'},{...motion,tiltDegrees:181},{...motion,peakImpactG:'3'},{...motion,coveredFromMs:-4000},[motion],{...motion,samples:0}])
+    assert.throws(()=>validateObservation({...base,motion:bad}),/Motion summary|motion fall pattern/);
+  let body;const detect=createDetector({apiKey:'test',fetchImpl:async(_,o)=>{body=JSON.parse(o.body);return new Response(JSON.stringify({choices:[{finish_reason:'stop',message:{content:JSON.stringify(fall)}}]}));}});
+  await detect({frames:parsed.frames,transcript:'',trigger:'motion',source:'meta_glasses',motion:parsed.motion});
+  const evidence=JSON.parse(body.messages[1].content[0].text);
+  assert.deepEqual(evidence.motionSummary,motion);assert.deepEqual(evidence.frameOffsetsMs,[-1200,400]);
+  assert.match(body.messages[0].content,/motionSummary/);assert.match(body.messages[0].content,/possible_fall with at least medium confidence/);
+  await detect({frames:parsed.frames,transcript:'',trigger:'scene_check',source:'meta_glasses'});
+  assert.equal(JSON.parse(body.messages[1].content[0].text).motionSummary,null);
+});
+
+test('observation forwards the motion summary from the iPhone to the detector',async t=>{
+  let seen;const time=100000;
+  const store=new EncryptedStore({path:':memory:',key:randomBytes(32).toString('hex'),now:()=>time});
+  const g=new GuardianService({store,now:()=>time,detect:async input=>{seen=input;return fall;},voice:{transcribe:async()=>({text:'',source:'test'}),speak:async()=>({bytes:Buffer.from('x'),contentType:'audio/mpeg'})},calls:{transport:'playback',place:async()=>({transport:'playback',status:'queued'})}});
+  t.after(async()=>{await g.close();store.close();});
+  const s=g.createSession('owner',{consent:{capture:true,cloud:true}});g.arm('owner',s.id);
+  const reply=g.trigger('owner',s.id,{signal:'motion'});
+  const motion={fallPattern:'free_fall_impact',peakImpactG:3,minG:0.1,tiltDegrees:88,peakRotationDegPerSec:null,stillSecondsAtEnd:5,coveredFromMs:-2900,coveredToMs:7800,samples:280};
+  await g.observe('owner',s.id,{windowId:reply.window.id,frames:[{offsetMs:-900,imageDataUrl:png}],source:'meta_glasses',motion});
+  assert.deepEqual(seen.motion,motion);assert.equal(seen.trigger,'motion');
+});

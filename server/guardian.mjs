@@ -135,7 +135,7 @@ export class GuardianService {
         let audioSource=null;
         if(observation.audio){const recognized=await this.voice.transcribe(observation.audio.bytes,controller.signal);transcript=recognized.text;audioSource=recognized.source;}
         if(controller.signal.aborted)fail(499,'request_cancelled','Observation cancelled.');
-        const detection=await this.detect({frames:observation.frames,transcript,trigger:window.signal,source:observation.source},controller.signal);
+        const detection=await this.detect({frames:observation.frames,transcript,trigger:window.signal,source:observation.source,motion:observation.motion??null},controller.signal);
         if(controller.signal.aborted)fail(499,'request_cancelled','Observation cancelled.');
         s=this.requireSession(owner,id);
         if(!s.armed||s.activeWindow?.id!==window.id||!s.consent.cloud)fail(409,'window_cancelled','The session changed during analysis.');

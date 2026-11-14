@@ -64,4 +64,31 @@ final class GuardianCoreTests: XCTestCase {
         """
         let session = try JSONDecoder().decode(GuardianSession.self,from:Data(json.utf8)); XCTAssertTrue(session.armed); XCTAssertEqual(session.source,.meta_mock); XCTAssertFalse(session.consent.audio)
     }
+    private func pose(_ t: Double,_ degrees: Double,g: Double = 1,spin: Double = 0) -> MotionPoint {
+        let r = degrees*Double.pi/180, a = 9.80665*g
+        return MotionPoint(time: t,x: a*sin(r),y: 0,z: a*cos(r),rotationX: 0,rotationY: spin,rotationZ: 0)
+    }
+    private func timeline(_ from: Double,_ to: Double,_ make: (Double) -> MotionPoint) -> [MotionPoint] { stride(from: from,to: to,by: 1.0/30).map(make) }
+    func testGyroscopeAndOrientationDetectFallsWithoutFreeFall() {
+        var detector = FallCandidateDetector()
+        let fall = timeline(0,3) { self.pose($0,0) } + timeline(3,3.4) { self.pose($0,($0-3)/0.4*85,g: 1.1,spin: 6) } + [pose(3.42,88,g: 2.6,spin: 3)] + timeline(3.45,7) { self.pose($0,90) }
+        XCTAssertEqual(fall.compactMap { detector.detect($0) },[.rapidTilt])
+        var slumping = FallCandidateDetector()
+        let slump = timeline(0,6) { self.pose($0,0) } + timeline(6,8) { self.pose($0,($0-6)/2*80,spin: 0.7) } + timeline(8,12) { self.pose($0,80) }
+        XCTAssertEqual(slump.compactMap { slumping.detect($0) },[.slump])
+        var nodding = FallCandidateDetector()
+        let nod = timeline(0,3) { self.pose($0,0) } + timeline(3,3.3) { self.pose($0,($0-3)/0.3*45,spin: 3) } + timeline(3.3,8) { self.pose($0,0) }
+        XCTAssertTrue(nod.compactMap { nodding.detect($0) }.isEmpty)
+    }
+    func testMotionSummaryAndKeyframesCoverTheFall() throws {
+        var recorder = MotionRecorder()
+        for p in timeline(0,3,{ pose($0,0) }) + timeline(3,3.4,{ pose($0,($0-3)/0.4*85,spin: 6) }) + [pose(3.42,88,g: 2.6)] + timeline(3.45,7,{ pose($0,90) }) { recorder.append(p) }
+        let summary = try XCTUnwrap(recorder.summary(triggerAt: 3.42,endAt: 7,fallPattern: .rapidTilt))
+        XCTAssertGreaterThan(summary.tiltDegrees,80); XCTAssertGreaterThanOrEqual(summary.peakImpactG,2.5); XCTAssertGreaterThanOrEqual(summary.stillSecondsAtEnd,3)
+        let json = String(decoding: try JSONEncoder().encode(summary),as: UTF8.self)
+        XCTAssertTrue(json.contains("\"fallPattern\":\"rapid_tilt\""))
+        let offsets = stride(from: -2.8,through: 7.9,by: 0.35).map { $0 }
+        let picked = KeyframeSelector.select(offsets: offsets,sharpness: offsets.indices.map { Double($0 % 5) })
+        XCTAssertEqual(picked.count,6); XCTAssertTrue(picked.contains { offsets[$0] < 0 })
+    }
 }

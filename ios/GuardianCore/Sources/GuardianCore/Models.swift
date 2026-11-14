@@ -41,8 +41,9 @@ public struct AudioPayload: Encodable, Sendable {
 }
 public struct ObservationPayload: Encodable, Sendable {
     public let windowId: String, frames: [FramePayload], audio: AudioPayload?, transcript: String?, source: CaptureSource
-    public init(windowId: String, frames: [FramePayload], audio: AudioPayload?, transcript: String?, source: CaptureSource) {
-        self.windowId = windowId; self.frames = frames; self.audio = audio; self.transcript = transcript; self.source = source
+    public let motion: MotionSummary?
+    public init(windowId: String, frames: [FramePayload], audio: AudioPayload?, transcript: String?, source: CaptureSource, motion: MotionSummary? = nil) {
+        self.windowId = windowId; self.frames = frames; self.audio = audio; self.transcript = transcript; self.source = source; self.motion = motion
     }
 }
 public struct ReplayClip: Codable, Identifiable, Sendable {

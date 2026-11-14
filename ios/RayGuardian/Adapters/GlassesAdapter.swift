@@ -12,6 +12,8 @@ import MWDATMockDevice
 #endif
 
 @MainActor final class GlassesAdapter: ObservableObject {
+    /// Several frames per second let keyframe selection skip blurred frames around a fall.
+    static let captureFrameRate: UInt = 7
     @Published var status = "Disconnected"
     @Published var motionStatus = "Off"
     @Published var speechStatus = "Off"
@@ -112,7 +114,11 @@ import MWDATMockDevice
                 motionTask = Task { [weak self] in
                     for await sample in attached.samples {
                         guard !Task.isCancelled, let self, self.generation == token else { break }
-                        if sample.source == .glasses, let a = sample.accelerometer { self.onMotion?(MotionPoint(time: Double(sample.timestampNs)/1e9, x: Double(a.x), y: Double(a.y), z: Double(a.z))) }
+                        if sample.source == .glasses, let a = sample.accelerometer {
+                            let r = sample.gyroscope
+                            self.onMotion?(MotionPoint(time: Double(sample.timestampNs)/1e9, x: Double(a.x), y: Double(a.y), z: Double(a.z),
+                                                       rotationX: r.map { Double($0.x) }, rotationY: r.map { Double($0.y) }, rotationZ: r.map { Double($0.z) }))
+                        }
                     }
                 }
                 attached.start()
@@ -138,7 +144,7 @@ import MWDATMockDevice
         guard try await Wearables.shared.checkPermissionStatus(.camera) == .granted else { throw DeviceError.message("Glasses camera permission required.") }
         if includeGlassesAudio, try await Wearables.shared.checkPermissionStatus(.microphone) != .granted { throw DeviceError.message("Glasses microphone permission required.") }
         guard token == cameraGeneration, self.session === session, session.state == .started, !Task.isCancelled else { throw CancellationError() }
-        let config = StreamConfiguration(videoCodec: .raw, audioCodec: includeGlassesAudio ? .pcm(sampleRate: .rate16000, numberOfChannels: 1) : nil, resolution: .low, frameRate: 2)
+        let config = StreamConfiguration(videoCodec: .raw, audioCodec: includeGlassesAudio ? .pcm(sampleRate: .rate16000, numberOfChannels: 1) : nil, resolution: .low, frameRate: Self.captureFrameRate)
         guard let attached = try session.addCamera(config: config) else { throw DeviceError.message("Camera unavailable.") }
         camera = attached
         attached.stream.videoFramePublisher.listen { [weak self] frame in
@@ -163,8 +169,16 @@ import MWDATMockDevice
     }
     func replayMotion() {
         #if DEBUG
-        let points: [(Int64,Float)] = [(0,9.8),(100_000_000,9.8),(200_000_000,2),(300_000_000,1),(450_000_000,30),(550_000_000,9.8),(900_000_000,9.8)]
-        let samples = points.map { MWDATMockDevice.MotionSample(timestampNs: $0.0, accelerometer: MWDATMockDevice.Vector3(x: 0,y: 0,z: $0.1),source: .glasses) }
+        // Upright, a short free fall, an impact with a fast head rotation, then lying still on the side.
+        var samples: [MWDATMockDevice.MotionSample] = []
+        func add(_ ms: Int, _ ax: Float, _ az: Float, spin: Float = 0) {
+            samples.append(MWDATMockDevice.MotionSample(timestampNs: Int64(ms)*1_000_000, accelerometer: MWDATMockDevice.Vector3(x: ax,y: 0,z: az),
+                                                        gyroscope: MWDATMockDevice.Vector3(x: 0,y: spin,z: 0),source: .glasses))
+        }
+        for ms in stride(from: 0, to: 1_000, by: 33) { add(ms, 0, 9.8) }
+        for ms in stride(from: 1_000, to: 1_300, by: 33) { add(ms, 0.6, 1.5, spin: 4) }
+        add(1_330, 22, 18, spin: 7); add(1_363, 14, 6, spin: 3)
+        for ms in stride(from: 1_396, to: 6_000, by: 33) { add(ms, 9.8, 0.2) }
         mock?.services.motion.setMotionFeed(samples)
         #endif
     }
