@@ -2,14 +2,17 @@ import { createServer } from 'node:http';
 import { createReadStream, existsSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { ApiError } from '../server/nemotron.mjs';
+import { createDispatchStore, DEFAULT_TEST_LOCATION, validateBriefingRequest } from '../server/dispatch.mjs';
+import { PHRASES, validatePhrase } from '../server/elevenlabs.mjs';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const localClip = path.join(root, '../captures/browser-pov.mp4');
 const clip = process.env.SIMULATOR_VIDEO ?? (existsSync(localClip) ? localClip : path.join(root, 'demo-pov.mp4'));
 const port = Number(process.env.SIMULATOR_PORT ?? 4173);
 const aiPort = Number(process.env.PORT ?? 8787);
-const receipts = new Map();
-const testLocation = 'Helsinki demo point · 60.1699, 24.9384';
+const localDispatch = createDispatchStore({ defaultLocation: DEFAULT_TEST_LOCATION });
+
 const files = new Map([
   ['/', ['index.html', 'text/html; charset=utf-8']],
   ['/app.js', ['app.js', 'text/javascript; charset=utf-8']],
@@ -17,8 +20,25 @@ const files = new Map([
 ]);
 
 function reply(res, status, data) {
-  res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+  if (res.destroyed) return;
+  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
   res.end(JSON.stringify(data));
+}
+
+function validOrigin(req) {
+  const origin = req.headers.origin;
+  return [`http://127.0.0.1:${port}`, `http://localhost:${port}`].includes(origin);
+}
+
+async function readBody(req, maxBytes) {
+  let size = 0;
+  const chunks = [];
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size > maxBytes) throw new ApiError(413, 'body_too_large', 'Request is too large.');
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks);
 }
 
 const server = createServer(async (req, res) => {
@@ -27,59 +47,150 @@ const server = createServer(async (req, res) => {
     return reply(res, 403, { message: 'Local access only.' });
   }
   const url = new URL(req.url, `http://127.0.0.1:${port}`);
-  if (['/api/analyze', '/api/dispatch'].includes(url.pathname) && req.method === 'POST') {
-    const origin = req.headers.origin;
-    if (![`http://127.0.0.1:${port}`, `http://localhost:${port}`].includes(origin)) return reply(res, 403, { message: 'Invalid origin.' });
-    const isDispatch = url.pathname === '/api/dispatch';
+  const token = process.env.RAY_GUARDIAN_CLIENT_TOKEN ?? '';
+
+  if (url.pathname === '/api/health' && req.method === 'GET') {
     try {
-      let size = 0;
-      const chunks = [];
-      for await (const chunk of req) {
-        size += chunk.length;
-        if (size > (isDispatch ? 8192 : 1100 * 1024)) return reply(res, 413, { message: 'Request is too large.' });
-        chunks.push(chunk);
+      const upstream = await fetch(`http://127.0.0.1:${aiPort}/health`, { signal: AbortSignal.timeout(2_500) });
+      if (upstream.ok) {
+        const data = await upstream.json();
+        return reply(res, 200, { backendOnline: true, ...data });
       }
-      const body = Buffer.concat(chunks);
-      if (isDispatch) {
-        let report;
-        try { report = JSON.parse(body.toString('utf8')); }
+    } catch {
+      // Backend offline; simulator still runs standalone with local dispatch and browser TTS fallback.
+    }
+    return reply(res, 200, { backendOnline: false, aiConfigured: false, speechConfigured: false, dispatchConfigured: true });
+  }
+
+  const speechMatch = /^\/api\/speech\/([a-z_]{1,40})$/.exec(url.pathname);
+  if (speechMatch && req.method === 'GET') {
+    const phraseId = speechMatch[1];
+    try {
+      validatePhrase(phraseId);
+    } catch {
+      return reply(res, 404, { message: 'Unknown speech phrase.' });
+    }
+    try {
+      const upstream = await fetch(`http://127.0.0.1:${aiPort}/v1/speech/${phraseId}`, {
+        signal: AbortSignal.timeout(15_000),
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (upstream.ok && (upstream.headers.get('content-type') ?? '').startsWith('audio/mpeg')) {
+        const audio = Buffer.from(await upstream.arrayBuffer());
+        if (!res.destroyed) {
+          res.writeHead(200, {
+            'Content-Type': 'audio/mpeg',
+            'Content-Length': audio.length,
+            'Cache-Control': 'no-store',
+          });
+          res.end(audio);
+        }
+        return;
+      }
+    } catch {
+      // Fall through to 503 with fallback text for browser speechSynthesis.
+    }
+    return reply(res, 503, { message: 'ElevenLabs backend unavailable; using local voice fallback.', fallbackText: PHRASES[phraseId] });
+  }
+
+  if (['/api/analyze', '/api/dispatch', '/api/speech/briefing'].includes(url.pathname) && req.method === 'POST') {
+    if (!validOrigin(req)) return reply(res, 403, { message: 'Invalid origin.' });
+    const controller = new AbortController();
+    res.on('close', () => { if (!res.writableFinished) controller.abort(); });
+
+    try {
+      const maxBytes = url.pathname === '/api/analyze' ? 1100 * 1024 : 16 * 1024;
+      const body = await readBody(req, maxBytes);
+
+      if (url.pathname === '/api/dispatch') {
+        let parsed;
+        try { parsed = JSON.parse(body.toString('utf8')); }
         catch { return reply(res, 400, { message: 'Invalid incident report.' }); }
-        if (typeof report?.id !== 'string' ||
-            !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(report.id) ||
-            !['staged-collapse', 'ai-check-in', 'manual-sos'].includes(report.trigger) ||
-            (report.context != null && (typeof report.context !== 'string' || report.context.length > 1000))) {
+        let localReceipt;
+        try {
+          localReceipt = localDispatch.record(parsed);
+        } catch (error) {
+          if (error instanceof ApiError) return reply(res, error.status, { error: error.code, message: error.message });
           return reply(res, 400, { message: 'Invalid incident report.' });
         }
-        let receipt = receipts.get(report.id);
-        if (!receipt) {
-          receipt = {
-            callId: `SIM-${report.id.slice(0, 8).toUpperCase()}`,
-            status: 'simulated-accepted',
-            location: testLocation,
-            trigger: report.trigger,
-            receivedAt: new Date().toISOString(),
-          };
-          receipts.set(report.id, receipt);
-          if (receipts.size > 200) receipts.delete(receipts.keys().next().value);
+        // Also mirror to AI/ElevenLabs server when running so /v1/speech/briefing has the incident ID
+        try {
+          const upstream = await fetch(`http://127.0.0.1:${aiPort}/v1/dispatch`, {
+            method: 'POST',
+            signal: AbortSignal.any([controller.signal, AbortSignal.timeout(4_000)]),
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body,
+          });
+          if (upstream.ok) return reply(res, 200, await upstream.json());
+        } catch {
+          // Standalone simulator dispatch succeeds even when AI server is stopped.
         }
-        if (report.context) receipt.context = report.context;
-        const { context, ...metadata } = receipt;
-        return reply(res, 200, { ...metadata, contextIncluded: Boolean(context) });
+        return reply(res, 200, localReceipt);
       }
-      const controller = new AbortController();
-      res.on('close', () => { if (!res.writableFinished) controller.abort(); });
+
+      if (url.pathname === '/api/speech/briefing') {
+        let parsed;
+        try { parsed = JSON.parse(body.toString('utf8')); }
+        catch { return reply(res, 400, { message: 'Invalid briefing request.' }); }
+        let script;
+        try {
+          script = validateBriefingRequest(parsed, localDispatch.get);
+        } catch (error) {
+          if (error instanceof ApiError) return reply(res, error.status, { error: error.code, message: error.message });
+          return reply(res, 400, { message: 'Invalid briefing request.' });
+        }
+        // Forward structured payload so backend can synthesize even if dispatch happened before server started
+        const stored = parsed.incidentId ? localDispatch.get(parsed.incidentId) : null;
+        const upstreamPayload = stored
+          ? {
+              service: stored.service,
+              hazardType: stored.hazardType,
+              trigger: stored.trigger,
+              location: stored.location,
+              context: stored.context ?? undefined,
+              heartRateBpm: stored.heartRateBpm ?? undefined,
+            }
+          : parsed;
+        try {
+          const upstream = await fetch(`http://127.0.0.1:${aiPort}/v1/speech/briefing`, {
+            method: 'POST',
+            signal: AbortSignal.any([controller.signal, AbortSignal.timeout(22_000)]),
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify(upstreamPayload),
+          });
+          if (upstream.ok && (upstream.headers.get('content-type') ?? '').startsWith('audio/mpeg')) {
+            const audio = Buffer.from(await upstream.arrayBuffer());
+            if (!res.destroyed) {
+              res.writeHead(200, {
+                'Content-Type': 'audio/mpeg',
+                'Content-Length': audio.length,
+                'Cache-Control': 'no-store',
+              });
+              res.end(audio);
+            }
+            return;
+          }
+        } catch {
+          // Fall through to 503 with script text so browser TTS speaks it immediately.
+        }
+        return reply(res, 503, { message: 'ElevenLabs briefing unavailable; using local voice.', fallbackText: script });
+      }
+
       const upstream = await fetch(`http://127.0.0.1:${aiPort}/v1/analyze`, {
-        method: 'POST', signal: AbortSignal.any([controller.signal, AbortSignal.timeout(48_000)]),
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.RAY_GUARDIAN_CLIENT_TOKEN ?? ''}` },
+        method: 'POST',
+        signal: AbortSignal.any([controller.signal, AbortSignal.timeout(48_000)]),
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body,
       });
       const data = await upstream.json();
       if (!res.destroyed) reply(res, upstream.status, data);
-    } catch {
-      if (!res.destroyed) reply(res, 502, { message: isDispatch ? 'Test dispatch is unavailable.' : 'AI backend unavailable. Start npm --prefix server start.' });
+    } catch (error) {
+      if (error instanceof ApiError) return reply(res, error.status, { message: error.message });
+      if (!res.destroyed) reply(res, 502, { message: 'AI backend unavailable. Start npm --prefix server start.' });
     }
     return;
   }
+
   if (url.pathname === '/clip.mp4' && ['GET', 'HEAD'].includes(req.method)) {
     try {
       const { size } = statSync(clip);
@@ -98,6 +209,7 @@ const server = createServer(async (req, res) => {
     } catch { reply(res, 404, { message: 'Add a clip with Choose video, or prepare captures/browser-pov.mp4.' }); }
     return;
   }
+
   const file = files.get(url.pathname);
   if (file && req.method === 'GET') {
     res.writeHead(200, { 'Content-Type': file[1], 'Cache-Control': 'no-store' });
@@ -105,4 +217,5 @@ const server = createServer(async (req, res) => {
   }
   reply(res, 404, { message: 'Not found.' });
 });
-server.listen(port, '127.0.0.1', () => console.log(`Ray Guardian browser feed: http://localhost:${port}`));
+
+server.listen(port, '127.0.0.1', () => console.log(`Ray Guardian browser simulator: http://localhost:${port}`));

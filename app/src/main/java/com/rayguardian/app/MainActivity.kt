@@ -1,18 +1,22 @@
 package com.rayguardian.app
 
 import android.Manifest
-import android.content.pm.PackageManager
+import android.annotation.SuppressLint
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.location.LocationManager
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
-import android.view.Gravity
+import android.text.InputType
 import android.view.WindowInsets
 import android.widget.Button
+import android.widget.CheckBox
+import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -25,13 +29,23 @@ import com.meta.wearable.dat.core.selectors.AutoDeviceSelector
 import com.meta.wearable.dat.core.session.DeviceSession
 import com.meta.wearable.dat.core.session.DeviceSessionState
 import com.meta.wearable.dat.core.types.DeviceIdentifier
+import com.meta.wearable.dat.core.types.Permission
+import com.meta.wearable.dat.core.types.PermissionStatus
 import com.meta.wearable.dat.core.types.RegistrationState
+import java.util.Locale
+import java.util.UUID
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
     private val demo = DemoSession()
+    private val liveSession = DemoSession()
+    private val aiClient = AiClient()
     private val handler = Handler(Looper.getMainLooper())
+
     private var mode: IntegrationMode? = null
     private var registration = "Not connected"
     private var deviceName = "No glasses connected"
@@ -42,12 +56,32 @@ class MainActivity : ComponentActivity() {
     private var hasActiveDevice = false
     private var activeDeviceId: DeviceIdentifier? = null
     private var wearableSession: DeviceSession? = null
+    private var sessionStarted = false
     private val deviceSelector by lazy { AutoDeviceSelector() }
     private var deviceSessionStatus = "Not started"
     private var batteryStatus = "unknown"
     private var thermalStatus = "unknown"
+
+    private lateinit var cameraMonitor: GlassesCameraMonitor
+    private var cameraStatus = "Camera idle (standby)"
+    private var autoScanCamera = false
+
+    private var liveIncidentId: String = UUID.randomUUID().toString()
+    private var liveStatusNote = "Ready to detect falls, open fires, and safety hazards."
+    private var liveAnalyzing = false
+    private var liveAnalysisJob: Job? = null
+    private var latestAssessment: HazardAssessment? = null
+    private var latestReceipt: DispatchReceipt? = null
+    private var latestCallOutcome: String? = null
+    private var showPhoneSettings = false
+    private var launchingPhoneCall = false
+    private var currentLocationLabel = DEFAULT_LOCATION
+
     private var timerText: TextView? = null
+    private var liveTimerText: TextView? = null
     private lateinit var voice: VoicePrompts
+    private lateinit var phoneStore: ServicePhoneStore
+
     private val heartRateDetector = HeartRateAnomalyDetector()
     private var heartRateSource: HeartRateSource? = null
     private var heartRateStatus = "No watch connected"
@@ -60,8 +94,9 @@ class MainActivity : ComponentActivity() {
     private enum class IntegrationMode { REAL, MOCK }
 
     companion object {
-        // DAT and MockDeviceKit live for the process lifetime, including activity recreation.
         private var activeIntegrationMode: IntegrationMode? = null
+        private const val DEFAULT_LOCATION = "Helsinki demo point · 60.1699, 24.9384"
+        private const val AUTO_SCAN_INTERVAL_MILLIS = 12_000L
     }
 
     private val bluetoothPermission =
@@ -69,6 +104,43 @@ class MainActivity : ComponentActivity() {
             if (granted) connectRealGlasses()
             else {
                 integrationError = "Bluetooth access was not granted. You can still use the local demo."
+                render()
+            }
+        }
+
+    private val metaCameraPermission =
+        registerForActivityResult(Wearables.RequestPermissionContract()) { result ->
+            result.fold(
+                onSuccess = { status ->
+                    if (status is PermissionStatus.Granted) {
+                        wearableSession?.let { cameraMonitor.start(it) }
+                    } else {
+                        cameraStatus = "Meta glasses camera permission was not granted."
+                        render()
+                    }
+                },
+                onFailure = { error, _ ->
+                    cameraStatus = "Camera permission check failed: ${error.description}"
+                    render()
+                },
+            )
+        }
+
+    private val callPhonePermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            liveStatusNote = if (granted) {
+                "Direct emergency dialing enabled (CALL_PHONE granted)."
+            } else {
+                "CALL_PHONE denied — dispatch will open the phone dialer with the number ready."
+            }
+            render()
+        }
+
+    private val locationPermissions =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
+            if (results.values.any { it }) refreshPhoneLocation()
+            else {
+                liveStatusNote = "Location permission not granted; using fallback coordinates."
                 render()
             }
         }
@@ -93,12 +165,36 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // Re-assesses once per second so a watch that stops reporting shows up as lost signal.
     private val heartRateTicker = object : Runnable {
         override fun run() {
             if (heartRateSource == null) return
             onHeartRateAssessment(heartRateDetector.assess(SystemClock.elapsedRealtime()))
             handler.postDelayed(this, 1_000L)
+        }
+    }
+
+    private val autoCameraScanner = object : Runnable {
+        override fun run() {
+            if (!autoScanCamera || !cameraMonitor.isStreaming) return
+            if (!liveAnalyzing && liveSession.phase in setOf(DemoSession.Phase.DISARMED, DemoSession.Phase.ARMED)) {
+                scanLiveGlassesFeed()
+            }
+            handler.postDelayed(this, AUTO_SCAN_INTERVAL_MILLIS)
+        }
+    }
+
+    private val liveCountdown = object : Runnable {
+        override fun run() {
+            if (liveSession.phase != DemoSession.Phase.CHECK_IN) return
+            val now = SystemClock.elapsedRealtime()
+            liveSession.tick(now)
+            if (liveSession.phase == DemoSession.Phase.ALERT) {
+                executeLiveHelpCall()
+            } else if (liveSession.phase == DemoSession.Phase.CHECK_IN) {
+                val seconds = ((liveSession.deadlineMillis!! - now + 999) / 1000).coerceAtLeast(0)
+                liveTimerText?.text = "Calling ${liveSession.targetService.shortTitle} in $seconds s…"
+                handler.postDelayed(this, 200)
+            }
         }
     }
 
@@ -121,6 +217,11 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         voice = VoicePrompts(this, lifecycleScope)
+        phoneStore = ServicePhoneStore(this)
+        cameraMonitor = GlassesCameraMonitor(lifecycleScope) { status ->
+            cameraStatus = status
+            render()
+        }
         window.statusBarColor = color("#F6F7F4")
         window.navigationBarColor = color("#F6F7F4")
         val scroll = ScrollView(this).apply {
@@ -138,24 +239,44 @@ class MainActivity : ComponentActivity() {
         }
         scroll.addView(content)
         setContentView(scroll)
+
         mode = activeIntegrationMode
+        if (mode == IntegrationMode.REAL) {
+            runCatching { Wearables.handleIntent(intent) {} }
+        }
         if (mode != null) observeWearables()
+        voice.prefetch()
         render()
         if (BuildConfig.DEBUG && intent.getBooleanExtra("ray_guardian_simulator", false) && mode == null) {
             connectMockGlasses()
         }
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (mode == IntegrationMode.REAL) {
+            runCatching { Wearables.handleIntent(intent) {} }
+        }
+    }
+
     override fun onPause() {
-        // The rehearsal is foreground-only. It must never imply background coverage.
         if (demo.phase == DemoSession.Phase.ARMED || demo.phase == DemoSession.Phase.CHECK_IN) {
             demo.disarm()
             handler.removeCallbacks(countdown)
         }
-        voice.stop()
-        stopWearableSession()
-        // Heart-rate screening is foreground-only as well.
-        stopHeartRateSource()
+        if (!launchingPhoneCall) {
+            if (liveSession.phase == DemoSession.Phase.ARMED || liveSession.phase == DemoSession.Phase.CHECK_IN) {
+                liveSession.disarm()
+                handler.removeCallbacks(liveCountdown)
+            }
+            autoScanCamera = false
+            handler.removeCallbacks(autoCameraScanner)
+            voice.stop()
+            stopWearableSession()
+            stopHeartRateSource()
+        }
+        launchingPhoneCall = false
         super.onPause()
     }
 
@@ -166,6 +287,11 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         handler.removeCallbacks(countdown)
+        handler.removeCallbacks(liveCountdown)
+        handler.removeCallbacks(autoCameraScanner)
+        liveAnalysisJob?.cancel()
+        aiClient.cancel()
+        cameraMonitor.stop()
         stopHeartRateSource()
         voice.release()
         super.onDestroy()
@@ -174,35 +300,52 @@ class MainActivity : ComponentActivity() {
     private fun render() {
         content.removeAllViews()
         timerText = null
+        liveTimerText = null
         heartRateValueText = null
         heartRateStateText = null
 
-        content.addView(label("RAY GUARDIAN  /  PROTOTYPE", 12, "#277B69", true).apply {
+        content.addView(label("RAY GUARDIAN  /  META GLASSES SAFETY", 12, "#277B69", true).apply {
             letterSpacing = 0.12f
         })
         content.addView(label("A little more\npeace of mind.", 34, "#172B26", true).apply {
             setLineSpacing(dp(1).toFloat(), 1f)
             setPadding(0, dp(8), 0, 0)
         })
-        content.addView(label("Explore how a hands-free safety companion could work.", 16, "#5B6D67").apply {
-            setPadding(0, dp(10), 0, dp(20))
+        content.addView(label("Detect falls, open fires, and health hazards from Meta glasses — speak via ElevenLabs and call the matching help service.", 15, "#5B6D67").apply {
+            setPadding(0, dp(10), 0, dp(18))
         })
 
         val banner = card("#E5F1EB")
-        banner.addView(label("DEMO ONLY", 12, "#1C6857", true))
-        banner.addView(label("No help is contacted. No background monitoring is active, and heart-rate rules are unvalidated.", 15, "#23463D").apply {
+        banner.addView(label("DEMO ONLY  •  PUBLIC 112/911 BLOCKED", 12, "#1C6857", true))
+        banner.addView(label("Routes hazards to Ambulance, Fire & Rescue, or Police using your configured test phone numbers and ElevenLabs voice.", 14, "#23463D").apply {
             setPadding(0, dp(6), 0, 0)
         })
         content.addView(banner)
 
-        sectionHeading("01", "Glasses connection", "Connect a device to inspect its reported status.")
+        renderGlassesCard()
+        renderHazardPipelineCard()
+        renderRehearsalCard()
+        renderHeartRateCard()
+
+        if (BuildConfig.AI_BASE_URL.isNotBlank()) {
+            sectionHeading("05", "AI context with Nemotron", "Inspect custom text and an image manually.")
+            val aiCard = card("#FFFFFF")
+            aiCard.addView(label("Submit a custom description or photo directly to Nemotron for structured observations and uncertainties.", 14, "#5B6D67"))
+            aiCard.addView(button("Open Nemotron context", true) { startActivity(Intent(this, AiActivity::class.java)) })
+            content.addView(aiCard)
+        }
+    }
+
+    private fun renderGlassesCard() {
+        sectionHeading("01", "Glasses connection & POV camera", "Connect Meta glasses or MockDeviceKit and attach the DAT camera stream.")
         val deviceCard = card("#FFFFFF")
         deviceCard.addView(label(if (mode == IntegrationMode.MOCK) "SIMULATED DEVICE" else "DEVICE STATUS", 11, "#71817A", true))
         deviceCard.addView(label(deviceName, 20, "#172B26", true).apply { setPadding(0, dp(8), 0, dp(3)) })
         deviceCard.addView(label(deviceDetails, 14, "#5B6D67"))
         deviceCard.addView(label("Registration: $registration", 13, "#5B6D67").apply { setPadding(0, dp(8), 0, 0) })
         if (mode != null) {
-            deviceCard.addView(label("Device session: $deviceSessionStatus", 13, "#5B6D67").apply { setPadding(0, dp(5), 0, 0) })
+            deviceCard.addView(label("Device session: $deviceSessionStatus", 13, "#5B6D67").apply { setPadding(0, dp(4), 0, 0) })
+            deviceCard.addView(label("Glasses camera: $cameraStatus", 13, "#5B6D67").apply { setPadding(0, dp(4), 0, 0) })
         }
         integrationError?.let { error ->
             deviceCard.addView(label(error, 13, "#A84436").apply { setPadding(0, dp(10), 0, 0) })
@@ -219,12 +362,266 @@ class MainActivity : ComponentActivity() {
             if (wearableSession == null) {
                 deviceCard.addView(button("Start device session", false) { startWearableSession() })
             } else {
+                if (sessionStarted) {
+                    if (!cameraMonitor.isStreaming) {
+                        deviceCard.addView(button("Start glasses POV camera stream", true) { startGlassesCamera() })
+                    } else {
+                        val autoToggleLabel = if (autoScanCamera) "Stop auto-scanning live POV" else "Auto-scan live POV every 12s"
+                        deviceCard.addView(button(autoToggleLabel, false) { toggleAutoScanCamera() })
+                        deviceCard.addView(button("Stop glasses camera stream", false) {
+                            autoScanCamera = false
+                            handler.removeCallbacks(autoCameraScanner)
+                            cameraMonitor.stop()
+                            cameraStatus = "Camera stopped"
+                            render()
+                        })
+                    }
+                }
                 deviceCard.addView(button("End device session", false) { stopWearableSession(); render() })
             }
         }
         content.addView(deviceCard)
+    }
 
-        sectionHeading("02", "Rehearse an alert", "Practice the flow using only simulated events.")
+    private fun renderHazardPipelineCard() {
+        sectionHeading("02", "Hazard detection & help calls", "Detect falls or fires, warn via ElevenLabs, and call the matching help service.")
+        val cardBg = when {
+            liveSession.phase == DemoSession.Phase.CHECK_IN && liveSession.hazardType == HazardType.FIRE -> "#FFF1EC"
+            liveSession.phase == DemoSession.Phase.CHECK_IN -> "#FFF8EA"
+            liveSession.phase == DemoSession.Phase.ALERT -> "#EDF7F2"
+            else -> "#FFFFFF"
+        }
+        val pipelineCard = card(cardBg)
+        val badgeText = when (liveSession.phase) {
+            DemoSession.Phase.CHECK_IN -> "${liveSession.hazardType.label.uppercase()}  •  CHECK-IN"
+            DemoSession.Phase.ALERT, DemoSession.Phase.ACKNOWLEDGED -> "${liveSession.targetService.shortTitle.uppercase()}  •  DISPATCHED"
+            DemoSession.Phase.CANCELLED -> "EMERGENCY CALL CANCELLED"
+            else -> if (liveAnalyzing) "NEMOTRON ANALYZING POV…" else "ACTIVE HAZARD PIPELINE"
+        }
+        pipelineCard.addView(label(badgeText, 11, "#1C6857", true))
+
+        when (liveSession.phase) {
+            DemoSession.Phase.DISARMED, DemoSession.Phase.ARMED -> {
+                pipelineCard.addView(label(
+                    if (liveAnalyzing) "Inspecting smart-glasses frames…" else "Ready for live hazard detection",
+                    21,
+                    "#172B26",
+                    true,
+                ).apply { setPadding(0, dp(8), 0, dp(4)) })
+                pipelineCard.addView(label(liveStatusNote, 14, "#5B6D67"))
+                pipelineCard.addView(label("Active location: $currentLocationLabel", 13, "#71817A").apply {
+                    setPadding(0, dp(6), 0, 0)
+                })
+                latestAssessment?.let { assessment ->
+                    pipelineCard.addView(label(
+                        "Last Nemotron result (${assessment.hazardType.label}): ${assessment.summary}",
+                        13,
+                        "#23463D",
+                    ).apply { setPadding(0, dp(8), 0, 0) })
+                }
+
+                if (cameraMonitor.isStreaming) {
+                    pipelineCard.addView(button("Scan live glasses camera now", true) { scanLiveGlassesFeed() }.apply {
+                        isEnabled = !liveAnalyzing
+                    })
+                }
+                pipelineCard.addView(button("Detect POV: Elderly person falling (→ Ambulance)", true) {
+                    runSyntheticPovHazardScan(SyntheticPovFrames.Scene.ELDERLY_FALL)
+                }.apply { isEnabled = !liveAnalyzing })
+                pipelineCard.addView(button("Detect POV: Large open fire (→ Fire & Rescue)", true) {
+                    runSyntheticPovHazardScan(SyntheticPovFrames.Scene.OPEN_FIRE)
+                }.apply { isEnabled = !liveAnalyzing })
+
+                pipelineCard.addView(label("Direct help service SOS:", 12, "#71817A", true).apply {
+                    setPadding(0, dp(14), 0, 0)
+                })
+                pipelineCard.addView(button("Call Ambulance Services now", false) {
+                    triggerImmediateServiceCall(HelpService.AMBULANCE, HazardType.MEDICAL)
+                })
+                pipelineCard.addView(button("Call Fire & Rescue now", false) {
+                    triggerImmediateServiceCall(HelpService.FIRE_DEPARTMENT, HazardType.FIRE)
+                })
+                pipelineCard.addView(button("Call Police Dispatch now", false) {
+                    triggerImmediateServiceCall(HelpService.POLICE, HazardType.POLICE)
+                })
+                pipelineCard.addView(button(
+                    if (showPhoneSettings) "Hide service phone & GPS settings" else "Configure service phone numbers & GPS",
+                    false,
+                ) {
+                    showPhoneSettings = !showPhoneSettings
+                    render()
+                })
+                if (showPhoneSettings) renderPhoneSettingsSection(pipelineCard)
+            }
+
+            DemoSession.Phase.CHECK_IN -> {
+                val title = when (liveSession.hazardType) {
+                    HazardType.FIRE -> "Large fire detected — Evacuate!"
+                    HazardType.POLICE -> "Safety threat detected!"
+                    else -> "Medical / fall hazard — Are you OK?"
+                }
+                pipelineCard.addView(label(title, 22, "#172B26", true).apply { setPadding(0, dp(8), 0, dp(4)) })
+                pipelineCard.addView(label(
+                    latestAssessment?.summary
+                        ?: "Automatic help call to ${liveSession.targetService.title} will start unless cancelled.",
+                    15,
+                    "#23463D",
+                ))
+                liveTimerText = label("Calling ${liveSession.targetService.shortTitle} shortly…", 17, "#A84436", true).apply {
+                    setPadding(0, dp(12), 0, 0)
+                }
+                pipelineCard.addView(liveTimerText)
+                pipelineCard.addView(button("I'm OK — Cancel help call", true) {
+                    liveSession.cancel()
+                    handler.removeCallbacks(liveCountdown)
+                    voice.speak(VoicePrompts.Phrase.EMERGENCY_CANCELLED)
+                    liveStatusNote = "Check-in cancelled by wearer. Standing by."
+                    render()
+                })
+                pipelineCard.addView(button("Call ${liveSession.targetService.shortTitle} immediately", false) {
+                    handler.removeCallbacks(liveCountdown)
+                    liveSession.escalateImmediately(liveSession.targetService)
+                    executeLiveHelpCall()
+                })
+            }
+
+            DemoSession.Phase.ALERT, DemoSession.Phase.ACKNOWLEDGED -> {
+                val receipt = latestReceipt
+                pipelineCard.addView(label(
+                    "${(receipt?.shortServiceLabel ?: liveSession.targetService.shortTitle)} contacted",
+                    22,
+                    "#172B26",
+                    true,
+                ).apply { setPadding(0, dp(8), 0, dp(4)) })
+                pipelineCard.addView(label("Call ID: ${receipt?.callId ?: "Pending…"}", 14, "#23463D", true))
+                pipelineCard.addView(label("Service: ${receipt?.serviceLabel ?: liveSession.targetService.title}", 13, "#5B6D67").apply {
+                    setPadding(0, dp(4), 0, 0)
+                })
+                pipelineCard.addView(label("Location: ${receipt?.location ?: currentLocationLabel}", 13, "#5B6D67").apply {
+                    setPadding(0, dp(4), 0, 0)
+                })
+                latestCallOutcome?.let { callStatus ->
+                    pipelineCard.addView(label("Phone call: $callStatus", 13, "#1C6857", true).apply {
+                        setPadding(0, dp(6), 0, 0)
+                    })
+                }
+                latestAssessment?.summary?.let { aiSummary ->
+                    pipelineCard.addView(label("Nemotron report: $aiSummary", 13, "#5B6D67").apply {
+                        setPadding(0, dp(6), 0, 0)
+                    })
+                }
+                receipt?.briefingScript?.let { script ->
+                    pipelineCard.addView(label("ElevenLabs call script:\n\"$script\"", 13, "#23463D").apply {
+                        setPadding(0, dp(10), 0, 0)
+                    })
+                }
+                if (receipt != null) {
+                    pipelineCard.addView(button("Replay ElevenLabs voice briefing", true) {
+                        voice.speakBriefing(receipt, latestAssessment?.summary, heartRateAssessment.latestBpm)
+                    })
+                }
+                val servicePhone = phoneStore.getNumber(liveSession.targetService)
+                if (servicePhone.isNotBlank()) {
+                    pipelineCard.addView(button("Dial ${liveSession.targetService.shortTitle} ($servicePhone)", false) {
+                        launchingPhoneCall = true
+                        val outcome = AndroidEmergencyCaller.placeCall(this, servicePhone)
+                        latestCallOutcome = outcome.summary
+                        if (outcome !is EmergencyDialer.CallOutcome.PlacedDirectCall &&
+                            outcome !is EmergencyDialer.CallOutcome.OpenedDialer
+                        ) {
+                            launchingPhoneCall = false
+                        }
+                        render()
+                    })
+                }
+                pipelineCard.addView(button("End incident & reset", false) {
+                    liveSession.finish()
+                    latestReceipt = null
+                    latestCallOutcome = null
+                    voice.stop()
+                    liveStatusNote = "Ready to detect falls, open fires, and safety hazards."
+                    render()
+                })
+            }
+
+            DemoSession.Phase.CANCELLED -> {
+                pipelineCard.addView(label("Help call cancelled", 20, "#172B26", true).apply { setPadding(0, dp(8), 0, dp(4)) })
+                pipelineCard.addView(label("The incident was cancelled cleanly.", 14, "#5B6D67"))
+                pipelineCard.addView(button("Return to monitoring", true) {
+                    liveSession.finish()
+                    render()
+                })
+            }
+        }
+
+        content.addView(pipelineCard)
+    }
+
+    private fun renderPhoneSettingsSection(parent: LinearLayout) {
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(14), dp(14), dp(14), dp(14))
+            background = rounded("#F3F7F5", 14)
+            layoutParams = LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) }
+        }
+        box.addView(label("HELP SERVICE TEST NUMBERS", 11, "#1C6857", true))
+        box.addView(label(
+            "Enter dedicated test phone numbers for each service. Public shortcodes (112, 911, 999) are blocked for safety.",
+            12,
+            "#5B6D67",
+        ).apply { setPadding(0, dp(4), 0, dp(8)) })
+
+        val inputs = mutableMapOf<HelpService, EditText>()
+        HelpService.entries.forEach { service ->
+            box.addView(label(service.shortTitle, 13, "#172B26", true).apply { setPadding(0, dp(6), 0, dp(2)) })
+            val input = EditText(this).apply {
+                hint = "e.g. +358401234567 (leave empty for voice-only)"
+                inputType = InputType.TYPE_CLASS_PHONE
+                setText(phoneStore.getNumber(service))
+                textSize = 14f
+            }
+            inputs[service] = input
+            box.addView(input)
+        }
+
+        val autoDialCheck = CheckBox(this).apply {
+            text = "Automatically dial the matching service phone number when an alert dispatches"
+            isChecked = phoneStore.autoDialEnabled
+            textSize = 13f
+            setPadding(0, dp(8), 0, dp(4))
+        }
+        box.addView(autoDialCheck)
+
+        box.addView(button("Save service phone settings", true) {
+            var blockedService: HelpService? = null
+            inputs.forEach { (service, field) ->
+                val raw = field.text.toString().trim()
+                if (EmergencyDialer.validateNumber(raw) is EmergencyDialer.Validation.BlockedEmergencyShortcode) {
+                    blockedService = service
+                } else {
+                    phoneStore.setNumber(service, raw)
+                }
+            }
+            phoneStore.autoDialEnabled = autoDialCheck.isChecked
+            liveStatusNote = if (blockedService != null) {
+                "Blocked 112/911 shortcode for ${blockedService!!.shortTitle}. Enter a regular test phone number."
+            } else {
+                "Saved help service numbers and auto-dial preference."
+            }
+            render()
+        })
+
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CALL_PHONE) != PackageManager.PERMISSION_GRANTED) {
+            box.addView(button("Grant direct CALL_PHONE permission", false) {
+                callPhonePermission.launch(Manifest.permission.CALL_PHONE)
+            })
+        }
+        box.addView(button("Update location from phone GPS", false) { requestPhoneLocation() })
+        parent.addView(box)
+    }
+
+    private fun renderRehearsalCard() {
+        sectionHeading("03", "Rehearse an alert", "Practice the local onboarding flow with zero backend or phone calls.")
         val sessionCard = card("#FFFFFF")
         val phaseTitle: String
         val phaseDescription: String
@@ -305,7 +702,7 @@ class MainActivity : ComponentActivity() {
                     DemoSession.Trigger.MANUAL -> "Trigger: simulated SOS"
                     DemoSession.Trigger.REPLAYED_CANDIDATE -> "Trigger: replayed incident"
                     DemoSession.Trigger.HEART_RATE_ANOMALY -> "Trigger: smartwatch ${heartRateAnomalySummary ?: "heart-rate anomaly"}"
-                    null -> "Trigger unavailable"
+                    else -> "Trigger: ${demo.trigger?.wireName ?: "unavailable"}"
                 }
                 sessionCard.addView(label(triggerText, 13, "#71817A").apply { setPadding(0, dp(10), 0, 0) })
                 sessionCard.addView(label("Example location: Helsinki, Finland (test data)", 13, "#71817A").apply { setPadding(0, dp(5), 0, 0) })
@@ -334,23 +731,10 @@ class MainActivity : ComponentActivity() {
             DemoSession.Phase.CANCELLED -> sessionCard.addView(button("Finish rehearsal", true) { demo.finish(); render() })
         }
         content.addView(sessionCard)
-
-        renderHeartRateCard()
-
-        if (BuildConfig.AI_BASE_URL.isNotBlank()) {
-            sectionHeading("04", "AI context with Nemotron", "Analyze text and an optional image when you choose.")
-            val aiCard = card("#FFFFFF")
-            aiCard.addView(label("Your submitted context can be sent to Nemotron for a summary. AI results do not operate the alert controls.", 14, "#5B6D67"))
-            aiCard.addView(button("Open Nemotron context", true) { startActivity(Intent(this, AiActivity::class.java)) })
-            content.addView(aiCard)
-        }
-
-        content.addView(label("Built for careful testing", 14, "#277B69", true).apply { setPadding(0, dp(24), 0, dp(6)) })
-        content.addView(label("Camera, microphone, location, background monitoring and real alert delivery are not enabled in this prototype. Heart-rate screening is a simple rule, not a medical assessment.", 13, "#71817A"))
     }
 
     private fun renderHeartRateCard() {
-        sectionHeading("03", "Smartwatch heart rate", "Screen watch readings for a sustained unusual heart rate.")
+        sectionHeading("04", "Smartwatch heart rate", "Screen watch readings and escalate sustained anomalies to Ambulance check-in.")
         val card = card("#FFFFFF")
         val source = heartRateSource
         card.addView(label(if (source is SimulatedWatchSource) "SIMULATED WATCH" else "SMARTWATCH", 11, "#71817A", true))
@@ -361,10 +745,10 @@ class MainActivity : ComponentActivity() {
         card.addView(heartRateStateText)
         card.addView(label(heartRateStatus, 13, "#71817A").apply { setPadding(0, dp(8), 0, 0) })
         card.addView(label(
-            "Readings are checked only while this screen is open. A heart rate above " +
-                "${HeartRateAnomalyDetector.Config().highBpm} or below ${HeartRateAnomalyDetector.Config().lowBpm} bpm " +
-                "for 30 seconds starts the check-in of an active rehearsal. This is an unvalidated rule, not a diagnosis.",
-            13, "#5B6D67",
+            "A sustained heart rate above ${HeartRateAnomalyDetector.Config().highBpm} or below " +
+                "${HeartRateAnomalyDetector.Config().lowBpm} bpm for 30 seconds opens an Ambulance check-in.",
+            13,
+            "#5B6D67",
         ).apply { setPadding(0, dp(10), 0, 0) })
         if (source == null) {
             card.addView(button("Connect Bluetooth heart-rate watch", true) { requestHeartRateConnection() })
@@ -375,6 +759,250 @@ class MainActivity : ComponentActivity() {
             card.addView(button("Disconnect watch", false) { stopHeartRateSource(); render() })
         }
         content.addView(card)
+    }
+
+    private fun scanLiveGlassesFeed() {
+        if (liveAnalyzing) return
+        liveAnalyzing = true
+        liveStatusNote = "Capturing ordered frames from Meta glasses camera stream…"
+        render()
+        liveAnalysisJob?.cancel()
+        liveAnalysisJob = lifecycleScope.launch {
+            try {
+                val frames = cameraMonitor.captureOrGetFrames()
+                if (frames.isEmpty()) {
+                    liveStatusNote = "Waiting for glasses camera frames. Keep the stream active for a moment and retry."
+                    return@launch
+                }
+                runHazardAnalysis(
+                    description = "Live Meta smart-glasses first-person POV frames (${frames.size} ordered snapshot(s)). Classify any fall/medical collapse, large open fire, or acute safety threat.",
+                    frames = frames,
+                    fallbackHazard = null,
+                    sourceTrigger = DemoSession.Trigger.GLASSES_AI_HAZARD,
+                )
+            } finally {
+                liveAnalyzing = false
+                render()
+            }
+        }
+    }
+
+    private fun runSyntheticPovHazardScan(scene: SyntheticPovFrames.Scene) {
+        if (liveAnalyzing) return
+        liveAnalyzing = true
+        liveStatusNote = "Rendering ${scene.title} smart-glasses POV frames for Nemotron…"
+        render()
+        liveAnalysisJob?.cancel()
+        liveAnalysisJob = lifecycleScope.launch {
+            try {
+                val frames = withContext(Dispatchers.Default) {
+                    SyntheticPovFrames.generateOrderedFrames(scene)
+                }
+                val fallback = when (scene) {
+                    SyntheticPovFrames.Scene.ELDERLY_FALL -> HazardType.MEDICAL
+                    SyntheticPovFrames.Scene.OPEN_FIRE -> HazardType.FIRE
+                }
+                val trigger = when (scene) {
+                    SyntheticPovFrames.Scene.ELDERLY_FALL -> DemoSession.Trigger.ELDERLY_FALL
+                    SyntheticPovFrames.Scene.OPEN_FIRE -> DemoSession.Trigger.OPEN_FIRE
+                }
+                runHazardAnalysis(
+                    description = "${scene.description} Classify any person falling/collapsed on the floor, large open fire, or safety hazard.",
+                    frames = frames,
+                    fallbackHazard = fallback,
+                    sourceTrigger = trigger,
+                )
+            } finally {
+                liveAnalyzing = false
+                render()
+            }
+        }
+    }
+
+    private suspend fun runHazardAnalysis(
+        description: String,
+        frames: List<String>,
+        fallbackHazard: HazardType?,
+        sourceTrigger: DemoSession.Trigger,
+    ) {
+        try {
+            val assessment = aiClient.analyzeHazards(description, frames)
+            latestAssessment = assessment
+            if (assessment.hazardDetected && assessment.hazardType != HazardType.NONE) {
+                startLiveHazardCheckIn(
+                    hazardType = assessment.hazardType,
+                    service = assessment.recommendedService ?: assessment.hazardType.defaultService(),
+                    sourceTrigger = sourceTrigger,
+                    urgentImmediate = assessment.urgentImmediate,
+                )
+            } else {
+                liveStatusNote = "Nemotron found no active emergency hazard in the scanned POV."
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            if (fallbackHazard != null) {
+                latestAssessment = HazardAssessment(
+                    summary = "${fallbackHazard.label} triggered via offline fail-safe (${error.message ?: "AI offline"}).",
+                    observations = emptyList(),
+                    uncertainties = listOf("Cloud AI was unreachable; used local hazard fail-safe."),
+                    hazardDetected = true,
+                    hazardType = fallbackHazard,
+                    severity = "critical",
+                    recommendedService = fallbackHazard.defaultService(),
+                    urgentImmediate = fallbackHazard == HazardType.FIRE,
+                )
+                startLiveHazardCheckIn(
+                    hazardType = fallbackHazard,
+                    service = fallbackHazard.defaultService(),
+                    sourceTrigger = sourceTrigger,
+                    urgentImmediate = fallbackHazard == HazardType.FIRE,
+                )
+            } else {
+                liveStatusNote = error.message ?: "Could not reach Nemotron backend."
+            }
+        }
+    }
+
+    private fun startLiveHazardCheckIn(
+        hazardType: HazardType,
+        service: HelpService,
+        sourceTrigger: DemoSession.Trigger,
+        urgentImmediate: Boolean,
+    ) {
+        liveIncidentId = UUID.randomUUID().toString()
+        latestReceipt = null
+        latestCallOutcome = null
+        liveSession.triggerDetectedHazard(
+            nowMillis = SystemClock.elapsedRealtime(),
+            detectedHazard = hazardType,
+            source = sourceTrigger,
+            recommendedService = service,
+            urgentImmediate = urgentImmediate,
+        )
+        voice.speak(VoicePrompts.Phrase.forHazardCheckIn(hazardType))
+        handler.removeCallbacks(liveCountdown)
+        handler.post(liveCountdown)
+        render()
+    }
+
+    private fun triggerImmediateServiceCall(service: HelpService, hazardType: HazardType) {
+        handler.removeCallbacks(liveCountdown)
+        liveIncidentId = UUID.randomUUID().toString()
+        latestReceipt = null
+        latestCallOutcome = null
+        liveSession.triggerDetectedHazard(
+            nowMillis = SystemClock.elapsedRealtime(),
+            detectedHazard = hazardType,
+            source = when (hazardType) {
+                HazardType.FIRE -> DemoSession.Trigger.OPEN_FIRE
+                HazardType.POLICE -> DemoSession.Trigger.SAFETY_THREAT
+                else -> DemoSession.Trigger.ELDERLY_FALL
+            },
+            recommendedService = service,
+            urgentImmediate = true,
+        )
+        liveSession.escalateImmediately(service)
+        executeLiveHelpCall()
+    }
+
+    private fun executeLiveHelpCall() {
+        val service = liveSession.targetService
+        val hazard = liveSession.hazardType.takeIf { it != HazardType.NONE } ?: HazardType.fromService(service)
+        val triggerWire = liveSession.trigger?.wireName ?: "manual-sos"
+        val incidentId = liveIncidentId
+        val configuredNumber = phoneStore.getNumber(service)
+        val contextSummary = latestAssessment?.summary ?: heartRateAnomalySummary
+        val latestBpm = heartRateAssessment.latestBpm
+
+        render()
+        lifecycleScope.launch {
+            val receipt = aiClient.dispatchIncident(
+                id = incidentId,
+                trigger = triggerWire,
+                hazardType = hazard,
+                service = service,
+                location = currentLocationLabel,
+                contextSummary = contextSummary,
+                heartRateBpm = if (liveSession.trigger == DemoSession.Trigger.HEART_RATE_ANOMALY) latestBpm else null,
+                dialNumber = configuredNumber.ifBlank { null },
+            )
+            latestReceipt = receipt
+            voice.speakBriefing(receipt, contextSummary, latestBpm)
+
+            if (phoneStore.autoDialEnabled && configuredNumber.isNotBlank()) {
+                launchingPhoneCall = true
+                val outcome = AndroidEmergencyCaller.placeCall(this@MainActivity, configuredNumber)
+                latestCallOutcome = outcome.summary
+                if (outcome !is EmergencyDialer.CallOutcome.PlacedDirectCall &&
+                    outcome !is EmergencyDialer.CallOutcome.OpenedDialer
+                ) {
+                    launchingPhoneCall = false
+                }
+            } else {
+                latestCallOutcome = EmergencyDialer.CallOutcome.NoNumberConfigured.summary
+            }
+            render()
+        }
+    }
+
+    private fun requestPhoneLocation() {
+        val perms = arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+        if (perms.any { ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED }) {
+            refreshPhoneLocation()
+        } else {
+            locationPermissions.launch(perms)
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun refreshPhoneLocation() {
+        val manager = getSystemService(LocationManager::class.java)
+        val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER, LocationManager.PASSIVE_PROVIDER)
+        val best = providers.mapNotNull { provider ->
+            runCatching { manager?.getLastKnownLocation(provider) }.getOrNull()
+        }.maxByOrNull { it.time }
+
+        if (best != null) {
+            val coords = String.format(Locale.US, "%.5f, %.5f (±%.0fm)", best.latitude, best.longitude, best.accuracy)
+            currentLocationLabel = "Phone GPS · $coords"
+            liveStatusNote = "Updated emergency dispatch coordinates from phone GPS."
+        } else {
+            liveStatusNote = "No recent GPS fix on this device; keeping $DEFAULT_LOCATION."
+        }
+        render()
+    }
+
+    private fun startGlassesCamera() {
+        val session = wearableSession ?: return
+        if (!sessionStarted) return
+        if (mode == IntegrationMode.MOCK) {
+            cameraMonitor.start(session)
+            return
+        }
+        lifecycleScope.launch {
+            Wearables.checkPermissionStatus(Permission.CAMERA).fold(
+                onSuccess = { status ->
+                    if (status is PermissionStatus.Granted) {
+                        cameraMonitor.start(session)
+                    } else {
+                        metaCameraPermission.launch(Permission.CAMERA)
+                    }
+                },
+                onFailure = { _, _ ->
+                    metaCameraPermission.launch(Permission.CAMERA)
+                },
+            )
+        }
+    }
+
+    private fun toggleAutoScanCamera() {
+        autoScanCamera = !autoScanCamera
+        handler.removeCallbacks(autoCameraScanner)
+        if (autoScanCamera && cameraMonitor.isStreaming) {
+            handler.postDelayed(autoCameraScanner, 1_500L)
+        }
+        render()
     }
 
     private fun heartRateValueLine(): String {
@@ -413,6 +1041,23 @@ class MainActivity : ComponentActivity() {
                 voice.speak(VoicePrompts.Phrase.CHECK_IN_HEART_RATE)
                 handler.removeCallbacks(countdown)
                 handler.post(countdown)
+            } else if (liveSession.phase in setOf(DemoSession.Phase.DISARMED, DemoSession.Phase.ARMED)) {
+                latestAssessment = HazardAssessment(
+                    summary = "Smartwatch reported $heartRateAnomalySummary.",
+                    observations = listOf("Sustained abnormal heart rate over 30 seconds."),
+                    uncertainties = listOf("Optical/BLE heart-rate rule is not a clinical diagnosis."),
+                    hazardDetected = true,
+                    hazardType = HazardType.MEDICAL,
+                    severity = "warning",
+                    recommendedService = HelpService.AMBULANCE,
+                    urgentImmediate = false,
+                )
+                startLiveHazardCheckIn(
+                    hazardType = HazardType.MEDICAL,
+                    service = HelpService.AMBULANCE,
+                    sourceTrigger = DemoSession.Trigger.HEART_RATE_ANOMALY,
+                    urgentImmediate = false,
+                )
             }
             render()
             return
@@ -563,13 +1208,18 @@ class MainActivity : ComponentActivity() {
         Wearables.createSession(deviceSelector).fold(
             onSuccess = { session ->
                 wearableSession = session
+                sessionStarted = false
                 deviceSessionStatus = "Starting"
                 lifecycleScope.launch {
                     session.state.collect { state ->
-                        // Ignore late updates from an older, stopped session.
                         if (wearableSession !== session) return@collect
+                        sessionStarted = state == DeviceSessionState.STARTED
                         deviceSessionStatus = state.name.lowercase().replaceFirstChar { it.uppercase() }
-                        if (state == DeviceSessionState.STOPPED) wearableSession = null
+                        if (state == DeviceSessionState.STOPPED) {
+                            cameraMonitor.stop()
+                            sessionStarted = false
+                            wearableSession = null
+                        }
                         render()
                     }
                 }
@@ -592,14 +1242,19 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun stopWearableSession() {
+        autoScanCamera = false
+        handler.removeCallbacks(autoCameraScanner)
+        cameraMonitor.stop()
+        cameraStatus = "Camera idle (standby)"
         val session = wearableSession ?: return
         wearableSession = null
+        sessionStarted = false
         deviceSessionStatus = "Stopped"
         session.stop()
     }
 
     private fun sectionHeading(number: String, title: String, description: String) {
-        content.addView(label("$number   $title", 18, "#172B26", true).apply { setPadding(0, dp(25), 0, dp(4)) })
+        content.addView(label("$number   $title", 18, "#172B26", true).apply { setPadding(0, dp(24), 0, dp(4)) })
         content.addView(label(description, 14, "#71817A").apply { setPadding(0, 0, 0, dp(12)) })
     }
 
@@ -622,10 +1277,10 @@ class MainActivity : ComponentActivity() {
         this.text = text
         isAllCaps = false
         textSize = 15f
-        minHeight = dp(52)
+        minHeight = dp(50)
         setTextColor(color(if (primary) "#FFFFFF" else "#277B69"))
         background = rounded(if (primary) "#277B69" else "#EDF5F0", 14)
-        layoutParams = LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) }
+        layoutParams = LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) }
         setOnClickListener { action() }
     }
 

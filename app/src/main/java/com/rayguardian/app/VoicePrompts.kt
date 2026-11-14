@@ -7,6 +7,7 @@ import android.speech.tts.TextToSpeech
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
+import java.security.MessageDigest
 import java.util.Locale
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -14,12 +15,13 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
 
 /**
- * Speaks fixed rehearsal prompts. Audio comes from the backend (ElevenLabs Eleven v4, Jack John voice)
- * and is cached on the device; if that is unavailable or slow, Android's on-device voice says the same
- * words so a check-in is never silent. Playback uses the current media output, which is the glasses
- * when they are the connected Bluetooth audio device.
+ * Speaks fixed wearer warnings and dynamic ElevenLabs emergency call briefings.
+ * Audio comes from the backend (ElevenLabs Eleven v4, Jack John voice) and is cached on-device;
+ * if the backend is unreachable or slow, Android's on-device TextToSpeech speaks the exact same
+ * script so a hazard check-in or emergency briefing is never silent.
  */
 class VoicePrompts(context: Context, private val scope: CoroutineScope) {
     /** IDs and wording must match PHRASES in server/elevenlabs.mjs. */
@@ -28,9 +30,31 @@ class VoicePrompts(context: Context, private val scope: CoroutineScope) {
         CHECK_IN_HEART_RATE("check_in_heart_rate", "Are you okay? Your watch reported an unusual heart rate. Tap I'm okay on your phone to cancel. Otherwise, I'll create an alert in fifteen seconds."),
         CHECK_IN_CANCELLED("check_in_cancelled", "Okay, glad you're alright. The check-in is cancelled."),
         ALERT_CREATED("alert_created", "This is a rehearsal. A simulated alert has been created. No one has been contacted."),
+        HAZARD_MEDICAL("hazard_medical", "Medical hazard detected. A person appears to have fallen or needs urgent medical attention. Cancel now if everyone is okay, otherwise calling Ambulance Services."),
+        HAZARD_FIRE("hazard_fire", "Warning! Large open fire detected ahead. Move to safety immediately. Calling Fire and Rescue Services unless you cancel."),
+        HAZARD_POLICE("hazard_police", "Safety threat detected. Calling Police Emergency Services shortly unless you cancel."),
+        CALLING_AMBULANCE("calling_ambulance", "Calling Ambulance Services now and transmitting your location and smart glasses report."),
+        CALLING_FIRE_DEPARTMENT("calling_fire_department", "Calling Fire and Rescue Services now and transmitting your location and smart glasses report."),
+        CALLING_POLICE("calling_police", "Calling Police Emergency Services now and transmitting your location and smart glasses report."),
+        EMERGENCY_CANCELLED("emergency_cancelled", "Emergency call cancelled. Monitoring resumed.");
+
+        companion object {
+            fun forHazardCheckIn(hazardType: HazardType): Phrase = when (hazardType) {
+                HazardType.FIRE -> HAZARD_FIRE
+                HazardType.POLICE -> HAZARD_POLICE
+                HazardType.MEDICAL, HazardType.NONE -> HAZARD_MEDICAL
+            }
+
+            fun forCallingService(service: HelpService): Phrase = when (service) {
+                HelpService.AMBULANCE -> CALLING_AMBULANCE
+                HelpService.FIRE_DEPARTMENT -> CALLING_FIRE_DEPARTMENT
+                HelpService.POLICE -> CALLING_POLICE
+            }
+        }
     }
 
     private val cacheDir = File(context.cacheDir, "voice").apply { mkdirs() }
+    private val briefingCacheDir = File(cacheDir, "briefings").apply { mkdirs() }
     private val attributes = AudioAttributes.Builder()
         .setUsage(AudioAttributes.USAGE_MEDIA)
         .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
@@ -47,11 +71,12 @@ class VoicePrompts(context: Context, private val scope: CoroutineScope) {
             }
         }
     }
+
     private var player: MediaPlayer? = null
     private var job: Job? = null
     private val backendConfigured = BuildConfig.AI_BASE_URL.isNotBlank() && BuildConfig.AI_CLIENT_TOKEN.isNotBlank()
 
-    /** Downloads all prompts in the background so a later check-in plays instantly. */
+    /** Downloads fixed prompts in the background so hazard alerts play with zero delay. */
     fun prefetch() {
         if (!backendConfigured) return
         scope.launch(Dispatchers.IO) {
@@ -64,7 +89,26 @@ class VoicePrompts(context: Context, private val scope: CoroutineScope) {
         job = scope.launch {
             val audio = if (backendConfigured) runCatching { withContext(Dispatchers.IO) { cachedAudio(phrase) } }.getOrNull() else null
             if (!isActive) return@launch
-            if (audio == null || !play(audio)) speakOnDevice(phrase)
+            if (audio == null || !play(audio)) speakTextOnDevice(phrase.text, phrase.id)
+        }
+    }
+
+    fun speakBriefing(receipt: DispatchReceipt, contextSummary: String? = null, heartRateBpm: Int? = null) {
+        stop()
+        job = scope.launch {
+            val audio = if (backendConfigured) {
+                runCatching {
+                    withContext(Dispatchers.IO) {
+                        cachedBriefingAudio(receipt, contextSummary, heartRateBpm)
+                    }
+                }.getOrNull()
+            } else {
+                null
+            }
+            if (!isActive) return@launch
+            if (audio == null || !play(audio)) {
+                speakTextOnDevice(receipt.briefingScript, "briefing_${receipt.id}")
+            }
         }
     }
 
@@ -93,12 +137,14 @@ class VoicePrompts(context: Context, private val scope: CoroutineScope) {
     } catch (error: Exception) {
         player?.release()
         player = null
-        file.delete() // a corrupt cache entry is downloaded again next time
+        file.delete()
         false
     }
 
-    private fun speakOnDevice(phrase: Phrase) {
-        if (ttsReady) tts.speak(phrase.text, TextToSpeech.QUEUE_FLUSH, null, phrase.id)
+    private fun speakTextOnDevice(text: String, utteranceId: String) {
+        if (ttsReady && text.isNotBlank()) {
+            tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
+        }
     }
 
     private fun cachedAudio(phrase: Phrase): File {
@@ -107,14 +153,69 @@ class VoicePrompts(context: Context, private val scope: CoroutineScope) {
         val connection = URL(BuildConfig.AI_BASE_URL.trimEnd('/') + "/v1/speech/" + phrase.id).openConnection() as HttpURLConnection
         try {
             connection.instanceFollowRedirects = false
-            // A check-in must not wait on the network; fall back to the on-device voice quickly.
             connection.connectTimeout = 3_000
-            connection.readTimeout = 8_000
+            connection.readTimeout = 9_000
             connection.setRequestProperty("Authorization", "Bearer ${BuildConfig.AI_CLIENT_TOKEN}")
             check(connection.responseCode == 200 && connection.contentType?.startsWith("audio/mpeg") == true) { "Speech unavailable" }
-            // Unique temp file: a prefetch and a check-in may download the same phrase at once.
-            val partial = File.createTempFile(phrase.id, ".part", cacheDir)
-            try {
+            return writeStreamToCache(connection, phrase.id, cacheDir, file)
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    private fun cachedBriefingAudio(
+        receipt: DispatchReceipt,
+        contextSummary: String?,
+        heartRateBpm: Int?,
+    ): File {
+        val digest = MessageDigest.getInstance("SHA-256")
+            .digest(receipt.briefingScript.toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
+            .take(24)
+        val file = File(briefingCacheDir, "briefing_$digest.mp3")
+        if (file.length() > 0) return file
+
+        val payload = JSONObject().apply {
+            if (!receipt.offlineFallback) {
+                put("incidentId", receipt.id)
+            } else {
+                put("service", receipt.service.wireName)
+                put("hazardType", receipt.hazardType.wireName)
+                put("trigger", receipt.trigger)
+                put("location", receipt.location)
+                if (!contextSummary.isNullOrBlank()) put("context", contextSummary.take(900))
+                if (heartRateBpm != null) put("heartRateBpm", heartRateBpm)
+            }
+        }
+        val bytes = payload.toString().toByteArray(Charsets.UTF_8)
+        val connection = URL(BuildConfig.AI_BASE_URL.trimEnd('/') + "/v1/speech/briefing").openConnection() as HttpURLConnection
+        try {
+            connection.requestMethod = "POST"
+            connection.instanceFollowRedirects = false
+            connection.connectTimeout = 3_500
+            connection.readTimeout = 14_000
+            connection.doOutput = true
+            connection.setRequestProperty("Content-Type", "application/json")
+            connection.setRequestProperty("Authorization", "Bearer ${BuildConfig.AI_CLIENT_TOKEN}")
+            connection.setFixedLengthStreamingMode(bytes.size)
+            connection.outputStream.use { it.write(bytes) }
+            check(connection.responseCode == 200 && connection.contentType?.startsWith("audio/mpeg") == true) {
+                "Briefing speech unavailable"
+            }
+            return writeStreamToCache(connection, "briefing_$digest", briefingCacheDir, file)
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    private fun writeStreamToCache(
+        connection: HttpURLConnection,
+        prefix: String,
+        directory: File,
+        destination: File,
+    ): File {
+        val partial = File.createTempFile(prefix, ".part", directory)
+        try {
             connection.inputStream.use { input ->
                 partial.outputStream().use { output ->
                     val buffer = ByteArray(8192)
@@ -128,14 +229,11 @@ class VoicePrompts(context: Context, private val scope: CoroutineScope) {
                     }
                 }
             }
-            check(partial.renameTo(file)) { "Could not cache speech" }
-            } finally {
-                partial.delete()
-            }
-            return file
+            check(partial.renameTo(destination)) { "Could not cache speech" }
         } finally {
-            connection.disconnect()
+            partial.delete()
         }
+        return destination
     }
 
     companion object {

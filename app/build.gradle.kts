@@ -55,6 +55,7 @@ dependencies {
     implementation("androidx.activity:activity-ktx:1.12.1")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.10.0")
     implementation("com.meta.wearable:mwdat-core:1.0.1")
+    implementation("com.meta.wearable:mwdat-camera:1.0.1")
     debugImplementation("com.meta.wearable:mwdat-mockdevice:1.0.1")
     testImplementation("junit:junit:4.13.2")
 }

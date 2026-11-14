@@ -59,6 +59,64 @@ test('replay assessment uses ordered frames and requires a boolean before it can
   assert.equal(parseAnalysis(JSON.stringify({ ...analysis, checkInRecommended: true })).checkInRecommended, undefined);
 });
 
+test('multi-hazard assessment detects medical falls and open fires and routes to the right service', async () => {
+  const fireInput = validateInput({ ...input, assessHazards: true, imageDataUrl: png });
+  assert.equal(fireInput.assessHazards, true);
+  assert.equal(fireInput.imageDataUrls.length, 1);
+
+  const analyzeFire = createNemotron({
+    apiKey: 'test',
+    fetchImpl: async (_, options) => {
+      const messages = JSON.parse(options.body).messages;
+      assert.match(messages[0].content, /fire_department/);
+      return completion({
+        message: {
+          content: JSON.stringify({
+            summary: 'Large open fire visible ahead in the hallway.',
+            observations: ['Bright orange uncontrolled flames on the floor.', 'Dense dark smoke rising.'],
+            uncertainties: ['Exact heat and spread speed cannot be measured from one frame.'],
+            hazardDetected: true,
+            hazardType: 'fire',
+            severity: 'critical',
+            recommendedService: 'police', // server normalizes deterministically to fire_department
+            urgentImmediate: true,
+          }),
+        },
+      });
+    },
+  });
+  const fireResult = await analyzeFire(fireInput);
+  assert.equal(fireResult.hazardDetected, true);
+  assert.equal(fireResult.hazardType, 'fire');
+  assert.equal(fireResult.severity, 'critical');
+  assert.equal(fireResult.recommendedService, 'fire_department');
+  assert.equal(fireResult.urgentImmediate, true);
+  assert.equal(fireResult.checkInRecommended, true);
+
+  const fallParsed = parseAnalysis(JSON.stringify({
+    ...analysis,
+    hazardDetected: true,
+    hazardType: 'medical',
+    severity: 'critical',
+    recommendedService: 'ambulance',
+    urgentImmediate: true,
+  }), { assessHazards: true });
+  assert.equal(fallParsed.recommendedService, 'ambulance');
+  assert.equal(fallParsed.hazardType, 'medical');
+
+  const clearParsed = parseAnalysis(JSON.stringify({
+    ...analysis,
+    hazardDetected: false,
+    hazardType: 'none',
+    severity: 'none',
+    recommendedService: 'none',
+    urgentImmediate: false,
+  }), { assessHazards: true });
+  assert.equal(clearParsed.hazardDetected, false);
+  assert.equal(clearParsed.recommendedService, 'none');
+  assert.equal(clearParsed.checkInRecommended, false);
+});
+
 test('rejects truncated responses, tool calls, and malformed model JSON', async () => {
   for (const response of [
     { finish_reason: 'length' },

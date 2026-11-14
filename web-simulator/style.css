@@ -5,6 +5,8 @@
   background: #080d0b;
   --muted: #acbdb2;
   --green: #c6f58a;
+  --amber: #ffe098;
+  --fire: #ff8b6b;
   --line: #405147;
   --panel: #131e18;
 }
@@ -14,7 +16,7 @@ body { margin: 0; }
 [hidden] { display: none !important; }
 
 main {
-  width: min(100%, 600px);
+  width: min(100%, 620px);
   min-height: 100vh;
   margin-inline: auto;
   padding: 14px 20px;
@@ -24,18 +26,20 @@ main {
 body.display-preview, body.display-preview main { background: #000; }
 body.display-preview main { margin-inline: 0; }
 
-header, .hud, .actions, #settings {
+header, .hud, .actions, #settings, .badges {
   display: flex;
   align-items: center;
 }
 
 header {
   justify-content: space-between;
+  gap: 8px;
   margin-bottom: 12px;
   font-size: 18px;
   font-weight: 700;
 }
 
+.badges { gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 .brand span { color: var(--green); font-size: 23px; vertical-align: -1px; }
 
 .badge {
@@ -44,8 +48,14 @@ header {
   border-radius: 4px;
   color: #e1f2b9;
   font-size: 10px;
-  letter-spacing: .12em;
+  letter-spacing: .11em;
+  text-transform: uppercase;
 }
+
+.badge.muted { border-color: #4f6357; color: var(--muted); }
+.badge.fire { border-color: var(--fire); color: #ffd4c7; background: #36160e; }
+.badge.medical { border-color: #7cd4b2; color: #d6fff0; background: #102e24; }
+.badge.police { border-color: #7ea8ff; color: #dbe7ff; background: #12203b; }
 
 .view {
   aspect-ratio: 2.25;
@@ -56,7 +66,12 @@ header {
   background: #080d0b;
 }
 
-video { width: 100%; height: 100%; object-fit: contain; display: block; }
+video, canvas#synthetic-feed {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
 
 .hud {
   position: absolute;
@@ -83,11 +98,13 @@ video { width: 100%; height: 100%; object-fit: contain; display: block; }
 }
 
 #incident[data-phase="check-in"] { border-color: #e4ba63; background: #2b210e; }
+#incident[data-phase="check-in"][data-hazard="fire"] { border-color: var(--fire); background: #33150e; }
 #incident[data-phase="check-in"] h1,
 #incident[data-phase="check-in"] #detail { padding-right: 62px; }
 #incident[data-phase="dispatched"] { border-color: #89a96d; }
+#incident[data-phase="dispatched"][data-hazard="fire"] { border-color: var(--fire); }
 
-h1 { font-size: 21px; margin: 0 0 4px; }
+h1 { font-size: 20px; margin: 0 0 4px; }
 p { margin: 0; }
 #detail { color: var(--muted); line-height: 1.4; }
 
@@ -96,19 +113,21 @@ p { margin: 0; }
   right: 13px;
   top: 50%;
   transform: translateY(-50%);
-  color: #ffe098;
-  font-size: 40px;
+  color: var(--amber);
+  font-size: 38px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
 
-#receipt { margin: 8px 0 0; font-size: 13px; }
+#receipt { margin: 8px 0 0; font-size: 13px; display: grid; gap: 3px; }
 #receipt div { display: flex; gap: 8px; }
-dt { color: var(--muted); }
-dd { margin: 0; }
+#receipt .script-row { flex-direction: column; gap: 2px; margin-top: 4px; padding-top: 5px; border-top: 1px solid #2b3c32; }
+dt { color: var(--muted); min-width: 84px; }
+dd { margin: 0; overflow-wrap: anywhere; }
+#receipt-script { color: #e2f1dc; font-style: italic; line-height: 1.35; }
 
 .actions { gap: 8px; margin-top: 10px; flex-wrap: wrap; }
-button {
+button, select {
   padding: 8px 12px;
   min-height: 38px;
   border: 1px solid #71877a;
@@ -116,25 +135,48 @@ button {
   background: #26392e;
   color: #f4f8f2;
   font: inherit;
-  font-weight: 650;
+  font-weight: 600;
   cursor: pointer;
 }
 
+select {
+  padding: 5px 8px;
+  min-height: 32px;
+  font-size: 12px;
+  max-width: 100%;
+}
+
 .primary { background: var(--green); color: #172013; border-color: var(--green); }
-button:disabled { opacity: .5; cursor: default; }
+button:disabled, select:disabled { opacity: .5; cursor: default; }
 button:hover:not(:disabled) { filter: brightness(1.15); }
 
 #settings {
   justify-content: space-between;
-  gap: 6px 14px;
+  gap: 7px 14px;
   margin-top: 10px;
   flex-wrap: wrap;
   color: var(--muted);
   font-size: 12px;
 }
+
+.select-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+
+.select-wrap select { flex: 1; }
 .share { display: flex; align-items: center; gap: 5px; min-height: 27px; }
 input[type="checkbox"] { margin: 0; accent-color: var(--green); }
-.file { position: relative; cursor: pointer; padding-block: 6px; }
+.file {
+  position: relative;
+  cursor: pointer;
+  padding: 4px 9px;
+  border: 1px solid #566b5e;
+  border-radius: 5px;
+  color: #e4efe8;
+}
 .file input { opacity: 0; position: absolute; inset: 0; width: 100%; cursor: pointer; }
 :focus-visible, .file:focus-within { outline: 2px solid var(--green); outline-offset: 3px; }
 

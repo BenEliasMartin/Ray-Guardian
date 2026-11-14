@@ -86,4 +86,32 @@ class DemoSessionTest {
         session.replayCandidate(0, DemoSession.Trigger.MANUAL)
         assertEquals(DemoSession.Phase.ARMED, session.phase)
     }
+
+    @Test fun detectedHazardsRouteToMatchingHelpServicesAndEscalationTimings() {
+        val session = DemoSession()
+        session.triggerDetectedHazard(
+            nowMillis = 1_000L,
+            detectedHazard = HazardType.FIRE,
+            source = DemoSession.Trigger.OPEN_FIRE,
+            urgentImmediate = true,
+        )
+        assertEquals(DemoSession.Phase.CHECK_IN, session.phase)
+        assertEquals(HazardType.FIRE, session.hazardType)
+        assertEquals(HelpService.FIRE_DEPARTMENT, session.targetService)
+        // Fire uses shorter 8s check-in window
+        session.tick(8_999L)
+        assertEquals(DemoSession.Phase.CHECK_IN, session.phase)
+        session.tick(9_000L)
+        assertEquals(DemoSession.Phase.ALERT, session.phase)
+
+        session.finish()
+        session.triggerDetectedHazard(
+            nowMillis = 10_000L,
+            detectedHazard = HazardType.MEDICAL,
+            source = DemoSession.Trigger.ELDERLY_FALL,
+        )
+        assertEquals(DemoSession.Phase.CHECK_IN, session.phase)
+        assertEquals(HazardType.MEDICAL, session.hazardType)
+        assertEquals(HelpService.AMBULANCE, session.targetService)
+    }
 }
