@@ -53,6 +53,8 @@ import GuardianCore
     func arm() async {
         guard !armed else { return }; let token = UUID(); operation = token; status = "Preparing local triggers"
         do {
+            guard !settings.consent.audio || settings.consent.cloud else { throw DeviceError.message("Audio sharing also requires cloud sharing consent.") }
+            guard settings.input != .real || settings.audio != .replay else { throw DeviceError.message("Choose a real microphone source for real-glasses mode.") }
             await disarmTask?.value; try checkOperation(token)
             try settings.save(); let client = try makeAPI(); api?.invalidate(); api = client
             if settings.input == .mock {
@@ -190,9 +192,14 @@ import GuardianCore
         } catch { guard !Task.isCancelled else { return }; self.error = "ElevenLabs voice unavailable: \(error.localizedDescription)" } }
     }
     func cancelIncident() {
-        voice.stop(); locator.cancel(); promptTask?.cancel(); captureTask?.cancel(); replayAudioTask?.cancel(); uploadTask?.cancel(); glasses.stopCapture(); capturing = false; processing = false; gate.endCapture(); activeCapture = nil; clearMedia()
-        guard let id = incident?.id,let api else { stop(); return }
-        Task { [weak self] in do { let value: Incident = try await api.post("v1/incidents/\(id)/cancel"); guard self?.incident?.id == id else { return }; self?.incident = value; await self?.handleVoice() } catch { self?.error = "Cancellation not confirmed: \(error.localizedDescription)" } }
+        let id = incident?.id, client = api
+        // Cancellation also disarms, invalidating pending trigger replies and capture callbacks.
+        stop(cancelPending:true)
+        guard let id,let client else { return }
+        Task { [weak self] in do {
+            let value: Incident = try await client.post("v1/incidents/\(id)/cancel")
+            guard self?.incident?.id == id else { return }; self?.incident = value; await self?.handleVoice()
+        } catch { self?.error = "Cancellation not confirmed: \(error.localizedDescription)" } }
     }
     func acknowledge() async { guard let incident,let api else { return }; do { self.incident = try await api.post("v1/incidents/\(incident.id)/acknowledge"); voice.stop(); await handleVoice() } catch { self.error = error.localizedDescription } }
     private func shareLocationIfConsented() {

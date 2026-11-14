@@ -20,6 +20,13 @@ enum PCMConverter {
     private var engine: AVAudioEngine?, recognizer: SFSpeechRecognizer?, request: SFSpeechAudioBufferRecognitionRequest?, recognition: SFSpeechRecognitionTask?
     private var restart: Task<Void,Never>?, epoch = UUID(), wantsASR = false, suppressed = false
     private var recognitionID = UUID(), recognitionFailures = 0
+    func requestPermissions(localSpeech: Bool) async throws {
+        guard await AVAudioApplication.requestRecordPermission() else { throw DeviceError.message("Phone microphone permission denied.") }
+        if localSpeech {
+            let authorization = await withCheckedContinuation { continuation in SFSpeechRecognizer.requestAuthorization { continuation.resume(returning:$0) } }
+            guard authorization == .authorized else { throw DeviceError.message("Local speech permission denied.") }
+        }
+    }
     func start(localASR: Bool) async throws {
         stop(); recognitionFailures = 0; let token = epoch
         guard await AVAudioApplication.requestRecordPermission() else { throw DeviceError.message("Phone microphone permission denied.") }

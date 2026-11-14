@@ -21,9 +21,12 @@ enum Keychain {
     }
 }
 @MainActor final class Settings: ObservableObject {
+    #if DEBUG
+    var usesEphemeralUITestConfiguration = false
+    #endif
     @Published var apiURL: String
     @Published var clientToken: String
-    @Published var input: InputMode = .mock
+    @Published var input: InputMode = .mock { didSet { if input == .real && audio == .replay { audio = .glasses } } }
     @Published var keywords: KeywordMode = .glasses
     @Published var audio: AudioMode = .replay
     @Published var consent = Consent()
@@ -36,5 +39,11 @@ enum Keychain {
         input = .real; audio = .glasses
         #endif
     }
-    func save() throws { _ = try GuardianAPI(url: apiURL,token: clientToken); try Keychain.write(apiURL,account: "apiURL"); try Keychain.write(clientToken,account: "clientToken") }
+    func save() throws {
+        _ = try GuardianAPI(url:apiURL,token:clientToken)
+        #if DEBUG
+        if usesEphemeralUITestConfiguration { return }
+        #endif
+        try Keychain.write(apiURL,account:"apiURL"); try Keychain.write(clientToken,account:"clientToken")
+    }
 }

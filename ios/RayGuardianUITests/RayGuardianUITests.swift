@@ -11,7 +11,9 @@ final class RayGuardianUITests: XCTestCase {
     private func armAndInject(_ app: XCUIApplication) {
         let arm = app.buttons["Arm for 15 minutes"]
         XCTAssertTrue(arm.waitForExistence(timeout:15)); arm.tap()
-        XCTAssertTrue(app.staticTexts["Guardian is armed"].waitForExistence(timeout:25))
+        if !app.staticTexts["Guardian is armed"].waitForExistence(timeout:25) {
+            XCTFail("Arming failed: \(app.debugDescription)"); return
+        }
         app.tabBars.buttons["Replay lab"].tap()
         let inject = app.buttons["Inject ‘Guardian help me’"]
         XCTAssertTrue(inject.waitForExistence(timeout:5)); inject.tap()

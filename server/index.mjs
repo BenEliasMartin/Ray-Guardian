@@ -22,4 +22,4 @@ const guardian=new GuardianService({store,calls,detect:createDetector(provider),
 const server=createGuardianHTTP({guardian,speak:createElevenLabs({apiKey:env.ELEVENLABS_API_KEY,voiceId:env.ELEVENLABS_VOICE_ID,modelId:env.ELEVENLABS_MODEL_ID??env.ELEVENLABS_TTS_MODEL}),clientToken:env.RAY_GUARDIAN_CLIENT_TOKEN,analyze:createNemotron(provider)});
 server.listen(port,host,()=>console.log(`Ray Guardian demo API listening on ${host}:${port}`));
 let shuttingDown=false;
-for(const signal of ['SIGINT','SIGTERM'])process.on(signal,async()=>{if(shuttingDown)return;shuttingDown=true;server.close();await guardian.close();store.close();});
+for(const signal of ['SIGINT','SIGTERM'])process.on(signal,async()=>{if(shuttingDown)return;shuttingDown=true;const drained=new Promise(resolve=>server.close(resolve));await guardian.close();await drained;store.close();});

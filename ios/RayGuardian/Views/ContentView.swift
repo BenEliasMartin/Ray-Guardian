@@ -73,6 +73,7 @@ struct SettingsView: View {
     @ObservedObject var settings: Settings
     var body: some View {
         NavigationStack { Form {
+            if model.armed || model.capturing || model.processing { Section { Text("Changing configuration immediately stops capture and disarms the session.") } }
             Section("Backend") {
                 TextField("HTTPS API URL",text: $settings.apiURL).textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
                 SecureField("Client token (not provider keys)",text: $settings.clientToken).textInputAutocapitalization(.never).autocorrectionDisabled()
@@ -85,7 +86,7 @@ struct SettingsView: View {
                 Picker("Device",selection: $settings.input) { ForEach(InputMode.allCases) { Text($0.rawValue).tag($0) } }
                 #endif
                 Picker("Keyword detector",selection: $settings.keywords) { ForEach(KeywordMode.allCases) { Text($0.rawValue).tag($0) } }
-                Picker("Capture audio",selection: $settings.audio) { ForEach(AudioMode.allCases) { Text($0.rawValue).tag($0) } }
+                Picker("Capture audio",selection: $settings.audio) { ForEach(AudioMode.allCases.filter { settings.input == .mock || $0 != .replay }) { Text($0.rawValue).tag($0) } }
                 Text("Wake phrases: ‘Guardian help me’ starts assessment. ‘Guardian SOS’ or ‘Guardian call for help’ explicitly escalates the demo. ‘Guardian cancel’ cancels. Loudness alone never starts capture.").font(.caption)
                 Text("Glasses speech, motion and camera audio require the corresponding Meta developer capabilities. Phone speech requires downloaded on-device English recognition.").font(.caption)
             }
@@ -106,11 +107,12 @@ struct SettingsView: View {
                 Text("A fresh sustained elevation can request a bounded assessment; heart rate never establishes an emergency. Exercise is a required negative control.").font(.caption)
             }
             Section("Real glasses setup") {
+                Button("Grant phone microphone / local speech") { Task { do { try await model.phone.requestPermissions(localSpeech:settings.keywords == .phone) } catch { model.error = error.localizedDescription } } }
                 Button("Grant incident location permission") { model.locator.requestPermission() }
                 Button("Register with Meta AI") { Task { do { try await model.glasses.register() } catch { model.error = error.localizedDescription } } }
                 Button("Grant glasses camera and microphone") { Task { do { try await model.glasses.requestPermissions() } catch { model.error = error.localizedDescription } } }
             }
-        }.disabled(model.armed || model.capturing || model.processing).navigationTitle("Setup") }
+        }.navigationTitle("Setup") }
     }
 }
 struct ReplayView: View {
