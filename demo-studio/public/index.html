@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#142b29">
+  <meta name="description" content="Experience Ray Guardian without glasses. An interactive, clearly labeled rehearsal and live analysis studio.">
+  <title>Ray Guardian — Demo Studio</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Cpath fill='%23142b29' d='M20 2 36 9v13c0 8-16 16-16 16S4 30 4 22V9Z'/%3E%3Cpath fill='none' stroke='%23d2ef86' stroke-width='3' d='m12 20 5 5 11-12'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/style.css"><script type="module" src="/app.js"></script>
+</head>
+<body>
+<div id="cinema" class="cinema" hidden aria-hidden="true"><video id="pov-film" muted playsinline preload="metadata" tabindex="-1" aria-label="Illustrative first-person footage"></video><div class="cinema-shade"></div></div>
+<header class="topbar"><a class="brand" href="/" aria-label="Ray Guardian home">Ray Guardian</a><div class="header-actions"><button id="voice" class="icon-button" aria-pressed="false" title="Enable spoken scene and glasses prompts">Sound off</button><button id="fullscreen" class="icon-button" title="Toggle fullscreen">↗</button></div></header>
+<main>
+  <section id="experience" class="page">
+    <div id="rehearsal-content">
+      <section id="moment-picker" aria-labelledby="picker-title"><h1 id="picker-title">Pick a moment.</h1><div id="stories" class="moments"></div></section>
+      <section id="moment-stage" aria-label="Current moment" hidden>
+        <div id="pov-meta" class="pov-meta" hidden><div><span class="pov-label">Wearer’s view</span><span class="pov-explanation">Presentation film · The glasses have no display</span></div><span id="pov-capture" class="pov-capture"></span></div><button id="film-play" class="quiet-link" hidden>Play POV footage →</button><p id="film-status" class="film-status" hidden></p>
+        <div class="stage">
+          <section class="world" aria-label="The triggering moment"><div id="world-art" aria-hidden="true"></div><div class="world-message"><span class="signal-chip" id="signal-chip">THE MOMENT</span><blockquote id="scene-quote"></blockquote><p id="scene-detail"></p></div></section>
+          <section class="response" aria-label="Guardian’s response"><div class="phone-body"><span class="companion-label">Phone app</span><div id="response-art" class="response-art"></div><span id="response-tag" class="micro response-tag" role="status" aria-live="polite"></span><h2 id="response-title"></h2><p id="response-detail"></p><div id="countdown-wrap" hidden><div class="countdown" aria-label="Seconds remaining"><svg viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="44"/><circle id="countdown-ring" cx="50" cy="50" r="44"/></svg><strong id="countdown">15</strong></div><span class="countdown-label">seconds to respond</span></div><button id="cancel" class="cancel-button" hidden>I’m okay</button><span id="voice-hint" class="voice-hint" hidden>Or say “Guardian cancel.”</span><button id="choose-another" class="quiet-link" hidden>Try another moment →</button></div></section>
+        </div>
+        <div class="experience-caption"><span id="caption-speaker" class="caption-speaker" hidden>GLASSES AUDIO</span><p id="heard"></p><button id="hear" aria-label="Hear the spoken prompt" title="Hear the current spoken prompt">▶</button></div>
+        <div class="experience-controls"><button id="leave-moment" class="quiet-link">← Moments</button><div class="transport-controls"><button id="play" class="quiet-link">Pause</button><button id="reset" class="quiet-link">Restart</button><button id="next" class="quiet-link">Skip →</button></div></div>
+      </section>
+      <div hidden aria-hidden="true"><span id="canvas-title"></span><span id="story-counter"></span><span id="camera-status"></span><span id="capture-clock"></span><span id="input-source-label"></span><span id="elapsed"></span><span id="duration"></span><input id="scrub" type="range" min="0" max="30" step="0.1" value="0" aria-label="Story position"></div>
+    </div>
+    <section id="free-content" hidden>
+      <div id="free-media" class="free-media" hidden aria-hidden="true"><video id="free-video" muted playsinline></video><img id="free-still" alt="" hidden><div class="free-shade"></div></div>
+      <div class="free-top"><button id="free-back" class="quiet-link">← Moments</button><span id="free-connection" class="micro">Checking connection…</span></div>
+      <section id="free-setup" class="free-setup">
+        <h1>Try Guardian.</h1>
+        <div class="free-sources"><button id="free-camera" aria-pressed="true">Camera</button><label id="free-video-source">Video <input id="free-file" aria-label="Choose a local video" type="file" accept="video/*"></label></div>
+        <p id="free-file-name" class="free-note">Camera starts when you tap Start.</p>
+        <details class="free-phrase"><summary>Try a phrase <span>＋</span></summary><label for="free-phrase">Type a phrase</label><input id="free-phrase" maxlength="300" placeholder="e.g. I’m in danger" autocomplete="off"><p>Typed input. Microphone off.</p></details>
+        <label class="free-consent"><input id="free-consent" type="checkbox">Share up to 6 images with the AI.</label>
+        <button id="free-run" class="free-primary" disabled>Start</button>
+        <p id="free-offline" class="free-offline" hidden></p>
+      </section>
+      <section id="free-stage" class="free-stage" hidden>
+        <div class="free-status"><span id="free-result-source" class="micro">REAL BACKEND / YOUR INPUT</span><span id="free-capture-status" class="micro">CAMERA OFF / MICROPHONE OFF</span></div>
+        <div class="free-stage-main"><div class="free-message"><h1 id="free-title"></h1><p id="free-detail" role="status" aria-live="polite"></p></div>
+        <section id="free-companion" class="free-companion" aria-label="Actual backend incident" hidden><span class="micro">Phone app</span><div id="free-art" class="response-art"></div><h2 id="free-response-title"></h2><p id="free-response-detail"></p><div id="free-count-wrap"><strong id="free-count"></strong><span>seconds to respond</span></div><button id="free-safe" class="cancel-button">I’m okay</button></section></div>
+        <div class="free-bottom"><button id="free-stop" class="quiet-link" hidden>Stop & cancel</button><button id="free-again" class="quiet-link" hidden>Try again →</button><span class="free-note">Camera off after capture. No trusted capture signature is issued here.</span></div>
+      </section>
+    </section>
+  </section>
+  <section id="inside" class="page" hidden><div class="detail-nav"><button data-view="experience" class="quiet-link">← Back to the experience</button><button data-view="record" class="quiet-link">Session record →</button></div><div class="section-intro"><p class="eyebrow">SYSTEM / EVENT-DRIVEN CAPTURE</p><h1>How Guardian responds.</h1><p>Explore the capture app’s flow. Click a step to see what happens—and what stays private.</p></div><div id="pipeline-cards" class="pipeline-cards"></div><div id="pipeline-detail" class="pipeline-detail"></div><section class="event-score" aria-label="Event timeline"><div class="score-heading"><div><span class="micro">THIS MOMENT’S TIMELINE</span><p>Outlines show planned windows. Solid bars show elapsed activity.</p></div><output id="score-time" aria-live="off"></output></div><div id="score-tracks"></div></section><button id="explain" class="quiet-link">Scenario notes <span>＋</span></button><div id="explanation" class="explanation" hidden></div><div class="principles"><article><span>01 / BATTERY & PRIVACY</span><h3>Context, on demand.</h3><p>With continuous preview and gestures disabled, the camera is off in standby. Accepted triggers can open up to eight seconds of capture.</p></article><article><span>02 / THE WEARER COMES FIRST</span><h3>A plea doesn’t need proof.</h3><p>Recognized distress and threats can start a check-in before cloud assessment. An ordinary later scene doesn’t silently cancel that request.</p></article><article><span>03 / SCREENLESS BY DESIGN</span><h3>Hear it. Answer it.</h3><p>The glasses provide spoken cues. The phone shows the richer view. “Guardian cancel” and the app’s cancel control give the wearer a way out.</p></article></div></section>
+  <section id="record" class="page" hidden><div class="detail-nav"><button data-view="experience" class="quiet-link">← Back to the experience</button><button data-view="inside" class="quiet-link">How it works →</button></div><div class="record-heading"><div><p class="eyebrow">SESSION / EVENT HISTORY</p><h1>Session log.</h1><p>A transparent account of this studio session, with the source of every result.</p></div><button id="export" class="secondary">Export session ↓</button></div><div class="record-grid"><div class="record-main"><div class="record-title"><span id="record-source" class="micro">SCRIPTED REHEARSAL</span><span id="record-id" class="micro"></span></div><h2 id="record-name"></h2><p id="record-summary"></p><ol id="event-log" class="event-log"></ol></div><aside class="record-aside"><span class="micro">EVIDENCE & TRUST</span><h3>Know what the seal means.</h3><div class="signature-mark" aria-hidden="true">◇</div><strong>Signed by the capture app</strong><p>This guarantee means the file matches what an enrolled capture app signed. It does not prove that the scene itself is authentic.</p><div class="trust-status">No trusted capture signature is issued by this browser demo.</div><p class="small-note">The prototype trusts the phone’s capture path. Footage injected before signing on a compromised phone is outside that guarantee.</p><hr><span class="micro">DEMO SCOPE</span><p>Rehearsal events are scripted. Live results come from the backend. This studio does not call emergency services.</p></aside></div></section>
+</main><footer><button data-view="inside" class="quiet-link">How it works</button><span id="source-caption">Scripted demo · No calls placed</span></footer>
+<div id="toast" role="status" aria-live="polite" hidden></div>
+</body></html>

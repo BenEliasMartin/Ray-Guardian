@@ -1,0 +1,94 @@
+{
+  "version": 1,
+  "preparedOn": "2026-11-14",
+  "films": [
+    {
+      "file": "corridor-pov.mp4",
+      "title": "Walking along a Creepy Hotel Corridor",
+      "author": "Darina Evstafeva",
+      "source": "https://www.pexels.com/video/walking-along-a-creepy-hotel-corridor-15201618/",
+      "download": "https://videos.pexels.com/video-files/15201618/15201618-uhd_3840_2160_24fps.mp4",
+      "license": "Pexels License",
+      "licenseUrl": "https://www.pexels.com/license/",
+      "edits": "First 30 seconds; 1280px wide; brightness -0.025, saturation 0.65; muted; H.264 CRF24; faststart.",
+      "scope": "Stock first-person film. Fictional offscreen threat is presentation narration. Not Meta footage or a recorded crime.",
+      "sha256": "f4931069d00a9171bdcc4c1f6484809072a1a0506c705385c98acb3cda9efcda"
+    },
+    {
+      "file": "fall-pov.mp4",
+      "title": "EGOFALLS staged backward fall",
+      "source": "https://doi.org/10.34894/HO5GE3",
+      "sourceId": "001912fe26dda4ac",
+      "sourceSplit": "development",
+      "sourceFile": "validation/data/raw/001912fe26dda4ac.mov",
+      "rawSha256": "0582bf4904331243b1bac2d87267e2c272f24586a43dda25dff75c7b0e454320",
+      "license": "CC0-1.0",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "cameraMount": "neck",
+      "edits": "Source seconds 1.5\u20139.5; real-time; 1280px wide; muted; H.264 CRF22; faststart.",
+      "scope": "Staged wearable research footage, not Meta glasses. Scripted check-in and result do not validate detector accuracy.",
+      "sha256": "580606686d038883bf22ebfeb0510b4bdd49bd0206b067576001089d035d1a87"
+    },
+    {
+      "file": "night-pov.mp4",
+      "title": "Night walk: buildings and rain-soaked street",
+      "sources": [
+        {
+          "title": "Walking between buildings looking up at night",
+          "source": "https://mixkit.co/free-stock-video/walking-between-buildings-looking-up-at-night-40736/",
+          "download": "https://assets.mixkit.co/videos/40736/40736-720.mp4",
+          "license": "Mixkit Stock Video Free License",
+          "licenseUrl": "https://mixkit.co/license/#videoFree",
+          "sourceSeconds": [
+            0,
+            7
+          ]
+        },
+        {
+          "title": "People Walking in City at Night during Rainfall",
+          "author": "Sergei Skrynnik",
+          "source": "https://www.pexels.com/video/people-walking-in-city-at-night-during-rainfall-11839648/",
+          "download": "https://videos.pexels.com/video-files/11839648/11839648-uhd_3840_2160_25fps.mp4",
+          "license": "Pexels License",
+          "licenseUrl": "https://www.pexels.com/license/",
+          "sourceSeconds": [
+            0,
+            23
+          ]
+        }
+      ],
+      "edits": "Two real-time shots, hard cut after seven seconds. 1280x720, 24fps, slight brightness/saturation grade, muted H.264 CRF23 faststart.",
+      "scope": "Cinematic first-person stock edit, not a continuous Meta capture. Offscreen dialogue and system results are fictional.",
+      "sha256": "f328c019058657a5ceeb908a272e46575c6e314674e31bc8bb48625b813928a6"
+    },
+    {
+      "file": "courtyard-pov.mp4",
+      "title": "EGOFALLS ordinary courtyard walk",
+      "source": "https://doi.org/10.34894/HO5GE3",
+      "sourceId": "6993ae8893a3c6b6",
+      "sourceSplit": "development",
+      "sourceFile": "validation/data/raw/6993ae8893a3c6b6.mp4",
+      "rawSha256": "617fb43b4823c213ad1d7d5f43c975bdeb8f6158456c05af287cfb860742ddd5",
+      "license": "CC0-1.0",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "cameraMount": "neck",
+      "edits": "First ten seconds in real time; 1280px wide; muted H.264 CRF22 faststart.",
+      "scope": "Ordinary wearable research footage. Added dialogue/check-in/cancellation are fictional; source video contains no staged distress.",
+      "sha256": "7af82972aee75d6720bb47b14fda043831eb8a2ec6ebd506d042153eb19364d5"
+    },
+    {
+      "file": "woods-pov.mp4",
+      "title": "Point of View Shot of a Person Walking in the Woods",
+      "author": "Dmitry Marchenkov",
+      "source": "https://www.pexels.com/video/point-of-view-shot-of-a-person-walking-in-the-woods-9148788/",
+      "download": "https://videos.pexels.com/video-files/9148788/9148788-uhd_3840_2160_24fps.mp4",
+      "license": "Pexels License",
+      "licenseUrl": "https://www.pexels.com/license/",
+      "edits": "First sixteen seconds in real time; 1280px wide; muted H.264 CRF23 faststart.",
+      "scope": "Stock first-person walk with a scripted ordinary assessment. Not Meta footage or live model inference.",
+      "sha256": "378581ae533272d6c8a6aef07efe16313f4b1066af24d37f4f0e726efad3c417"
+    }
+  ],
+  "posterFrames": "First frame extracted from each derived film.",
+  "captureSeal": "None. Replays are never signed as live captures."
+}

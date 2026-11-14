@@ -1,0 +1,145 @@
+{
+  "generator": "kokoro-onnx 0.6.1",
+  "model": "Kokoro-82M v1.0",
+  "modelSource": "https://huggingface.co/hexgrad/Kokoro-82M",
+  "runtimeSource": "https://github.com/thewh1teagle/kokoro-onnx",
+  "modelLicense": "Apache-2.0",
+  "purpose": "Synthetic fictional demo dialogue and app prompts. No real speaker impersonation.",
+  "lines": [
+    {
+      "id": "walking-home",
+      "role": "narrator",
+      "text": "You\u2019re walking home.",
+      "voice": "af_heart",
+      "speed": 1,
+      "durationSeconds": 1.295,
+      "sha256": "405febd2bbd50bb294f5685dec6b7ca243443df548ea218effb9665b9168f3cb"
+    },
+    {
+      "id": "footsteps",
+      "role": "narrator",
+      "text": "Then, footsteps behind you.",
+      "voice": "af_heart",
+      "speed": 1,
+      "durationSeconds": 1.858,
+      "sha256": "3ce689db1737846e204997f7251ff7f30038dffc07db36c5d412d12fe9d3f923"
+    },
+    {
+      "id": "voice-behind",
+      "role": "narrator",
+      "text": "A voice behind you.",
+      "voice": "af_heart",
+      "speed": 1,
+      "durationSeconds": 1.444,
+      "sha256": "772ec0ff6bcdae018422e4db29462509c44eec2c41d782876aeb30e01dbd4f61"
+    },
+    {
+      "id": "threat",
+      "role": "offscreen",
+      "text": "I\u2019ll kill you.",
+      "voice": "am_michael",
+      "speed": 1,
+      "durationSeconds": 1.216,
+      "sha256": "f855c59c6731e9134f2795cc4787f093b97f5bf518b7d9920fc715117d0e8c74"
+    },
+    {
+      "id": "ordinary-walk",
+      "role": "narrator",
+      "text": "An ordinary walk.",
+      "voice": "af_heart",
+      "speed": 1,
+      "durationSeconds": 1.463,
+      "sha256": "5d6c3f74e3439ae3e854e937d5c3c391cbb4a558959fc934ab060af294dd183c"
+    },
+    {
+      "id": "plea",
+      "role": "wearer",
+      "text": "No, please don\u2019t.",
+      "voice": "af_bella",
+      "speed": 1,
+      "durationSeconds": 1.361,
+      "sha256": "58e0d4ea2ac57c1f6405c1cfa196ee4055b3b7704dedfcbe988dec1c5ad9a930"
+    },
+    {
+      "id": "wearer-cancel",
+      "role": "wearer",
+      "text": "Guardian, cancel.",
+      "voice": "af_bella",
+      "speed": 1,
+      "durationSeconds": 1.379,
+      "sha256": "76476be89f0c0cb58f9660523ae5dbc5f51ce65c951bc8068071fdd8e9dbf6ee"
+    },
+    {
+      "id": "check-in",
+      "role": "guardian",
+      "text": "Are you okay? If you\u2019re safe, say \u201cGuardian cancel.\u201d",
+      "voice": "af_heart",
+      "speed": 1,
+      "durationSeconds": 3.074,
+      "sha256": "3b9c0c57f1a9c9a3152999415c2a6b2ef220a0f550df108fe83bf65bf191e55a"
+    },
+    {
+      "id": "fall-check-in",
+      "role": "guardian",
+      "text": "That looked like a fall. Are you okay? If you\u2019re safe, say \u201cGuardian cancel.\u201d",
+      "voice": "af_heart",
+      "speed": 1,
+      "durationSeconds": 4.297,
+      "sha256": "7fca0c5e9dd261bf4cb5b1ad18a8525303c0b5f9079abb56b19957ba574e1418"
+    },
+    {
+      "id": "cancelled",
+      "role": "guardian",
+      "text": "Check-in cancelled.",
+      "voice": "af_heart",
+      "speed": 1,
+      "durationSeconds": 1.289,
+      "sha256": "d4312b7be4796bcca6d65b94987585b22078e7ae6ebfa769abca4b86f651fc83"
+    },
+    {
+      "id": "alert",
+      "role": "guardian",
+      "text": "Your alert is active. Say \u201cGuardian cancel\u201d to stop it.",
+      "voice": "af_heart",
+      "speed": 1,
+      "durationSeconds": 3.66,
+      "sha256": "dfabd39a7520f1b990c91cf3b2873e093f90bcf6710c4d5d2017da08666c2660"
+    },
+    {
+      "id": "browser-check-in",
+      "role": "guardian",
+      "text": "Are you okay? Tap \u201cI\u2019m okay\u201d to cancel this test.",
+      "voice": "af_heart",
+      "speed": 1,
+      "durationSeconds": 3.252,
+      "sha256": "2235948c0536e7b76228a6fdc205dd9c97a42dbd35fc974eb6ce4a163dca013f"
+    },
+    {
+      "id": "browser-expired",
+      "role": "guardian",
+      "text": "The check-in has ended. This demo won\u2019t make any calls.",
+      "voice": "af_heart",
+      "speed": 1,
+      "durationSeconds": 3.337,
+      "sha256": "a1db299e3cde1246987fc49f282db9e3d0b867274e234406de12039d8de79494"
+    },
+    {
+      "id": "browser-ready",
+      "role": "guardian",
+      "text": "Ready when you are.",
+      "voice": "af_heart",
+      "speed": 1,
+      "durationSeconds": 1.285,
+      "sha256": "42f1af135776ec8210fb8f10f3bbdd72aec6b2f4970f372c0b6da2f2234000f2"
+    },
+    {
+      "id": "browser-ended",
+      "role": "guardian",
+      "text": "Test ended.",
+      "voice": "af_heart",
+      "speed": 1,
+      "durationSeconds": 1.034,
+      "sha256": "122b3ae53c6aa9486ec423549ecffd225e713b40fd7d224374256342fd7e5867"
+    }
+  ]
+}
