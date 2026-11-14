@@ -4,6 +4,8 @@ import UIKit
 import AVFoundation
 import MWDATCore
 import MWDATCamera
+import MWDATDisplay
+import MWDATInputs
 import MWDATMotion
 import MWDATSpeech
 import GuardianCore
@@ -18,6 +20,7 @@ import MWDATMockDevice
     @Published var motionStatus = "Off"
     @Published var speechStatus = "Off"
     @Published var cameraStatus = "Off"
+    @Published private(set) var displayStatus = "Off"
     var configurationError: String?
     private func requireConfiguration() throws { if let configurationError { throw DeviceError.message(configurationError) } }
     var onFrame: ((UIImage) -> Void)?
@@ -25,10 +28,15 @@ import MWDATMockDevice
     var onTranscript: ((String, Bool, Float) -> Void)?
     var onMotion: ((MotionPoint) -> Void)?
     var onUnavailable: ((String) -> Void)?
+    var onDisplayCancel: ((String) -> Void)?
     private var session: DeviceSession?, camera: Camera?, motion: Motion?, speech: Speech?
     private var imageDecoder: StreamImageDecoder?
     private let standbyTokens = ListenerTokenBag(), cameraTokens = ListenerTokenBag()
     private var motionTask: Task<Void,Never>?
+    private var display: Display?
+    private var displayTask: Task<Void,Never>?
+    private var inputTask: Task<Void,Never>?
+    private var displayedIncident: String?
     private var generation = UUID()
     private var cameraGeneration = UUID()
     private var selector: AutoDeviceSelector?
@@ -163,7 +171,87 @@ import MWDATMockDevice
         attached.stream.start(); cameraStatus = "Starting bounded stream"
     }
     func stopCapture() { cameraGeneration = UUID(); cameraTokens.clear(); camera?.stop(); camera = nil; imageDecoder?.close(); imageDecoder = nil; cameraStatus = "Off" }
-    func stop() { generation = UUID(); stopCapture(); standbyTokens.clear(); motionTask?.cancel(); motionTask = nil; speech?.stop(); motion?.stop(); session?.stop(); speech = nil; motion = nil; session = nil; selector = nil; motionStatus = "Off"; speechStatus = "Off"; status = "Stopped" }
+    func showCheckIn(id: String, deadline: Date) {
+        guard displayedIncident != id, let session, session.state == .started,
+              session.device?.deviceType() == .metaRayBanDisplay else { return }
+        displayedIncident = id
+        displayTask?.cancel()
+        displayTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let display = try self.display ?? session.addDisplay()
+                self.display = display
+                if display.state == .stopped { display.start() }
+                while display.state != .started && Date() < deadline {
+                    try await Task.sleep(for: .milliseconds(100))
+                }
+                try Task.checkCancellation()
+                guard Date() < deadline, self.displayedIncident == id else { return }
+                let content = FlexBox(direction: .column, spacing: 12) {
+                    MWDATDisplay.Text("Are you okay?", style: .heading)
+                    MWDATDisplay.Button(label: "I’m okay", onClick: { [weak self] in
+                        Task { @MainActor in
+                            guard let self, self.displayedIncident == id, Date() < deadline else { return }
+                            self.onDisplayCancel?(id)
+                        }
+                    }).actionRole(.primary)
+                }.padding(24).background(.card)
+                try await display.send(content)
+                guard !Task.isCancelled, self.displayedIncident == id else { return }
+                self.displayStatus = "Check-in on glasses"
+                if let inputs = try session.addInputs(configuration: InputsConfiguration(sources: [.neuralBand], consumeBack: false)) {
+                    self.inputTask = Task { [weak self] in
+                        for await event in inputs.events {
+                            guard !Task.isCancelled, let self, self.displayedIncident == id, Date() < deadline else { break }
+                            if case .select(source: .neuralBand, timestampMs: _) = event {
+                                self.onDisplayCancel?(id)
+                            }
+                        }
+                    }
+                }
+            } catch {
+                guard !Task.isCancelled, self.displayedIncident == id else { return }
+                self.displayStatus = "Glasses check-in or gesture unavailable: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    func clearCheckIn() {
+        guard displayedIncident != nil else { return }
+        displayedIncident = nil
+        displayTask?.cancel()
+        inputTask?.cancel()
+        inputTask = nil
+        if let session { try? session.removeInputs() }
+        displayTask = Task { [display] in
+            guard !Task.isCancelled, let display, display.state == .started else { return }
+            try? await display.clearDisplay()
+        }
+        displayStatus = "Off"
+    }
+
+    func stop() {
+        generation = UUID()
+        clearCheckIn()
+        displayTask?.cancel()
+        displayTask = nil
+        display?.stop()
+        display = nil
+        stopCapture()
+        standbyTokens.clear()
+        motionTask?.cancel()
+        motionTask = nil
+        speech?.stop()
+        motion?.stop()
+        session?.stop()
+        speech = nil
+        motion = nil
+        session = nil
+        selector = nil
+        motionStatus = "Off"
+        speechStatus = "Off"
+        status = "Stopped"
+    }
     func setVoiceSuppressed(_ value: Bool) { if value { speech?.stop() } else { speech?.start() } }
     func injectSpeech(_ text: String) {
         #if DEBUG

@@ -14,6 +14,26 @@ import {inspectWAV,validateObservation} from '../media.mjs';
 const png='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a1i8AAAAASUVORK5CYII=';
 const fall={label:'possible_fall',confidence:'medium',summary:'The view drops toward the floor.',observations:['Abrupt downward view.'],uncertainties:['No pre-event video.'],wearerInvolved:true,source:'nemotron'};
 const ordinary={...fall,label:'ordinary_activity'};
+test('Nemotron retries malformed output and returns an inconclusive result if both attempts fail', async () => {
+  let attempts = 0;
+  const response = content => new Response(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { content } }] }));
+  const detect = createDetector({
+    apiKey: 'test',
+    fetchImpl: async (_, options) => {
+      const request = JSON.parse(options.body);
+      assert.equal(request.response_format.type, 'json_schema');
+      return response(++attempts === 2 ? JSON.stringify(fall) : 'not JSON');
+    },
+  });
+  const input = { frames: [{ offsetMs: 0, imageDataUrl: png }] };
+  assert.equal((await detect(input)).label, 'possible_fall');
+  assert.equal(attempts, 2);
+  const unavailable = createDetector({ apiKey: 'test', fetchImpl: async () => response('not JSON') });
+  const result = await unavailable(input);
+  assert.equal(result.source, 'nemotron_unavailable');
+  assert.equal(result.label, 'uncertain');
+  assert.equal(shouldCheckIn(result), false);
+});
 function wav(ms=1000){const b=Buffer.alloc(44+ms*32);b.write('RIFF');b.writeUInt32LE(b.length-8,4);b.write('WAVEfmt ',8);b.writeUInt32LE(16,16);b.writeUInt16LE(1,20);b.writeUInt16LE(1,22);b.writeUInt32LE(16000,24);b.writeUInt32LE(32000,28);b.writeUInt16LE(2,32);b.writeUInt16LE(16,34);b.write('data',36);b.writeUInt32LE(b.length-44,40);return b;}
 function fixture(t,overrides={}){
   let time=100000,placed=0;
@@ -27,6 +47,44 @@ test('encrypted store enforces owner/revision/expiry and does not write plaintex
   const dir=mkdtempSync(join(tmpdir(),'guardian-store-')),path=join(dir,'db.sqlite');let now=1;
   const store=new EncryptedStore({path,key:'a'.repeat(64),now:()=>now});
   try{const row=store.put('incident',{id:'x',summary:'unique-secret-incident'},{owner:'a',expires:100});assert.equal(store.get('incident','x','b'),null);assert.throws(()=>store.put('incident',row,{owner:'a',expires:100,expectedRevision:0}),{code:'revision_conflict'});assert.equal(store.get('incident','x','a').summary,row.summary);store.db.exec('PRAGMA wal_checkpoint(TRUNCATE)');assert.equal(readFileSync(path).includes('unique-secret-incident'),false);now=101;assert.equal(store.get('incident','x','a'),null);}finally{store.close();rmSync(dir,{recursive:true,force:true});}
+});
+test('speech monitoring starts a check-in for semantic distress and ignores ordinary speech', async t => {
+  const text = 'The handle snapped and I cannot get out of this room.';
+  let label = 'ordinary_activity';
+  const {g, placed} = fixture(t, {
+    voice: { transcribe: async () => ({text}) },
+    detect: async input => {
+      assert.equal(input.transcript, text);
+      assert.equal(input.trigger, 'speech_monitoring');
+      assert.deepEqual(input.frames, []);
+      return {...fall, label, observations: [text]};
+    },
+  });
+  const session = g.createSession('speech-owner', {speechMonitoring: true, consent: {cloud: true, audio: true, capture: true}});
+  g.arm('speech-owner', session.id);
+  const body = {base64: wav(8000).toString('base64')};
+  assert.equal((await g.monitorSpeech('speech-owner', session.id, body)).trigger, undefined);
+  label = 'distress_request';
+  const result = await g.monitorSpeech('speech-owner', session.id, body);
+  assert.equal(result.trigger.incident.state, 'check_in');
+  assert.equal(result.trigger.incident.detectedBy, 'nemotron');
+  assert.ok(result.trigger.window);
+  assert.equal(placed(), 0);
+});
+test('speech monitoring admits the next clip after an in-flight transcription completes', async t => {
+  let finish;
+  const {g} = fixture(t, {voice: {transcribe: () => new Promise(resolve => { finish = resolve; })}});
+  const session = g.createSession('speech-owner', {speechMonitoring: true, consent: {cloud: true, audio: true}});
+  g.arm('speech-owner', session.id);
+  const body = {base64: wav().toString('base64')};
+  const first = g.monitorSpeech('speech-owner', session.id, body);
+  await assert.rejects(g.monitorSpeech('speech-owner', session.id, body), {code: 'speech_busy'});
+  finish({text: ''});
+  await first;
+  const second = g.monitorSpeech('speech-owner', session.id, body);
+  finish({text: ''});
+  await second;
+  assert.equal(g.recentBudget('speech-owner','speech_monitoring').length, 2);
 });
 test('strict bounded audio and media validation rejects malformed data',()=>{
   assert.equal(inspectWAV(wav()).durationMs,1000);assert.throws(()=>inspectWAV(wav(8001)));const b=wav();b.writeUInt16LE(2,22);assert.throws(()=>inspectWAV(b));assert.throws(()=>validateObservation({windowId:'a'.repeat(36),frames:[]}));assert.throws(()=>validateObservation({windowId:'a'.repeat(36),frames:Array(7).fill({offsetMs:0,imageDataUrl:png})}));
@@ -69,7 +127,7 @@ test('loudness alone rejected, consent and capture budgets enforced',async t=>{
   const {g,s,advance,observation}=fixture(t);assert.equal(g.trigger('owner',s.id,{signal:'loud_voice'}).accepted,false);
   for(let n=0;n<3;n++){g.heartbeat('owner',s.id);const tr=g.trigger('owner',s.id,{signal:'motion'});assert.ok(tr.window);await g.observe('owner',s.id,observation(tr.window));await g.cancel('owner',g.requireSession('owner',s.id).incidentId);advance(61000);}
   g.heartbeat('owner',s.id);assert.ok(g.trigger('owner',s.id,{signal:'motion'}).window);
-  assert.throws(()=>g.trigger('owner',s.id,{signal:'manual_sos'}),{code:'incident_budget'});
+  assert.equal(g.trigger('owner',s.id,{signal:'manual_sos'}).incident.state,'call_queued');
   const no=g.createSession('fresh-owner',{});g.arm('fresh-owner',no.id);assert.equal(g.trigger('fresh-owner',no.id,{signal:'manual_sos'}).incident.state,'needs_demo_call_consent');assert.throws(()=>g.requireSession('other',s.id),{status:404});
 });
 test('disarming during provider work aborts and cannot resurrect incident',async t=>{
@@ -157,7 +215,7 @@ test('local ASR text cannot be uploaded without separate audio sharing consent',
   const {g}=fixture(t);const s=g.createSession('text-owner',{consent:{capture:true,cloud:true,audio:false}});g.arm('text-owner',s.id);const trigger=g.trigger('text-owner',s.id,{signal:'keyword_distress'});
   await assert.rejects(g.observe('text-owner',s.id,{windowId:trigger.window.id,frames:[{offsetMs:0,imageDataUrl:png}],transcript:'A locally recognized phrase.'}),{code:'audio_consent_required'});
 });
-test('capture and incident budgets survive disarm, new sessions and history deletion',async t=>{
+test('capture and demo call budgets survive disarm, new sessions and history deletion',async t=>{
   const {g,advance}=fixture(t);
   for(let n=0;n<3;n++){
     const s=g.createSession('budget-owner',{consent:{capture:true,cloud:true,voice:true,demoCalls:true}});g.arm('budget-owner',s.id);
@@ -171,7 +229,17 @@ test('capture and incident budgets survive disarm, new sessions and history dele
   }
   g.heartbeat('budget-owner',next.id);
   assert.equal(g.trigger('budget-owner',next.id,{signal:'motion'}).reason,'capture_budget');
-  assert.throws(()=>g.trigger('budget-owner',next.id,{signal:'manual_sos'}),{code:'incident_budget'});
+  assert.equal(g.trigger('budget-owner',next.id,{signal:'manual_sos'}).incident.state,'demo_call_limited');
+});
+test('repeated practice check-ins remain visible without spending the demo call budget', async t => {
+  const {g,s} = fixture(t);
+  for(let i=0;i<6;i++){
+    const reply=g.trigger('owner',s.id,{signal:'spoken_threat'});
+    assert.equal(reply.incident.state,'check_in');
+    await g.cancel('owner',reply.incident.id);
+  }
+  assert.equal(g.recentBudget('owner','demo_call').length,0);
+  assert.equal(g.trigger('owner',s.id,{signal:'manual_sos'}).incident.state,'call_queued');
 });
 test('Twilio cancellation handles an already-answered call without retrying a dial',async()=>{
   const statuses=[];const calls=createDemoCalls({transport:'twilio',accountSid:'AC'+'a'.repeat(32),authToken:'secret',from:'+15551234567',to:'+15557654321',allowlist:['+15557654321'],publicBaseURL:'https://demo.example',mediaSecret:'s'.repeat(32),fetchImpl:async(url,options)=>{assert.match(url,/Calls\/CA/);statuses.push(options.body.get('Status'));return statuses.length===1?new Response('already answered',{status:400}):new Response('{}');}});

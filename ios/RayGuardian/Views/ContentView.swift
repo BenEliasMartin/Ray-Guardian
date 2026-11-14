@@ -72,6 +72,7 @@ struct GlassesPreview: View {
         case "check_in": return ("Are you okay?", "exclamationmark.triangle.fill", .orange)
         case "awaiting_foreground_confirmation": return ("Confirm demo alert", "bell.badge", .orange)
         case "needs_demo_call_consent": return ("Demo alert paused", "pause.circle", .orange)
+        case "demo_call_limited": return ("Demo call limit reached", "pause.circle", .orange)
         case "call_queued", "call_ringing", "call_in_progress", "demo_call_active", "call_completed":
             return ("Demo alert active", "phone.fill", .orange)
         case "call_failed", "call_unknown": return ("Check demo alert", "exclamationmark.circle", .orange)
@@ -200,7 +201,7 @@ struct DeviceStatusView: View {
     @ObservedObject var glasses: GlassesAdapter
     @ObservedObject var phone: PhoneAudio
     @ObservedObject var voice: VoicePlayer
-    var body: some View { GroupBox("Device status") { VStack(alignment: .leading,spacing: 5) { Text(glasses.status); Text("Camera: \(glasses.cameraStatus)"); Text("Motion: \(glasses.motionStatus)"); Text("Glasses speech: \(glasses.speechStatus)"); Text("Phone audio: \(phone.status)"); Text(voice.playing ? "Playing ElevenLabs voice" : "Voice idle") }.font(.caption).frame(maxWidth: .infinity,alignment: .leading) } }
+    var body: some View { GroupBox("Device status") { VStack(alignment: .leading,spacing: 5) { Text(glasses.status); Text("Camera: \(glasses.cameraStatus)"); Text("Display: \(glasses.displayStatus)"); Text("Motion: \(glasses.motionStatus)"); Text("Glasses speech: \(glasses.speechStatus)"); Text("Phone audio: \(phone.status)"); Text(voice.playing ? "Playing ElevenLabs voice" : "Voice idle") }.font(.caption).frame(maxWidth: .infinity,alignment: .leading) } }
 }
 struct SettingsView: View {
     @ObservedObject var model: GuardianModel
@@ -221,22 +222,22 @@ struct SettingsView: View {
                 #endif
                 Picker("Keyword detector",selection: $settings.keywords) { ForEach(KeywordMode.allCases) { Text($0.rawValue).tag($0) } }
                 Picker("Capture audio",selection: $settings.audio) { ForEach(AudioMode.allCases.filter { settings.input == .mock || $0 != .replay }) { Text($0.rawValue).tag($0) } }
-                Text("Local speech can start a check-in on phrases such as ‘I’m going to kill you.’ ‘Guardian help me’ starts assessment, ‘Guardian SOS’ escalates the demo, and ‘Guardian cancel’ cancels.").font(.caption)
+                Text("“I’m in danger,” “help me,” and direct threats can start a check-in. “Guardian SOS” escalates the demo. “Guardian cancel” cancels it.").font(.caption)
                 Text("Glasses speech, motion and camera audio require the corresponding Meta developer capabilities. Phone speech requires downloaded on-device English recognition.").font(.caption)
             }
-            Section("Per-session privacy choices · off by default") {
+            Section("Per-session privacy choices") {
                 Toggle("Allow triggered camera capture",isOn: $settings.consent.capture)
                 Toggle("Allow bounded evidence sent to cloud AI",isOn: $settings.consent.cloud)
                 Toggle("Automatically check the scene while armed",isOn: $settings.automaticSceneChecks)
                     .disabled(!settings.consent.capture || !settings.consent.cloud)
-                Text("Scene checks can run every 20 seconds when idle. Motion, voice, and other event cues have their own capture allowance.").font(.caption)
+                Text("Scene checks run automatically while armed with camera capture and cloud analysis enabled. Checks can run every 20 seconds when idle.").font(.caption)
                 Toggle("Keep the last 3 seconds of camera frames in memory",isOn: $settings.preTriggerFrames)
                     .disabled(!settings.consent.capture || !settings.consent.cloud)
                 Text("Lets the assessment see the moments before a fall or other trigger. Frames never leave the phone unless a capture is accepted, and older frames are discarded continuously. Keeps the glasses camera on while armed, which uses more battery.").font(.caption)
                 Toggle("Include audio in cloud transcription",isOn: $settings.consent.audio)
                 Toggle("ElevenLabs listening while armed",isOn: $settings.elevenLabsListening)
                     .disabled((!settings.consent.audio || !settings.consent.cloud) && !settings.elevenLabsListening)
-                Text("Sends short iPhone mic clips with sound to ElevenLabs while armed. \(model.cloudSpeechStatus)").font(.caption)
+                Text("ElevenLabs transcribes short iPhone mic clips while armed. Nemotron assesses whether the speech warrants a check-in. \(model.cloudSpeechStatus)").font(.caption)
                 Toggle("Play real ElevenLabs voice",isOn: $settings.consent.voice)
                 Toggle("Allow demo escalation / test calls",isOn: $settings.consent.demoCalls)
                 Toggle("Share incident location",isOn: $settings.consent.location)

@@ -4,6 +4,31 @@ import XCTest
 import FoundationNetworking
 #endif
 final class GuardianCoreTests: XCTestCase {
+    func testSpeechClipSurvivesOldWindowBoundaryAndAnInternalPause() {
+        var buffer = SpeechClipBuffer()
+        XCTAssertTrue(buffer.consume(Array(repeating: 0, count: 61_000)).isEmpty)
+        let first = Array(repeating: Int16(600), count: 4_600)
+        let pause = Array(repeating: Int16(0), count: 4_800)
+        let last = Array(repeating: Int16(-700), count: 7_200)
+        let utterance = first + pause + last
+        // Irregular audio callbacks should not affect where the clip starts or ends.
+        for start in stride(from: 0, to: utterance.count, by: 541) {
+            XCTAssertTrue(buffer.consume(Array(utterance[start..<min(start + 541, utterance.count)])).isEmpty)
+        }
+        let clips = buffer.consume(Array(repeating: 0, count: 12_000))
+        XCTAssertEqual(clips.count, 1)
+        XCTAssertEqual(clips.first?.filter { $0 != 0 }, first + last)
+    }
+
+    func testSpeechClipLimitsLongRunsAndDoesNotResubmitTheOverlapAlone() {
+        var buffer = SpeechClipBuffer()
+        let initial = buffer.consume(Array(repeating: 900, count: 128_000))
+        XCTAssertEqual(initial.first?.count, 128_000)
+        XCTAssertTrue(buffer.consume(Array(repeating: 0, count: 16_000)).isEmpty)
+        XCTAssertTrue(buffer.consume([Int16.max] + Array(repeating: 0, count: 16_000)).isEmpty)
+        XCTAssertEqual(buffer.consume(Array(repeating: 900, count: 3_200) + Array(repeating: 0, count: 12_000)).count, 1)
+    }
+
     func testKeywordsRequireFinalLocalRecognitionAndIgnorePlayback() {
         XCTAssertEqual(KeywordDetector.intent("Guardian, help me!",isFinal: true,confidence: 0.9),.distress)
         XCTAssertEqual(KeywordDetector.intent("Guardian SOS",isFinal: true,confidence: -1),.sos)
@@ -18,6 +43,10 @@ final class GuardianCoreTests: XCTestCase {
         XCTAssertNil(KeywordDetector.intent("I’m going to kill the lights",isFinal: true,confidence: 0.9))
         XCTAssertEqual(KeywordDetector.intent("Help!",isFinal: true,confidence: -1),.distress)
         XCTAssertEqual(KeywordDetector.intent("Somebody help me!",isFinal: false,confidence: 0),.distress)
+        XCTAssertEqual(KeywordDetector.intent("I’m in danger.",isFinal: true,confidence: -1),.distress)
+        XCTAssertEqual(KeywordDetector.intent("I am not safe.",isFinal: false,confidence: 0),.distress)
+        XCTAssertEqual(KeywordDetector.intent("Call an ambulance!",isFinal: true,confidence: 0.9),.distress)
+        XCTAssertNil(KeywordDetector.intent("I’m not in danger.",isFinal: true,confidence: 0.9))
     }
     func testMotionRequiresTimedFreeFallThenImpactAndCoolsDown() {
         var detector = FallCandidateDetector()

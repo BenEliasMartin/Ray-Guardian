@@ -14,7 +14,15 @@ import GuardianCore
     private var phoneFall = FallCandidateDetector(), phoneMotionActive = false
     private var heartRateDetector = SustainedHeartRate(), located = Set<String>()
     @Published private(set) var session: GuardianSession?
-    @Published private(set) var incident: Incident?
+    @Published private(set) var incident: Incident? {
+        didSet {
+            if armed, let incident, incident.state == "check_in", let deadline = incident.checkInDeadline {
+                glasses.showCheckIn(id: incident.id, deadline: Date(timeIntervalSince1970: deadline / 1000))
+            } else {
+                glasses.clearCheckIn()
+            }
+        }
+    }
     @Published private(set) var detection: Detection?
     @Published private(set) var health: Health?
     @Published private(set) var armed = false
@@ -41,15 +49,19 @@ import GuardianCore
     private var lastThreatAt: Double?
     private var lastDistressAt: Double?
     private var speechTask: Task<Void,Never>?
-    private var speechPCM: [Int16] = []
-    private var speechHasSound = false
+    private var speechBuffer = SpeechClipBuffer()
+    private var pendingSpeech: [([Int16], Double)] = []
     /// In-memory only: at most the last three seconds, uploaded only inside an accepted capture window.
     private var recentPreviewFrames: [(time: Double, jpeg: Data, sharpness: Double)] = []
     @Published private(set) var cloudSpeechStatus = "Off"
     private var spoken = Set<String>(), relays = Set<AnyCancellable>(), isForeground = true
     init() {
         heartRate.onMeasurement = { [weak self] bpm in guard let self,self.armed,self.settings.heartRateEnabled else { return }; if self.heartRateDetector.consume(bpm:bpm,threshold:self.settings.heartRateThreshold,time:self.monotonic) { self.sendTrigger(.heart_rate) } }
-        voice.$playing.sink { [weak self] playing in self?.phone.setSuppressed(playing); self?.glasses.setVoiceSuppressed(playing) }.store(in:&relays)
+        voice.$playing.sink { [weak self] playing in
+            guard let self else { return }
+            self.phone.setSuppressed(playing); self.glasses.setVoiceSuppressed(playing)
+            if playing { self.speechBuffer = SpeechClipBuffer() }
+        }.store(in:&relays)
         glasses.onFrame = { [weak self] in self?.receiveFrame($0) }
         glasses.onPCM = { [weak self] in self?.receivePCM($0,source: .glasses,arrivedAt:$1) }
         phone.onPCM = { [weak self] in self?.receivePCM($0,source: .phone,arrivedAt:$1) }
@@ -69,6 +81,10 @@ import GuardianCore
         }
         phoneMotion.onFailure = { [weak self] message in self?.error = message; self?.stop() }
         glasses.onUnavailable = { [weak self] message in guard let self,self.armed || self.capturing else { return }; self.error = message; self.stop() }
+        glasses.onDisplayCancel = { [weak self] id in
+            guard let self, self.armed, self.isForeground, self.incident?.id == id, self.incident?.state == "check_in" else { return }
+            self.cancelIncident()
+        }
         settings.objectWillChange.sink { [weak self] _ in guard let self else { return }; if self.armed { self.stop() } }.store(in: &relays)
         NotificationCenter.default.publisher(for: AVAudioSession.interruptionNotification).sink { [weak self] _ in Task { @MainActor in guard let self,self.armed else { return }; self.error = "Audio interrupted; session stopped."; self.stop() } }.store(in: &relays)
         NotificationCenter.default.publisher(for: AVAudioSession.routeChangeNotification).sink { [weak self] note in
@@ -162,7 +178,7 @@ import GuardianCore
         operation = UUID(); gate.invalidate(); armed = false; starting = false; liveMockPreview = false; continuousCamera = false; capturing = false; processing = false; activeCapture = nil
         earlyCameraRequests = 0; earlyCameraTask?.cancel(); earlyCameraTask = nil; motionRecorder.reset(); lastFallPattern = nil
         captureTask?.cancel(); replayAudioTask?.cancel(); uploadTask?.cancel(); heartbeatTask?.cancel(); promptTask?.cancel()
-        speechTask?.cancel(); speechTask = nil; speechPCM.removeAll(); speechHasSound = false
+        speechTask?.cancel(); speechTask = nil; speechBuffer = SpeechClipBuffer(); pendingSpeech.removeAll()
         recentPreviewFrames.removeAll(); cloudSpeechStatus = "Off"
         glasses.stop(); phone.stop(); phoneMotion.stop(); phoneMotionActive = false; voice.stop(); locator.cancel(); clearMedia(); status = "Disarmed · camera and local triggers off"
         if let id = oldSession?.id,let client { disarmTask = Task { [weak self] in
@@ -275,53 +291,82 @@ import GuardianCore
     }
     private func receivePCM(_ samples: [Int16],source: AudioMode,arrivedAt:Double) {
         guard armed else { return }
-        if voice.suppressInput {
-            speechPCM.removeAll(keepingCapacity: true); speechHasSound = false
-            return
-        }
+        if voice.suppressInput { return }
         if source == .phone, settings.elevenLabsListening { monitorSpeech(samples) }
         if loudness.consume(samples,time: monotonic) { status = capturing ? "Loud audio during capture · evidence only" : "Loud audio detected locally · no capture triggered" }
         guard arrivedAt >= captureStart,capturing,session?.consent.audio == true,settings.audio == source,let epoch = activeCapture,gate.accepts(epoch,now: monotonic) else { return }
         pcm.append(contentsOf: samples.prefix(max(0,128000-pcm.count))); audioSeconds = Double(pcm.count)/16000
     }
     private func monitorSpeech(_ samples: [Int16]) {
-        guard let api, let session, !samples.isEmpty else { return }
-        speechHasSound = speechHasSound || samples.contains { abs(Int($0)) >= 450 }
-        speechPCM.append(contentsOf: samples)
-        guard speechPCM.count >= 64_000 else { return }
-        let clip = Array(speechPCM.prefix(64_000))
-        speechPCM.removeFirst(56_000)
-        let hasSound = speechHasSound
-        speechHasSound = false
-        guard hasSound, speechTask == nil else { return }
-        struct Transcript: Decodable { let text: String }
+        for clip in speechBuffer.consume(samples) {
+            if pendingSpeech.count >= 3 { pendingSpeech.removeFirst() }
+            pendingSpeech.append((clip, monotonic))
+        }
+        submitNextSpeechClip()
+    }
+    private func submitNextSpeechClip() {
+        guard speechTask == nil, armed, let api, let session else { return }
+        let now = monotonic
+        pendingSpeech.removeAll { now - $0.1 > 15 }
+        guard !pendingSpeech.isEmpty else { return }
+        let (clip, _) = pendingSpeech.removeFirst()
+        struct Transcript: Decodable {
+            let text: String
+            let detection: Detection?
+            let trigger: TriggerReply?
+        }
         let token = operation
+        cloudSpeechStatus = "Checking speech…"
         speechTask = Task { [weak self] in
             guard let self else { return }
-            defer { if self.operation == token { self.speechTask = nil } }
+            defer {
+                if self.operation == token {
+                    self.speechTask = nil
+                    self.submitNextSpeechClip()
+                }
+            }
             do {
                 let body = AudioPayload(wav: PCM16WAV.encode(clip),source: "phone")
                 let result: Transcript = try await api.post("v1/sessions/\(session.id)/speech",body: body)
                 try self.checkOperation(token)
-                self.cloudSpeechStatus = result.text.isEmpty ? "No speech in last clip" : "Speech recognized"
-                self.receiveTranscript(result.text,final: true,confidence: -1)
+                self.receiveTranscript(result.text,final: true,confidence: -1,commandsOnly: true)
+                try self.checkOperation(token)
+                if let assessment = result.detection {
+                    self.cloudSpeechStatus = assessment.source == "nemotron_unavailable"
+                        ? "Speech assessment unavailable" : "Speech assessed by Nemotron"
+                } else {
+                    self.cloudSpeechStatus = result.text.isEmpty ? "No speech in last clip" : "Speech recognized"
+                }
+                if let trigger = result.trigger {
+                    self.session = trigger.session
+                    self.incident = trigger.incident ?? self.incident
+                    self.detection = result.detection
+                    self.lastEvidence = "Speech transcribed by ElevenLabs"
+                    self.shareLocationIfConsented()
+                    if let window = trigger.window, !self.capturing, !self.processing {
+                        self.beginCapture(window,token: token,triggeredAt: self.monotonic,early: false)
+                    }
+                    await self.handleVoice()
+                }
             } catch {
                 guard self.operation == token else { return }
                 self.cloudSpeechStatus = error.localizedDescription
             }
         }
     }
-    private func receiveTranscript(_ text: String,final: Bool,confidence: Float) {
+    private func receiveTranscript(_ text: String,final: Bool,confidence: Float,commandsOnly: Bool = false) {
         guard armed,!voice.suppressInput else { return }
         guard let intent = KeywordDetector.intent(text,isFinal: final,confidence: confidence,isPlayingVoice: voice.suppressInput) else { return }
         switch intent {
         case .cancel: cancelIncident()
         case .sos: sendTrigger(.keyword_sos)
         case .distress:
+            guard !commandsOnly, !settings.elevenLabsListening else { return }
             guard lastDistressAt.map({ monotonic - $0 >= 30 }) ?? true else { return }
             lastDistressAt = monotonic
             sendTrigger(.keyword_distress)
         case .threat:
+            guard !commandsOnly, !settings.elevenLabsListening else { return }
             guard lastThreatAt.map({ monotonic - $0 >= 30 }) ?? true else { return }
             lastThreatAt = monotonic
             sendTrigger(.spoken_threat)
