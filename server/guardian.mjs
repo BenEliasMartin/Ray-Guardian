@@ -143,6 +143,11 @@ export class GuardianService {
     },{owner:incident.owner,expires:incident.expiresAt,expectedRevision:0});
     return queued;
   }
+  confirmEscalation(owner,id,token){
+    const i=this.requireIncident(owner,id),s=this.requireSession(owner,i.sessionId);this.requireArmed(s);
+    if(i.state!=='awaiting_foreground_confirmation'||typeof token!=='string'||token!==i.escalationToken)fail(409,'confirmation_expired','Refresh the current incident before confirming escalation.');
+    return this.queueCall({...i,escalationToken:null});
+  }
   async cancel(owner,id){
     let incident=this.requireIncident(owner,id);
     if(incident.state==='cancelled')return incident;
@@ -209,7 +214,11 @@ export class GuardianService {
     for(let s of this.store.list('session')){
       if(s.armed&&(this.now()>=s.armedUntil||this.now()-s.heartbeatAt>30000))await this.disarm(s.owner,s.id,{cancelPending:!s.consent.backgroundEscalation});
     }
-    for(const i of this.store.list('incident'))if(i.state==='check_in'&&this.now()>=i.checkInDeadline)this.queueCall(i);
+    for(const i of this.store.list('incident'))if(i.state==='check_in'&&this.now()>=i.checkInDeadline){
+      const s=this.store.get('session',i.sessionId,i.owner);
+      if(!i.demoCallConsent||!i.voiceConsent||s?.consent.backgroundEscalation)this.queueCall(i);
+      else this.saveIncident({...i,state:'awaiting_foreground_confirmation',escalationToken:randomUUID()});
+    }
     for(const job of this.store.list('call_job')){
       if(job.state!=='ready'||this.callTasks.has(job.id))continue;
       const task=this.runCall(job).catch(()=>{}).finally(()=>this.callTasks.delete(job.id));

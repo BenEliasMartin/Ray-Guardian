@@ -14,6 +14,7 @@ public struct CallStatus: Codable, Equatable, Sendable { public let transport: S
 public struct Incident: Codable, Equatable, Identifiable, Sendable {
     public let id: String, sessionId: String, mode: String, state: String, trigger: String
     public let detection: Detection?, detectedBy: String?, call: CallStatus?
+    public let escalationToken: String?
     public let checkInDeadline: Double?, createdAt: Double, updatedAt: Double
     public let voiceConsent: Bool, demoCallConsent: Bool
     public var terminal: Bool { ["cancelled", "acknowledged", "closed"].contains(state) }

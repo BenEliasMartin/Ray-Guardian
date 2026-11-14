@@ -20,7 +20,7 @@ function fixture(t,overrides={}){
   const store=new EncryptedStore({path:':memory:',key:randomBytes(32).toString('hex'),now:()=>time});
   const g=new GuardianService({store,now:()=>time,detect:async()=>fall,voice:{transcribe:async()=>({text:'help',source:'elevenlabs_scribe'}),speak:async()=>({bytes:Buffer.from('genuine-test-provider-audio'),contentType:'audio/mpeg'})},calls:{transport:'playback',place:async()=>{placed++;return {transport:'playback',status:'in_app'};},cancel:async()=>{}},...overrides});
   t.after(async()=>{await g.close();store.close();});
-  const s=g.createSession('owner',{consent:{capture:true,cloud:true,audio:true,voice:true,demoCalls:true}});g.arm('owner',s.id);
+  const s=g.createSession('owner',{consent:{capture:true,cloud:true,audio:true,voice:true,demoCalls:true,backgroundEscalation:true}});g.arm('owner',s.id);
   return {g,s,store,advance:ms=>{time+=ms;},placed:()=>placed,observation:window=>({windowId:window.id,frames:[{offsetMs:0,imageDataUrl:png}],source:'meta_mock'})};
 }
 test('encrypted store enforces owner/revision/expiry and does not write plaintext',()=>{
@@ -99,7 +99,7 @@ test('real-provider adapters connect through capture, STT, detection, TTS, Twili
   t.after(async()=>{await g.close();store.close();});
   const session=g.createSession('owner',{consent:{capture:true,cloud:true,audio:true,voice:true,demoCalls:true}});g.arm('owner',session.id);const trigger=g.trigger('owner',session.id,{signal:'motion'});
   const result=await g.observe('owner',session.id,{windowId:trigger.window.id,source:'meta_mock',frames:[{offsetMs:0,imageDataUrl:png}],audio:{format:'wav_pcm_s16le_16000_mono',base64:wav().toString('base64')}});
-  assert.equal(result.audioTranscriptionSource,'elevenlabs_scribe');assert.equal(result.incident.detectedBy,'nemotron');time+=16000;await g.sweep();await Promise.all(g.callTasks.values());
+  assert.equal(result.audioTranscriptionSource,'elevenlabs_scribe');assert.equal(result.incident.detectedBy,'nemotron');time+=16000;await g.sweep();const pending=g.requireIncident('owner',result.incident.id);assert.equal(pending.state,'awaiting_foreground_confirmation');g.confirmEscalation('owner',pending.id,pending.escalationToken);await g.sweep();await Promise.all(g.callTasks.values());
   assert.equal(seen.filter(r=>r.url.includes('Calls.json')).length,1);assert.equal(seen.filter(r=>r.url.includes('text-to-speech')).length,1);
   const server=createGuardianHTTP({guardian:g,clientToken:'client-token-with-at-least-thirty-two-characters',now:()=>time});await new Promise(r=>server.listen(0,'127.0.0.1',r));t.after(()=>new Promise(r=>server.close(r)));const base=`http://127.0.0.1:${server.address().port}`;
   const path=`/v1/twilio/ack/${result.incident.id}`,params={CallSid:sid,Digits:'1'},input='https://demo.example'+path+Object.keys(params).sort().map(k=>k+params[k]).join('');
@@ -132,4 +132,11 @@ test('capture and incident budgets survive disarm, new sessions and history dele
 test('Twilio cancellation handles an already-answered call without retrying a dial',async()=>{
   const statuses=[];const calls=createDemoCalls({transport:'twilio',accountSid:'AC'+'a'.repeat(32),authToken:'secret',from:'+15551234567',to:'+15557654321',allowlist:['+15557654321'],publicBaseURL:'https://demo.example',mediaSecret:'s'.repeat(32),fetchImpl:async(url,options)=>{assert.match(url,/Calls\/CA/);statuses.push(options.body.get('Status'));return statuses.length===1?new Response('already answered',{status:400}):new Response('{}');}});
   await calls.cancel('CA'+'b'.repeat(32));assert.deepEqual(statuses,['canceled','completed']);
+});
+test('background continuation off needs a post-deadline foreground challenge before dialing',async t=>{
+  const {g,advance,placed}=fixture(t);const s=g.createSession('foreground-owner',{consent:{capture:true,cloud:true,voice:true,demoCalls:true,backgroundEscalation:false}});g.arm('foreground-owner',s.id);
+  const tr=g.trigger('foreground-owner',s.id,{signal:'motion'}),r=await g.observe('foreground-owner',s.id,{windowId:tr.window.id,frames:[{offsetMs:0,imageDataUrl:png}]});
+  advance(16000);await g.sweep();assert.equal(placed(),0);const waiting=g.requireIncident('foreground-owner',r.incident.id);assert.equal(waiting.state,'awaiting_foreground_confirmation');
+  assert.throws(()=>g.confirmEscalation('foreground-owner',waiting.id,'old-token'),{code:'confirmation_expired'});
+  await g.disarm('foreground-owner',s.id);assert.throws(()=>g.confirmEscalation('foreground-owner',waiting.id,waiting.escalationToken),{code:'not_armed'});await g.sweep();assert.equal(placed(),0);
 });

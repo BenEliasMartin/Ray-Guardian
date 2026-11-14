@@ -10,6 +10,8 @@ The SQLite store encrypts each metadata record with AES-256-GCM and record/owner
 
 Capture and incident budgets are persisted separately from session/history records, so rearming or deleting an incident cannot reset their ten-minute limits. Twilio demonstrations have a twenty-second ringing timeout and two-minute connected-call limit.
 
+Without background-escalation consent, an automatic check-in requires a fresh challenge round trip after its deadline before a call can queue; an old heartbeat cannot authorize escalation while the phone is suspended. Standby local-ASR transcripts are never uploaded by the companion; cloud transcription receives only the bounded PCM window.
+
 A ready outbox job is marked sending before the external dial. Restarted sending jobs become unknown, never automatically retried. Cancellation is recorded before provider cancellation. A dial that completes after cancellation is immediately cancelled using its returned SID. Deletion waits for an active dial task to settle before removing its metadata. Twilio callbacks use the configured public URL for signature verification, never an untrusted Host header. Signed media links expire in ten minutes. Callback order cannot undo terminal states.
 
 ## HTTP contract
@@ -28,6 +30,7 @@ All routes except health, signed Twilio callbacks and signed call audio require 
 | POST | `/v1/sessions/:id/observations` | Submit bounded chronological frames, optional WAV/transcript; returns structured real detection |
 | GET | `/v1/incidents` | Owner's retained incident metadata |
 | GET / DELETE | `/v1/incidents/:id` | Read or cancel/delete incident |
+| POST | `/v1/incidents/:id/escalate` | Confirm post-deadline foreground challenge when background escalation is disabled |
 | POST | `/v1/incidents/:id/cancel` | Persist cancellation, abort inference, cancel provider call if known |
 | POST | `/v1/incidents/:id/acknowledge` | Demo operator acknowledgment |
 | POST | `/v1/incidents/:id/location` | Fresh consented latitude/longitude/accuracy/timestamp |

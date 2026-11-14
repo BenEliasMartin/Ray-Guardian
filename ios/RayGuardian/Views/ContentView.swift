@@ -40,6 +40,9 @@ struct MonitorView: View {
                 }.frame(maxWidth: .infinity,alignment: .leading) }
             }
             if let incident = model.incident { IncidentView(model: model,incident: incident) }
+            #if DEBUG
+            Text("Last capture received \(model.debugLastCaptureFrames) SDK frames").font(.caption).accessibilityIdentifier("guardian.lastCaptureFrames")
+            #endif
             DeviceStatusView(glasses: model.glasses,phone: model.phone,voice: model.voice)
             Text("Foreground rehearsal. Locking or leaving the app stops capture and local triggers. Optional background escalation continues only an existing demo incident on the server.").font(.caption).foregroundStyle(.secondary)
         }.padding() }.navigationTitle("Ray Guardian").toolbar { Button { Task { await model.refreshIncident() } } label: { Image(systemName: "arrow.clockwise") } } }

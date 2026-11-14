@@ -68,7 +68,7 @@ export function createGuardianHTTP({guardian,clientToken,analyze,speak,now=Date.
           }return sendJSON(res,200,clean(result));
         }
       }
-      const incident=path.match(/^\/v1\/incidents\/([a-f0-9-]{36})(?:\/(cancel|acknowledge|location))?$/);
+      const incident=path.match(/^\/v1\/incidents\/([a-f0-9-]{36})(?:\/(cancel|acknowledge|location|escalate))?$/);
       if(incident){
         const [,id,action]=incident;
         if(req.method==='GET'&&!action)return sendJSON(res,200,clean(guardian.requireIncident(owner,id)));
@@ -78,6 +78,7 @@ export function createGuardianHTTP({guardian,clientToken,analyze,speak,now=Date.
           if(action==='cancel')result=await guardian.cancel(owner,id);
           else if(action==='acknowledge')result=guardian.acknowledge(owner,id);
           else if(action==='location')result=guardian.location(owner,id,body);
+          else if(action==='escalate')result=guardian.confirmEscalation(owner,id,body.token);
           else throw new ApiError(404,'not_found','Endpoint not found.');
           return sendJSON(res,200,clean(result));
         }

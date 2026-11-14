@@ -30,6 +30,7 @@ try{
     if(args.includes('--demo-call')){
       const deadline=Date.now()+90000;
       while(Date.now()<deadline){await new Promise(r=>setTimeout(r,2000));const incident=await (await request(`/v1/incidents/${result.incident.id}`)).json();console.log(`Demo incident: ${incident.state}`);
+        if(incident.state==='awaiting_foreground_confirmation'){await request(`/v1/incidents/${incident.id}/escalate`,{token:incident.escalationToken});continue;}
         if(incident.state==='demo_call_active'){const audio=await request(`/v1/demo-calls/${incident.id}/audio`);writeFileSync(resolve(output,'demo-dispatch.mp3'),Buffer.from(await audio.arrayBuffer()));await request(`/v1/incidents/${incident.id}/acknowledge`,{});break;}
         if(['acknowledged','call_completed','call_failed','call_unknown','cancelled'].includes(incident.state))break;
       }

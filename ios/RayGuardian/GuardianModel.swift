@@ -5,6 +5,10 @@ import AVFoundation
 import GuardianCore
 
 @MainActor final class GuardianModel: ObservableObject {
+    #if DEBUG
+    @Published private(set) var debugLastCaptureFrames = 0
+    var debugStopAfterFirstFrame = false
+    #endif
     let settings = Settings(), glasses = GlassesAdapter(), phone = PhoneAudio(), voice = VoicePlayer(), replays = ReplayLibrary()
     let heartRate = HeartRateMonitor(), locator = IncidentLocation()
     private var heartRateDetector = SustainedHeartRate(), located = Set<String>()
@@ -24,8 +28,9 @@ import GuardianCore
     @Published private(set) var history: [Incident] = []
     private var api: GuardianAPI?, gate = PrivacyGate(), operation = UUID(), fall = FallCandidateDetector(), loudness = LoudnessDetector()
     private var captureTask: Task<Void,Never>?, replayAudioTask: Task<Void,Never>?, heartbeatTask: Task<Void,Never>?, uploadTask: Task<Void,Never>?, promptTask: Task<Void,Never>?
-    private var frames: [FramePayload] = [], pcm: [Int16] = [], transcript = "", captureStart = 0.0, lastFrameAt = -10.0, activeCapture: UUID?
+    private var frames: [FramePayload] = [], pcm: [Int16] = [], captureStart = 0.0, lastFrameAt = -10.0, activeCapture: UUID?
     private var disarmTask: Task<Void,Never>?
+    private var confirming = Set<String>()
     private var spoken = Set<String>(), relays = Set<AnyCancellable>(), isForeground = true
     init() {
         heartRate.onMeasurement = { [weak self] bpm in guard let self,self.armed,self.settings.heartRateEnabled else { return }; if self.heartRateDetector.consume(bpm:bpm,threshold:self.settings.heartRateThreshold,time:self.monotonic) { self.sendTrigger(.heart_rate) } }
@@ -132,6 +137,10 @@ import GuardianCore
         var jpeg: Data?
         for quality: CGFloat in [0.65,0.45,0.25] { if let data = reduced.jpegData(compressionQuality: quality),data.count <= 131072 { jpeg = data; break } }
         guard let jpeg else { return }; frames.append(FramePayload(offsetMs: min(8000,offset*1000),jpeg: jpeg)); frameCount = frames.count; lastFrameAt = offset; preview = reduced
+        #if DEBUG
+        debugLastCaptureFrames = frames.count
+        if debugStopAfterFirstFrame { debugStopAfterFirstFrame = false; stop() }
+        #endif
     }
     private func receivePCM(_ samples: [Int16],source: AudioMode,arrivedAt:Double) {
         guard armed,!voice.suppressInput else { return }
@@ -141,7 +150,7 @@ import GuardianCore
     }
     private func receiveTranscript(_ text: String,final: Bool,confidence: Float) {
         guard armed,!voice.suppressInput else { return }
-        if capturing,final,session?.consent.cloud == true,session?.consent.audio == true { transcript = String((transcript+" "+text).suffix(4000)) }
+        // Standby ASR stays local. Cloud speech comes exclusively from the bounded PCM window.
         guard let intent = KeywordDetector.intent(text,isFinal: final,confidence: confidence,isPlayingVoice: voice.suppressInput) else { return }
         switch intent { case .cancel: cancelIncident(); case .sos: sendTrigger(.keyword_sos); case .distress: sendTrigger(.keyword_distress) }
     }
@@ -161,19 +170,32 @@ import GuardianCore
         capturing = false; gate.endCapture(); activeCapture = nil
         guard let session,let api else { clearMedia(); return }
         let audio = pcm.count >= 1600 ? AudioPayload(wav: PCM16WAV.encode(pcm),source: settings.audio.rawValue) : nil
-        let payload = ObservationPayload(windowId: window.id,frames: frames,audio: audio,transcript: transcript.isEmpty ? nil : transcript,source: session.source)
-        let hasEvidence = !frames.isEmpty || audio != nil || !transcript.isEmpty
-        clearMedia(); guard hasEvidence else { error = "No frames, usable audio or transcript arrived in the bounded window."; return }
+        let payload = ObservationPayload(windowId: window.id,frames: frames,audio: audio,transcript: nil,source: session.source)
+        let hasEvidence = !frames.isEmpty || audio != nil
+        clearMedia(); guard hasEvidence else { error = "No usable frames or bounded microphone audio arrived in the capture window."; return }
         processing = true; status = "Transcribing audio and asking Nemotron to assess actual evidence"
         uploadTask = Task { [weak self] in guard let self else { return }; do {
             let result: ObservationResult = try await api.post("v1/sessions/\(session.id)/observations",body: payload); try self.checkOperation(token)
             self.processing = false; self.lastEvidence = "\(result.framesAnalyzed) frames analyzed · \(String(format: "%.1f",result.audioDurationMs/1000)) seconds of audio · transcription: \(result.audioTranscriptionSource ?? "none")"; self.detection = result.detection; self.incident = result.incident ?? self.incident; self.shareLocationIfConsented(); self.status = "\(result.detection.source): \(result.detection.label.replacingOccurrences(of: "_",with: " ")) · \(result.detection.confidence) confidence"; await self.handleVoice()
         } catch { guard self.operation == token else { return }; self.processing = false; self.error = error.localizedDescription } }
     }
-    private func clearMedia() { frames.removeAll(keepingCapacity: false); pcm.withUnsafeMutableBufferPointer { $0.initialize(repeating: 0) }; pcm.removeAll(keepingCapacity: false); transcript = ""; preview = nil; frameCount = 0; audioSeconds = 0 }
+    private func clearMedia() { frames.removeAll(keepingCapacity: false); pcm.withUnsafeMutableBufferPointer { $0.initialize(repeating: 0) }; pcm.removeAll(keepingCapacity: false); preview = nil; frameCount = 0; audioSeconds = 0 }
     func refreshIncident() async {
-        guard let id = session?.incidentId ?? incident?.id,let api else { return }
-        do { let value: Incident = try await api.get("v1/incidents/\(id)"); guard (session?.incidentId ?? incident?.id) == id else { return }; incident = value; detection = value.detection ?? detection; await handleVoice() } catch { self.error = error.localizedDescription }
+        guard let id = session?.incidentId ?? incident?.id,let api else { return }; let epoch = operation
+        do {
+            let value: Incident = try await api.get("v1/incidents/\(id)")
+            guard operation == epoch,(session?.incidentId ?? incident?.id) == id else { return }
+            incident = value; detection = value.detection ?? detection
+            // The server issues this challenge only AFTER the check-in deadline. A fresh foreground
+            // round trip is required unless the wearer explicitly consented to background escalation.
+            if value.state == "awaiting_foreground_confirmation",let token = value.escalationToken,armed,isForeground,!confirming.contains(id) {
+                confirming.insert(id); defer { confirming.remove(id) }
+                struct Confirmation: Encodable { let token:String }
+                let confirmed: Incident = try await api.post("v1/incidents/\(id)/escalate",body:Confirmation(token:token))
+                guard operation == epoch,armed,isForeground else { return }; incident = confirmed
+            }
+            await handleVoice()
+        } catch { if operation == epoch { self.error = error.localizedDescription } }
     }
     private func handleVoice() async {
         guard isForeground,!capturing,!processing,let incident,incident.voiceConsent,let api else { return }

@@ -13,6 +13,7 @@ import MWDATCore
             model.settings.apiURL = ProcessInfo.processInfo.environment["GUARDIAN_UI_TEST_API"] ?? "http://127.0.0.1:8787"
             model.settings.clientToken = "ui-test-only-client-token-never-production-12345"
             model.settings.consent.capture = true; model.settings.consent.cloud = true; model.settings.consent.audio = true
+            model.debugStopAfterFirstFrame = ProcessInfo.processInfo.arguments.contains("--guardian-stop-after-first-frame")
             model.statusForUITesting()
         }
         #endif
