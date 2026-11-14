@@ -20,7 +20,7 @@ final class RayGuardianUITests: XCTestCase {
         }
         XCTFail("Control unavailable: \(identifier)\n\(app.debugDescription)")
     }
-    private func armAndInject(_ app: XCUIApplication, event: String = "guardian.injectMotion") {
+    private func armAndInject(_ app: XCUIApplication, event: String = "guardian.injectDistress") {
         let arm = app.buttons["guardian.arm"]
         XCTAssertTrue(arm.waitForExistence(timeout:15)); arm.tap()
         if !app.staticTexts["Guardian is armed"].waitForExistence(timeout:25) {
@@ -37,7 +37,7 @@ final class RayGuardianUITests: XCTestCase {
         }
         XCTAssertTrue(app.staticTexts["UI routing fixture: actual SDK frames received. No real provider classification was performed."].exists)
         XCTAssertTrue(app.staticTexts["guardian.evidence"].label.contains("test_fixture_stt"))
-        XCTAssertFalse(app.staticTexts["Demo incident"].exists)
+        XCTAssertTrue(app.staticTexts["Demo incident"].exists)
         tap("guardian.stop",in:app)
         XCTAssertTrue(app.staticTexts["Your camera is off"].waitForExistence(timeout:5))
     }
@@ -50,6 +50,14 @@ final class RayGuardianUITests: XCTestCase {
         let count = app.staticTexts["guardian.frameCount"]
         if count.exists { XCTAssertTrue(count.label.hasPrefix("0/6")) }
         XCTAssertFalse(app.staticTexts["Assessment (test_fixture)"].exists)
+    }
+    func testActualMockMotionStartsBoundedAssessment() {
+        let app = launch(); armAndInject(app,event:"guardian.injectMotion")
+        if !app.staticTexts["Assessment (test_fixture)"].waitForExistence(timeout:25) {
+            XCTFail("Mock motion did not reach capture: \(app.debugDescription)"); return
+        }
+        XCTAssertFalse(app.staticTexts["Demo incident"].exists)
+        tap("guardian.stop",in:app)
     }
     func testActualMockSpeechRequestsAndCancelsCheckIn() {
         let app = launch(); armAndInject(app,event:"guardian.injectDistress")

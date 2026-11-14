@@ -26,6 +26,7 @@ import MWDATMockDevice
     private var session: DeviceSession?, camera: Camera?, motion: Motion?, speech: Speech?
     private var imageDecoder: StreamImageDecoder?
     private let standbyTokens = ListenerTokenBag(), cameraTokens = ListenerTokenBag()
+    private var motionSamplesReceived = 0
     private var motionTask: Task<Void,Never>?
     private var generation = UUID()
     private var cameraGeneration = UUID()
@@ -113,6 +114,8 @@ import MWDATMockDevice
                 motionTask = Task { [weak self] in
                     for await sample in attached.samples {
                         guard !Task.isCancelled, let self, self.generation == token else { break }
+                        self.motionSamplesReceived += 1
+                        if self.motionSamplesReceived == 1 || self.motionSamplesReceived % 30 == 0 { self.motionStatus = "Receiving \(String(describing:sample.source)) samples (\(self.motionSamplesReceived))" }
                         if sample.source == .glasses, let a = sample.accelerometer { self.onMotion?(MotionPoint(time: Double(sample.timestampNs)/1e9, x: Double(a.x), y: Double(a.y), z: Double(a.z))) }
                     }
                 }
@@ -166,9 +169,22 @@ import MWDATMockDevice
     }
     func replayMotion() {
         #if DEBUG
-        let points: [(Int64,Float)] = [(0,9.8),(100_000_000,9.8),(200_000_000,2),(300_000_000,1),(450_000_000,30),(550_000_000,9.8),(900_000_000,9.8)]
+        let points: [(Int64,Float)] = [(0,9.8),(100_000_000,9.8),(200_000_000,0),(300_000_000,0),(450_000_000,30),(550_000_000,9.8),(900_000_000,9.8)]
         let samples = points.map { MWDATMockDevice.MotionSample(timestampNs: $0.0, accelerometer: MWDATMockDevice.Vector3(x: 0,y: 0,z: $0.1),source: .glasses) }
-        mock?.services.motion.setMotionFeed(samples)
+        let token = generation
+        Task { [weak self] in
+            guard let self, let motion = self.motion, let mock = self.mock else { return }
+            motion.stop()
+            let deadline = ProcessInfo.processInfo.systemUptime+2
+            while motion.state != .stopped && ProcessInfo.processInfo.systemUptime < deadline {
+                try? await Task.sleep(for:.milliseconds(20))
+                guard self.generation == token else { return }
+            }
+            guard self.generation == token,motion.state == .stopped else { self.motionStatus = "Mock motion restart timed out"; return }
+            self.motionSamplesReceived = 0
+            mock.services.motion.setMotionFeed(samples)
+            motion.start()
+        }
         #endif
     }
     func mockFault(_ fault: String) {
