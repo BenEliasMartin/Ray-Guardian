@@ -1,0 +1,8 @@
+services:
+  api:
+    ports: !reset []
+    environment:
+      PUBLIC_BASE_URL: https://${GUARDIAN_DOMAIN:?Set GUARDIAN_DOMAIN to the public API hostname}
+  https:
+    environment:
+      GUARDIAN_DOMAIN: ${GUARDIAN_DOMAIN:?Set GUARDIAN_DOMAIN to the public API hostname}

@@ -4,8 +4,10 @@ import { shouldCheckIn } from './detection.mjs';
 import { validateObservation,clearObservation } from './media.mjs';
 import { VOICE_PROMPTS } from './elevenlabs.mjs';
 
-const MINUTE=60_000,SESSION_MS=15*MINUTE,RECORD_TTL=24*60*MINUTE;
-const SIGNALS=['manual_sos','keyword_sos','keyword_distress','motion','heart_rate','loud_voice'];
+const MINUTE=60_000,SESSION_MS=30*MINUTE,RECORD_TTL=24*60*MINUTE;
+const SCENE_LIMIT=30, EVENT_LIMIT=12;
+const SCENE_INTERVAL=20_000, EVENT_INTERVAL=10_000;
+const SIGNALS=['manual_sos','keyword_sos','keyword_distress','motion','heart_rate','loud_voice','scene_check'];
 const TERMINAL=new Set(['cancelled','acknowledged','closed']);
 const CONSENTS=['capture','cloud','audio','voice','demoCalls','location','backgroundEscalation'];
 const fail=(status,code,message)=>{throw new ApiError(status,code,message);};
@@ -39,7 +41,9 @@ export class GuardianService {
     const source=['meta_mock','meta_glasses','phone','file_replay'].includes(body.source)?body.source:'meta_mock';
     const enabledSignals=body.enabledSignals??['manual_sos','keyword_sos','keyword_distress','motion','heart_rate'];
     if(!Array.isArray(enabledSignals)||enabledSignals.some(s=>!SIGNALS.includes(s)))fail(400,'invalid_signals','Unknown trigger source.');
-    return this.saveSession({id:randomUUID(),owner,mode:'demo',source,consent,enabledSignals:[...new Set(enabledSignals)],
+    const allowedSignals=enabledSignals.filter(signal=>signal!=='scene_check');
+    if(body.automaticSceneChecks===true&&consent.capture&&consent.cloud)allowedSignals.push('scene_check');
+    return this.saveSession({id:randomUUID(),owner,mode:'demo',source,consent,enabledSignals:[...new Set(allowedSignals)],
       armed:false,armedUntil:null,createdAt:this.now(),expiresAt:this.now()+RECORD_TTL,heartbeatAt:this.now(),
       windows:[],activeWindow:null,lastAutomaticAt:null,incidentId:null});
   }
@@ -62,20 +66,29 @@ export class GuardianService {
     const intentional=['manual_sos','keyword_sos'].includes(body.signal);
     if(!intentional&&!s.enabledSignals.includes(body.signal))return {accepted:false,reason:'source_disabled',session:s};
     if(body.signal==='loud_voice')return {accepted:false,reason:'loudness_alone_is_not_an_incident',session:s};
-    if(!intentional&&s.lastAutomaticAt!==null&&this.now()-s.lastAutomaticAt<60_000)return {accepted:false,reason:'trigger_cooldown',session:s};
     let incident=s.incidentId?this.store.get('incident',s.incidentId,owner):null;
     if(incident&&TERMINAL.has(incident.state))incident=null;
     if(intentional&&!incident){incident=this.newIncident(s,null,body.signal,true);s=this.requireSession(owner,id);}
     if(intentional&&incident?.state==='check_in')incident=this.queueCall({...incident,checkInDeadline:null});
-    if(s.activeWindow&&['capturing','processing'].includes(s.activeWindow.state))return {accepted:true,reason:'window_already_active',session:s,incident};
-    const recent=this.recentBudget(owner,'capture');
-    const canCapture=s.consent.capture&&s.consent.cloud&&recent.length<3&&(!recent.length||this.now()-recent.at(-1)>=MINUTE);
+    const active=s.activeWindow;
+    if(active&&(active.state==='processing'||(active.state==='capturing'&&this.now()<=active.uploadEndsAt))){
+      return {accepted:true,reason:'window_already_active',session:s,incident};
+    }
+    const sceneCheck=body.signal==='scene_check';
+    const budget=sceneCheck?'scene_capture':'capture';
+    const recent=this.recentBudget(owner,budget);
+    const interval=sceneCheck?SCENE_INTERVAL:EVENT_INTERVAL;
+    const cooledDown=!recent.length||this.now()-recent.at(-1)>=interval;
+    const permitted=s.consent.capture&&s.consent.cloud;
+    const canCapture=permitted&&recent.length<(sceneCheck?SCENE_LIMIT:EVENT_LIMIT)&&cooledDown;
     const window=canCapture?{id:randomUUID(),startedAt:this.now(),captureEndsAt:this.now()+8000,uploadEndsAt:this.now()+28000,
       signal:body.signal,state:'capturing',result:null}:null;
-    if(window)this.reserveBudget(owner,'capture');
-    s=this.saveSession({...s,lastAutomaticAt:intentional?s.lastAutomaticAt:this.now(),windows:window?[...recent,this.now()]:recent,
+    if(window)this.reserveBudget(owner,budget);
+    s=this.saveSession({...s,windows:window?[...recent,this.now()]:recent,
       activeWindow:window,incidentId:incident?.id??s.incidentId});
-    return {accepted:true,reason:window?'capture_allowed':!s.consent.capture||!s.consent.cloud?'capture_or_cloud_consent_missing':'capture_budget',
+    const reason=window?'capture_allowed':!permitted?'capture_or_cloud_consent_missing':
+      recent.length>=(sceneCheck?SCENE_LIMIT:EVENT_LIMIT)?'capture_budget':'trigger_cooldown';
+    return {accepted:true,reason,
       session:s,incident,window,limits:{maxFrames:6,maxFrameBytes:131072,maxAudioMs:8000,audioAllowed:s.consent.audio}};
   }
   async observe(owner,id,body,disconnectSignal){

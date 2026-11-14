@@ -37,20 +37,58 @@ test('fall result starts check-in then one demo call; completed upload is idempo
   assert.deepEqual(await g.observe('owner',s.id,observation(trigger.window)),result);
   advance(16000);await g.sweep();await Promise.all(g.callTasks.values());assert.equal(placed(),1);await g.sweep();assert.equal(placed(),1);assert.equal(g.requireIncident('owner',result.incident.id).state,'demo_call_active');
 });
+test('arming lasts 30 minutes without renewal from heartbeats',t=>{
+  const {g,s,advance}=fixture(t);
+  advance(29*60_000+59_000);
+  assert.doesNotThrow(()=>g.requireArmed(g.heartbeat('owner',s.id)));
+  advance(1000);
+  assert.throws(()=>g.requireArmed(g.heartbeat('owner',s.id)),{code:'not_armed'});
+});
 test('normal activity and uncertain low confidence do not auto-escalate',async t=>{
   const {g,s,observation}=fixture(t,{detect:async()=>ordinary});const tr=g.trigger('owner',s.id,{signal:'motion'});assert.equal((await g.observe('owner',s.id,observation(tr.window))).incident,null);
   assert.equal(shouldCheckIn({...fall,confidence:'low'}),false);assert.equal(shouldCheckIn({...fall,wearerInvolved:false}),false);assert.equal(shouldCheckIn({...fall,label:'uncertain'}),false);assert.throws(()=>parseDetection('{"label":"fall"}'));
 });
+test('opted-in scene checks replace expired empty windows and assess visible threats',async t=>{
+  const danger={...fall,label:'immediate_danger',confidence:'high',observations:['A weapon is pointed toward the wearer.']};
+  const {g,s,advance,observation}=fixture(t,{detect:async()=>danger});
+  assert.equal(g.trigger('owner',s.id,{signal:'scene_check'}).reason,'source_disabled');
+  const optedIn=g.createSession('owner',{consent:{capture:true,cloud:true},automaticSceneChecks:true});
+  g.arm('owner',optedIn.id);
+  const empty=g.trigger('owner',optedIn.id,{signal:'scene_check'}).window;
+  assert.ok(empty);
+  advance(65_000);
+  g.heartbeat('owner',optedIn.id);
+  const next=g.trigger('owner',optedIn.id,{signal:'scene_check'}).window;
+  assert.notEqual(next.id,empty.id);
+  assert.equal((await g.observe('owner',optedIn.id,observation(next))).incident.state,'check_in');
+  assert.equal(shouldCheckIn({...danger,wearerInvolved:null}),false);
+  assert.equal(shouldCheckIn({...danger,confidence:'medium'}),true);
+  assert.equal(shouldCheckIn({...danger,confidence:'low'}),false);
+});
 test('loudness alone rejected, consent and capture budgets enforced',async t=>{
   const {g,s,advance,observation}=fixture(t);assert.equal(g.trigger('owner',s.id,{signal:'loud_voice'}).accepted,false);
   for(let n=0;n<3;n++){g.heartbeat('owner',s.id);const tr=g.trigger('owner',s.id,{signal:'motion'});assert.ok(tr.window);await g.observe('owner',s.id,observation(tr.window));await g.cancel('owner',g.requireSession('owner',s.id).incidentId);advance(61000);}
-  g.heartbeat('owner',s.id);assert.equal(g.trigger('owner',s.id,{signal:'motion'}).reason,'capture_budget');
+  g.heartbeat('owner',s.id);assert.ok(g.trigger('owner',s.id,{signal:'motion'}).window);
   assert.throws(()=>g.trigger('owner',s.id,{signal:'manual_sos'}),{code:'incident_budget'});
   const no=g.createSession('fresh-owner',{});g.arm('fresh-owner',no.id);assert.equal(g.trigger('fresh-owner',no.id,{signal:'manual_sos'}).incident.state,'needs_demo_call_consent');assert.throws(()=>g.requireSession('other',s.id),{status:404});
 });
 test('disarming during provider work aborts and cannot resurrect incident',async t=>{
   let release;const pending=new Promise(r=>release=r);const {g,s,observation}=fixture(t,{detect:async()=>{await pending;return fall;}});
   const tr=g.trigger('owner',s.id,{signal:'motion'}),work=g.observe('owner',s.id,observation(tr.window));await g.disarm('owner',s.id);release();await assert.rejects(work,{code:'request_cancelled'});assert.equal(g.store.list('incident').length,0);assert.equal(g.requireSession('owner',s.id).activeWindow,null);
+});
+test('routine scene checks cannot spend the event capture allowance',async t=>{
+  const {g,advance,observation}=fixture(t,{detect:async()=>ordinary});
+  const s=g.createSession('scene-owner',{consent:{capture:true,cloud:true},automaticSceneChecks:true});
+  g.arm('scene-owner',s.id);
+  for(let i=0;i<30;i++){
+    g.heartbeat('scene-owner',s.id);
+    const check=g.trigger('scene-owner',s.id,{signal:'scene_check'});
+    assert.ok(check.window);
+    await g.observe('scene-owner',s.id,observation(check.window));
+    if(i<29)advance(20_000);
+  }
+  assert.equal(g.trigger('scene-owner',s.id,{signal:'scene_check'}).reason,'capture_budget');
+  assert.ok(g.trigger('scene-owner',s.id,{signal:'motion'}).window);
 });
 test('cancel during check-in prevents dispatch; stale heartbeat disarms',async t=>{
   const {g,s,observation,advance,placed}=fixture(t);const tr=g.trigger('owner',s.id,{signal:'motion'}),r=await g.observe('owner',s.id,observation(tr.window));await g.cancel('owner',r.incident.id);advance(40000);await g.sweep();assert.equal(placed(),0);assert.equal(g.requireSession('owner',s.id).armed,false);
@@ -126,6 +164,12 @@ test('capture and incident budgets survive disarm, new sessions and history dele
     const tr=g.trigger('budget-owner',s.id,{signal:'manual_sos'});assert.ok(tr.window);await g.disarm('budget-owner',s.id);g.store.delete('incident',tr.incident.id,'budget-owner');advance(61000);
   }
   const next=g.createSession('budget-owner',{consent:{capture:true,cloud:true,voice:true,demoCalls:true}});g.arm('budget-owner',next.id);
+  for(let n=0;n<9;n++){
+    g.heartbeat('budget-owner',next.id);
+    assert.ok(g.trigger('budget-owner',next.id,{signal:'motion'}).window);
+    advance(29_000);
+  }
+  g.heartbeat('budget-owner',next.id);
   assert.equal(g.trigger('budget-owner',next.id,{signal:'motion'}).reason,'capture_budget');
   assert.throws(()=>g.trigger('budget-owner',next.id,{signal:'manual_sos'}),{code:'incident_budget'});
 });

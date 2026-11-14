@@ -18,6 +18,23 @@ Bootstrap generates the client token, encryption key and media signing secret wi
 
 For a physical iPhone, use HTTPS or a reachable LAN host. Set `HOST=0.0.0.0` in `.env` and enter the host's LAN URL in the companion. `127.0.0.1` works for the iOS Simulator on the same Mac. Local HTTP is intended for development; HTTPS is required for remote endpoints.
 
+### Host the full backend on Verda
+
+Run the Node API, encrypted incident database, and HTTPS gateway on an always-on Verda CPU instance. Your phone connects directly to that instance over HTTPS. The API calls Verda Nemotron and optional voice and telephony providers from the server. [Verda instance setup](https://docs.verda.com/cpu-and-gpu-instances/set-up-a-gpu-instance/)
+
+1. Provision an on-demand Verda CPU instance with a public IP, persistent disk, and SSH access. Point your API hostname at the public IP. Allow inbound TCP 80 and 443 for Caddy and restrict SSH access to administrators.
+2. On the instance, install Docker with Compose v2.24.4 or later, clone this private repo, and run `node scripts/bootstrap.mjs` with Node 22.13+ to create the ignored `.env` and its secrets. Set `GUARDIAN_DOMAIN` in that file to the DNS hostname alone, for example `guardian.example.com`. The Compose override sets the matching HTTPS callback URL and exposes only the Caddy ports.
+3. On the instance, run the following.
+
+   ```sh
+   docker compose -f compose.yml -f compose.verda.yml --profile https up --build -d
+   ```
+
+4. Confirm `https://guardian.example.com/health` from outside the instance, then enter the HTTPS base URL and `RAY_GUARDIAN_CLIENT_TOKEN` in the iPhone app's **Setup**. Open **Setup** on a phone using cellular data to verify that it reaches the hosted API.
+5. Add `VERDA_INFERENCE_KEY` to the instance's `.env` when the replacement key arrives. Keep the configured Nemotron model and URL unless Verda supplies different values. Add `ELEVENLABS_API_KEY` for transcription and voice. Re-run the Compose command to apply changes and run the credentialed smoke test below.
+
+Keep the Docker volumes for SQLite and Caddy certificates on persistent storage and preserve `DATA_ENCRYPTION_KEY` across redeploys. The API can start before provider keys are available. If using server-hosted replay downloads, prepare or copy those media files onto the instance's replay directory.
+
 ## Run the iOS companion
 
 The checked-in [Xcode project](ios/RayGuardian.xcodeproj) includes a shared RayGuardian scheme, native SwiftUI app, pinned Meta DAT **1.0.1**, and a standalone Swift core package. Requires **Xcode 26.4+, Swift 6.3+, iOS 17.2+** for the Meta binary SDK. The core alone builds with older supported Swift toolchains.
@@ -27,7 +44,7 @@ The checked-in [Xcode project](ios/RayGuardian.xcodeproj) includes a shared RayG
 3. In **Setup**, enter/check the backend URL and client token. Provider keys do not belong here. Grant glasses permissions through the explicit setup buttons; grant location before arming if using it.
 4. Choose Mock glasses or Real glasses, local keyword source, and capture audio source. Every capture/cloud/audio/voice/demo-call consent starts off. Enable the choices needed for the rehearsal.
 5. For MockDeviceKit, prepare/download replay media as below. Select a clip before arming. Choose **Replay WAV** for its original audio. Choose **Glasses local speech** to exercise injected Mock speech events.
-6. Arm for 15 minutes. In **Replay lab**, inject ‘Guardian help me’ or replay the motion sequence. The SDK delivers those events to the same listeners as real glasses. The accepted indicator opens a maximum eight-second window. The monitoring screen reports the actual Nemotron result.
+6. Arm for 30 minutes. In **Replay lab**, inject ‘Guardian help me’ or replay the motion sequence. The SDK delivers those events to the same listeners as real glasses. The accepted indicator opens a maximum eight-second window. The monitoring screen reports the actual Nemotron result.
 7. A qualifying result starts a 15-second check-in. ‘Guardian cancel’ or **I'm okay** cancels it. If demo escalation is enabled, an unanswered check-in advances to the configured demo transport. **SOS** is a deliberate request and can escalate before visual assessment; it is labeled separately from Nemotron detection.
 
 With `META_APP_ID=0`, the build omits all three Meta attestation keys for Developer Mode. Registered apps require the Meta app ID, client token and Apple team together; partial configuration fails the build.
@@ -35,6 +52,8 @@ With `META_APP_ID=0`, the build omits all three Meta attestation keys for Develo
 For real glasses, select **Real glasses**, register through Meta AI, grant the permissions and enable the required capabilities in your Meta project. Camera audio and glasses speech are experimental capabilities; Meta currently limits their publishing availability. If local glasses ASR is unavailable, explicitly select **Phone local speech**, which requires on-device English recognition. There is no cloud standby recognition fallback. Phone microphone selection explicitly uses the built-in mic.
 
 The optional Bluetooth heart-rate setup connects to standard Heart Rate Service sensors. Three fresh elevated measurements spanning at least eight seconds can request an assessment; exercise and high heart rate alone never establish an incident. The threshold is configurable.
+
+For hands-free visual assessment, enable **Automatically check the scene while armed** along with camera capture and cloud sharing. The iPhone requests its first check after a successful heartbeat and can request another after 20 seconds when idle. Every rolling ten minutes allows up to 30 scene checks and 12 event captures, with separate budgets. Nemotron can assess visible physical struggle and immediate threats to the wearer. Immediate danger requires at least medium confidence and concrete observations before the server opens a check-in. Events between captures can be missed.
 
 ## Prepare real replay media
 
@@ -76,7 +95,7 @@ For deployment, `docker compose up --build -d` starts the API with encrypted per
 
 ## Privacy behavior
 
-The camera is off in armed standby. Selected local speech recognition and motion/heart-rate sensing can remain active while the app is foregrounded. Loudness alone does not trigger capture. A successful trigger permits at most six compressed frames and eight seconds of optional audio, with a 60-second capture cooldown and three bursts per ten minutes. Arming expires after fifteen minutes.
+The camera is off in armed standby. Selected local speech recognition and motion/heart-rate sensing can remain active while the app is foregrounded. Loudness alone does not trigger capture. A successful trigger permits at most six compressed frames and eight seconds of optional audio, with a 20-second interval for scene checks and a 10-second interval for event captures. Arming expires after thirty minutes.
 
 Leaving the app, changing consent, device removal/disconnection, thermal/battery faults, or losing the backend heartbeat disarms capture. Epoch guards reject queued old callbacks. Cancellation aborts in-flight inference and prevents later results from recreating an incident. No pre-event video is retained. iOS background transitions do not provide continuous monitoring; optional background escalation only permits the server to continue an already-created demo incident.
 
