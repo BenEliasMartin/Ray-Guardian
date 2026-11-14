@@ -12,7 +12,7 @@ const arg=(key,fallback)=>{const i=args.indexOf(key);return i>=0?args[i+1]:fallb
 const manifestPath=resolve(arg('--manifest',resolve(root,'ios/RayGuardian/Resources/ReplayMedia/manifest.json'))),directory=dirname(manifestPath);
 const manifest=JSON.parse(readFileSync(manifestPath,'utf8')),ffmpeg=arg('--ffmpeg','ffmpeg'),live=args.includes('--live'),includeAudio=args.includes('--audio');
 const detector=createDetector({apiKey:process.env.VERDA_INFERENCE_KEY,baseURL:process.env.VERDA_BASE_URL,model:process.env.VERDA_MODEL});
-const voice=createVoiceProvider({apiKey:process.env.ELEVENLABS_API_KEY,sttModel:process.env.ELEVENLABS_STT_MODEL});
+const voice=createVoiceProvider({apiKey:process.env.ELEVENLABS_API_KEY,sttModel:process.env.ELEVENLABS_STT_MODEL,enableLogging:process.env.ELEVENLABS_ENABLE_LOGGING!=='false'});
 if(live&&!process.env.VERDA_INFERENCE_KEY)throw new Error('Live evaluation needs VERDA_INFERENCE_KEY; load server/.env locally.');
 if(live&&includeAudio&&!process.env.ELEVENLABS_API_KEY)throw new Error('Audio evaluation needs ELEVENLABS_API_KEY.');
 export function framesFromVideo(path,executable=ffmpeg){

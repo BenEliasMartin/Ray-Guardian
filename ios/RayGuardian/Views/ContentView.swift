@@ -29,12 +29,12 @@ struct MonitorView: View {
             }
             Button { model.sendTrigger(.manual_sos) } label: { Label("SOS · Start demo escalation",systemImage: "sos").font(.headline).frame(maxWidth: .infinity).padding(.vertical,12) }.buttonStyle(.borderedProminent).tint(.red).disabled(!model.armed)
             if model.capturing || model.processing {
-                GroupBox { VStack(alignment: .leading) { ProgressView(model.capturing ? "Bounded capture active" : "Nemotron processing"); Text("\(model.frameCount)/6 frames · \(model.audioSeconds,specifier: "%.1f") seconds of audio").font(.caption); if let preview = model.preview { Image(uiImage: preview).resizable().scaledToFit().frame(maxHeight: 220).accessibilityLabel("Current in-memory wearer frame") } } }
+                GroupBox { VStack(alignment: .leading) { ProgressView(model.capturing ? "Bounded capture active" : "Nemotron processing"); Text("\(model.frameCount)/6 frames · \(model.audioSeconds,specifier: "%.1f") seconds of audio").font(.caption).accessibilityIdentifier("guardian.frameCount"); if let preview = model.preview { Image(uiImage: preview).resizable().scaledToFit().frame(maxHeight: 220).accessibilityLabel("Current in-memory wearer frame") } } }
             }
             if let detection = model.detection {
-                GroupBox("Nemotron assessment") { VStack(alignment: .leading,spacing: 8) {
+                GroupBox(detection.source == "nemotron" ? "Nemotron assessment" : "Assessment (\(detection.source))") { VStack(alignment: .leading,spacing: 8) {
                     Text(detection.label.replacingOccurrences(of: "_",with: " ").capitalized).font(.headline)
-                    Text(detection.summary); Text("\(detection.confidence.capitalized) qualitative confidence").font(.caption).foregroundStyle(.secondary)
+                    Text(detection.summary); Text(model.lastEvidence).font(.caption).accessibilityIdentifier("guardian.evidence"); Text("\(detection.confidence.capitalized) qualitative confidence").font(.caption).foregroundStyle(.secondary)
                     ForEach(detection.observations,id: \.self) { Label($0,systemImage: "eye").font(.callout) }
                     ForEach(detection.uncertainties,id: \.self) { Label($0,systemImage: "questionmark.circle").font(.caption).foregroundStyle(.secondary) }
                 }.frame(maxWidth: .infinity,alignment: .leading) }

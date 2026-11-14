@@ -115,3 +115,7 @@ test('cancel racing a successful dial immediately cancels the returned provider 
 test('a valid late callback supplies an unknown call SID and honors prior cancellation',async t=>{
   let cancellations=0;const {g,s}=fixture(t,{calls:{transport:'twilio',place:async()=>{throw new Error('ambiguous');},cancel:async()=>{cancellations++;}}});const tr=g.trigger('owner',s.id,{signal:'manual_sos'});await g.sweep();await Promise.all(g.callTasks.values());await g.cancel('owner',tr.incident.id);const updated=await g.twilioStatus(tr.incident.id,{CallSid:'CA'+'f'.repeat(32),CallStatus:'ringing'});assert.equal(cancellations,1);assert.equal(updated.state,'cancelled');assert.equal(updated.call.status,'cancellation_requested');
 });
+test('local ASR text cannot be uploaded without separate audio sharing consent',async t=>{
+  const {g}=fixture(t);const s=g.createSession('text-owner',{consent:{capture:true,cloud:true,audio:false}});g.arm('text-owner',s.id);const trigger=g.trigger('text-owner',s.id,{signal:'keyword_distress'});
+  await assert.rejects(g.observe('text-owner',s.id,{windowId:trigger.window.id,frames:[{offsetMs:0,imageDataUrl:png}],transcript:'A locally recognized phrase.'}),{code:'audio_consent_required'});
+});

@@ -19,6 +19,7 @@ import GuardianCore
     @Published private(set) var frameCount = 0
     @Published private(set) var audioSeconds = 0.0
     @Published private(set) var preview: UIImage?
+    @Published private(set) var lastEvidence = ""
     @Published var error: String?
     @Published private(set) var history: [Incident] = []
     private var api: GuardianAPI?, gate = PrivacyGate(), operation = UUID(), fall = FallCandidateDetector(), loudness = LoudnessDetector()
@@ -30,8 +31,9 @@ import GuardianCore
         heartRate.onMeasurement = { [weak self] bpm in guard let self,self.armed,self.settings.heartRateEnabled else { return }; if self.heartRateDetector.consume(bpm:bpm,threshold:self.settings.heartRateThreshold,time:self.monotonic) { self.sendTrigger(.heart_rate) } }
         voice.$playing.sink { [weak self] playing in self?.phone.setSuppressed(playing); self?.glasses.setVoiceSuppressed(playing) }.store(in:&relays)
         glasses.onFrame = { [weak self] in self?.receiveFrame($0) }
-        glasses.onPCM = { [weak self] in self?.receivePCM($0,source: .glasses) }
-        phone.onPCM = { [weak self] in self?.receivePCM($0,source: .phone) }
+        glasses.onPCM = { [weak self] in self?.receivePCM($0,source: .glasses,arrivedAt:$1) }
+        phone.onPCM = { [weak self] in self?.receivePCM($0,source: .phone,arrivedAt:$1) }
+        phone.onFailure = { [weak self] message in self?.error = message; self?.stop() }
         glasses.onTranscript = { [weak self] in self?.receiveTranscript($0,final: $1,confidence: $2) }
         phone.onTranscript = { [weak self] in self?.receiveTranscript($0,final: $1,confidence: $2) }
         glasses.onMotion = { [weak self] point in guard let self,self.armed else { return }; if self.fall.consume(point) { self.sendTrigger(.motion) } }
@@ -43,6 +45,9 @@ import GuardianCore
             Task { @MainActor in guard let self,self.armed else { return }; self.error = "Audio device disconnected; session stopped."; self.stop() }
         }.store(in: &relays)
     }
+    #if DEBUG
+    func statusForUITesting() { status = "UI TEST FIXTURE · live providers disabled" }
+    #endif
     func makeAPI() throws -> GuardianAPI { try GuardianAPI(url: settings.apiURL,token: settings.clientToken) }
     func checkBackend() async { do { try settings.save(); let client = try makeAPI(); health = try await client.get("health"); status = health?.ready == true ? "Backend and provider keys configured" : "Backend connected; provider keys still need configuration" } catch { self.error = error.localizedDescription } }
     func arm() async {
@@ -59,7 +64,7 @@ import GuardianCore
             if settings.keywords == .phone { try await phone.start(localASR: true); try checkOperation(token) }
             let created: GuardianSession = try await client.post("v1/sessions",body: CreateSession(consent: settings.consent,source: settings.input == .mock ? .meta_mock : .meta_glasses)); try checkOperation(token)
             let active: GuardianSession = try await client.post("v1/sessions/\(created.id)/arm"); try checkOperation(token)
-            session = active; incident = nil; detection = nil; spoken.removeAll(); fall = FallCandidateDetector(); gate.arm(consent: settings.consent,now: monotonic); armed = true; status = "Armed · camera off · expires in 15 minutes"
+            session = active; incident = nil; detection = nil; lastEvidence = ""; spoken.removeAll(); fall = FallCandidateDetector(); gate.arm(consent: settings.consent,now: monotonic); armed = true; status = "Armed · camera off · expires in 15 minutes"
             heartbeatTask?.cancel(); heartbeatTask = Task { [weak self] in
                 while !Task.isCancelled {
                     try? await Task.sleep(for: .seconds(5)); guard let self,!Task.isCancelled,self.operation == token,self.armed else { return }
@@ -126,15 +131,15 @@ import GuardianCore
         for quality: CGFloat in [0.65,0.45,0.25] { if let data = reduced.jpegData(compressionQuality: quality),data.count <= 131072 { jpeg = data; break } }
         guard let jpeg else { return }; frames.append(FramePayload(offsetMs: min(8000,offset*1000),jpeg: jpeg)); frameCount = frames.count; lastFrameAt = offset; preview = reduced
     }
-    private func receivePCM(_ samples: [Int16],source: AudioMode) {
+    private func receivePCM(_ samples: [Int16],source: AudioMode,arrivedAt:Double) {
         guard armed,!voice.suppressInput else { return }
         if loudness.consume(samples,time: monotonic) { status = capturing ? "Loud audio during capture · evidence only" : "Loud audio detected locally · no capture triggered" }
-        guard capturing,session?.consent.audio == true,settings.audio == source,let epoch = activeCapture,gate.accepts(epoch,now: monotonic) else { return }
+        guard arrivedAt >= captureStart,capturing,session?.consent.audio == true,settings.audio == source,let epoch = activeCapture,gate.accepts(epoch,now: monotonic) else { return }
         pcm.append(contentsOf: samples.prefix(max(0,128000-pcm.count))); audioSeconds = Double(pcm.count)/16000
     }
     private func receiveTranscript(_ text: String,final: Bool,confidence: Float) {
         guard armed,!voice.suppressInput else { return }
-        if capturing,final,session?.consent.cloud == true { transcript = String((transcript+" "+text).suffix(4000)) }
+        if capturing,final,session?.consent.cloud == true,session?.consent.audio == true { transcript = String((transcript+" "+text).suffix(4000)) }
         guard let intent = KeywordDetector.intent(text,isFinal: final,confidence: confidence,isPlayingVoice: voice.suppressInput) else { return }
         switch intent { case .cancel: cancelIncident(); case .sos: sendTrigger(.keyword_sos); case .distress: sendTrigger(.keyword_distress) }
     }
@@ -144,7 +149,7 @@ import GuardianCore
         replayAudioTask = Task { [weak self] in
             for start in stride(from: 0,to: samples.count,by: 320) {
                 guard !Task.isCancelled,let self,self.operation == token,self.capturing else { return }
-                self.receivePCM(Array(samples[start..<min(start+320,samples.count)]),source: .replay)
+                self.receivePCM(Array(samples[start..<min(start+320,samples.count)]),source: .replay,arrivedAt:self.monotonic)
                 try? await Task.sleep(for: .milliseconds(20))
             }
         }
@@ -160,7 +165,7 @@ import GuardianCore
         processing = true; status = "Transcribing audio and asking Nemotron to assess actual evidence"
         uploadTask = Task { [weak self] in guard let self else { return }; do {
             let result: ObservationResult = try await api.post("v1/sessions/\(session.id)/observations",body: payload); try self.checkOperation(token)
-            self.processing = false; self.detection = result.detection; self.incident = result.incident ?? self.incident; self.shareLocationIfConsented(); self.status = "Nemotron: \(result.detection.label.replacingOccurrences(of: "_",with: " ")) · \(result.detection.confidence) confidence"; await self.handleVoice()
+            self.processing = false; self.lastEvidence = "\(result.framesAnalyzed) frames analyzed · \(String(format: "%.1f",result.audioDurationMs/1000)) seconds of audio · transcription: \(result.audioTranscriptionSource ?? "none")"; self.detection = result.detection; self.incident = result.incident ?? self.incident; self.shareLocationIfConsented(); self.status = "\(result.detection.source): \(result.detection.label.replacingOccurrences(of: "_",with: " ")) · \(result.detection.confidence) confidence"; await self.handleVoice()
         } catch { guard self.operation == token else { return }; self.processing = false; self.error = error.localizedDescription } }
     }
     private func clearMedia() { frames.removeAll(keepingCapacity: false); pcm.withUnsafeMutableBufferPointer { $0.initialize(repeating: 0) }; pcm.removeAll(keepingCapacity: false); transcript = ""; preview = nil; frameCount = 0; audioSeconds = 0 }

@@ -92,6 +92,16 @@ targets:
         product: MWDATSpeech
       - package: MetaWearablesDAT
         product: MWDATMockDevice
+  RayGuardianUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [RayGuardianUITests]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.rayguardian.companion.uitests
+        GENERATE_INFOPLIST_FILE: YES
+    dependencies:
+      - target: RayGuardian
 schemes:
   RayGuardian:
     build:
@@ -99,6 +109,9 @@ schemes:
         RayGuardian: all
     run:
       config: Debug
+    test:
+      config: Debug
+      targets: [RayGuardianUITests]
     archive:
       config: Release
     profile:

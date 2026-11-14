@@ -6,7 +6,16 @@ import MWDATCore
     init() {
         var setupError: String?
         do { try Wearables.configure() } catch { setupError = error.localizedDescription }
-        let model = GuardianModel(); model.error = setupError; _model = StateObject(wrappedValue: model)
+        let model = GuardianModel(); model.error = setupError
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--guardian-ui-fixture") {
+            model.settings.apiURL = ProcessInfo.processInfo.environment["GUARDIAN_UI_TEST_API"] ?? "http://127.0.0.1:8787"
+            model.settings.clientToken = "ui-test-only-client-token-never-production-12345"
+            model.settings.consent.capture = true; model.settings.consent.cloud = true; model.settings.consent.audio = true
+            model.statusForUITesting()
+        }
+        #endif
+        _model = StateObject(wrappedValue: model)
     }
     var body: some Scene { WindowGroup {
         ContentView(model: model).onOpenURL { url in

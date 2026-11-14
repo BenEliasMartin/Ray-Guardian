@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		06866B9FC75A465DAD21395B /* IncidentLocation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00EBC70A765FEBC77AEB530B /* IncidentLocation.swift */; };
 		0EFDE40216BBE27587E5884D /* Configuration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46B9B6DAB6A9CAC341F77FD4 /* Configuration.swift */; };
+		1BC1CEECBE8ACCD57E266F4B /* RayGuardianUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71DB5A6D5B8ECB74FE6126A8 /* RayGuardianUITests.swift */; };
 		20837E3C0B269555CED7A0CE /* GuardianModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D28734A405CA466C5341C4D7 /* GuardianModel.swift */; };
 		38520740661C303B6C427F0D /* MWDATMotion in Frameworks */ = {isa = PBXBuildFile; productRef = 039B17C87BA077347BA649EC /* MWDATMotion */; };
 		424B180B34BF0105C19FFB34 /* HeartRateMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91850367A3F52267F85F601C /* HeartRateMonitor.swift */; };
@@ -27,6 +28,16 @@
 		DD03A6A346A12E67957F754C /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = FD43046E6948D8E094CC79A0 /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		00E603E2462CC525CE551001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 739DA429D2C2AB6514FE352A /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 3C6AF1B9F8A35DC5BE19B9F6;
+			remoteInfo = RayGuardian;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
 		00EBC70A765FEBC77AEB530B /* IncidentLocation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IncidentLocation.swift; sourceTree = "<group>"; };
 		14E23221338668B14E283230 /* RayGuardianApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RayGuardianApp.swift; sourceTree = "<group>"; };
@@ -35,6 +46,8 @@
 		3D220C2C42836B777980A1D4 /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Release.xcconfig; sourceTree = "<group>"; };
 		3DF00DB6237907EACBAF966C /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		46B9B6DAB6A9CAC341F77FD4 /* Configuration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Configuration.swift; sourceTree = "<group>"; };
+		603BCDD80FECDBF272586594 /* RayGuardianUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = RayGuardianUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		71DB5A6D5B8ECB74FE6126A8 /* RayGuardianUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RayGuardianUITests.swift; sourceTree = "<group>"; };
 		8E6557896DE3E9CD9CB0B41B /* RayGuardian.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = RayGuardian.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		91850367A3F52267F85F601C /* HeartRateMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeartRateMonitor.swift; sourceTree = "<group>"; };
 		9919DC4493884B03A640942F /* AudioIO.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioIO.swift; sourceTree = "<group>"; };
@@ -76,8 +89,17 @@
 			isa = PBXGroup;
 			children = (
 				8E6557896DE3E9CD9CB0B41B /* RayGuardian.app */,
+				603BCDD80FECDBF272586594 /* RayGuardianUITests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		28A09FEC60E8615154FD149B /* RayGuardianUITests */ = {
+			isa = PBXGroup;
+			children = (
+				71DB5A6D5B8ECB74FE6126A8 /* RayGuardianUITests.swift */,
+			);
+			path = RayGuardianUITests;
 			sourceTree = "<group>";
 		};
 		4310035DFFBD398A47B04A28 /* Packages */ = {
@@ -113,6 +135,7 @@
 				1B9B5FEC4471BD7E60B4EAF0 /* Config */,
 				4310035DFFBD398A47B04A28 /* Packages */,
 				76C4A8A4BE4E008DDCAF4C73 /* RayGuardian */,
+				28A09FEC60E8615154FD149B /* RayGuardianUITests */,
 				26EFD705C362CEA059496AA2 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -144,6 +167,24 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		213E0B7CBF4F67F2FC24B0B9 /* RayGuardianUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 5574CCEE80925CB563B97F56 /* Build configuration list for PBXNativeTarget "RayGuardianUITests" */;
+			buildPhases = (
+				6D7E5BB8854B3F09BE1C96CA /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				73824B65A4134F61F7B0826F /* PBXTargetDependency */,
+			);
+			name = RayGuardianUITests;
+			packageProductDependencies = (
+			);
+			productName = RayGuardianUITests;
+			productReference = 603BCDD80FECDBF272586594 /* RayGuardianUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 		3C6AF1B9F8A35DC5BE19B9F6 /* RayGuardian */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 3E8C5BCFE1E2C52E4B0ED908 /* Build configuration list for PBXNativeTarget "RayGuardian" */;
@@ -178,6 +219,11 @@
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
+					213E0B7CBF4F67F2FC24B0B9 = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+						TestTargetID = 3C6AF1B9F8A35DC5BE19B9F6;
+					};
 					3C6AF1B9F8A35DC5BE19B9F6 = {
 						DevelopmentTeam = "";
 						ProvisioningStyle = Automatic;
@@ -203,6 +249,7 @@
 			projectRoot = "";
 			targets = (
 				3C6AF1B9F8A35DC5BE19B9F6 /* RayGuardian */,
+				213E0B7CBF4F67F2FC24B0B9 /* RayGuardianUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -237,7 +284,23 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		6D7E5BB8854B3F09BE1C96CA /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1BC1CEECBE8ACCD57E266F4B /* RayGuardianUITests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		73824B65A4134F61F7B0826F /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 3C6AF1B9F8A35DC5BE19B9F6 /* RayGuardian */;
+			targetProxy = 00E603E2462CC525CE551001 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		25A7573816A796B853C6ACC1 /* Debug */ = {
@@ -400,6 +463,23 @@
 			};
 			name = Release;
 		};
+		6BFF94B675C1496909459927 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.rayguardian.companion.uitests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = RayGuardian;
+			};
+			name = Debug;
+		};
 		BC9EBAA360A47C0302A99E47 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -416,6 +496,23 @@
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
+		};
+		F1E94858BA2551DB6B07CA61 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.rayguardian.companion.uitests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = RayGuardian;
+			};
+			name = Release;
 		};
 /* End XCBuildConfiguration section */
 
@@ -434,6 +531,15 @@
 			buildConfigurations = (
 				BC9EBAA360A47C0302A99E47 /* Debug */,
 				565D067A2222AEDA9E65627B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		5574CCEE80925CB563B97F56 /* Build configuration list for PBXNativeTarget "RayGuardianUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				6BFF94B675C1496909459927 /* Debug */,
+				F1E94858BA2551DB6B07CA61 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;

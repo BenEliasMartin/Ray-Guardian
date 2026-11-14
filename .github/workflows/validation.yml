@@ -31,6 +31,14 @@ jobs:
         with:
           xcode-version: latest-stable
       - run: xcodebuild -version && swift --version
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Prepare one genuine wearer-POV fixture (media is not committed)
+        run: |
+          python3 -m venv /tmp/guardian-media
+          /tmp/guardian-media/bin/pip install -r validation/requirements.txt
+          /tmp/guardian-media/bin/python scripts/prepare_ios_ui_fixture.py
       - name: Build native companion with pinned DAT SDK
         run: >-
           xcodebuild -project ios/RayGuardian.xcodeproj -scheme RayGuardian
@@ -41,6 +49,22 @@ jobs:
           xcodebuild -project ios/RayGuardian.xcodeproj -scheme RayGuardian
           -configuration Release -sdk iphoneos -destination 'generic/platform=iOS'
           -derivedDataPath /tmp/guardian-ios-release CODE_SIGNING_ALLOWED=NO build
+      - name: Exercise actual MockDeviceKit capture in Simulator
+        run: |
+          node server/test-support/fixture-server.mjs > /tmp/guardian-fixture-api.log 2>&1 &
+          fixture_pid=$!
+          trap 'kill "$fixture_pid" 2>/dev/null || true' EXIT
+          device_id=$(xcrun simctl list devices available --json | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for values in d["devices"].values() for x in values if "iPhone" in x["name"]))')
+          xcodebuild -project ios/RayGuardian.xcodeproj -scheme RayGuardian -configuration Debug \
+            -destination "platform=iOS Simulator,id=$device_id" -derivedDataPath /tmp/guardian-ios \
+            -resultBundlePath /tmp/guardian-ui-tests.xcresult CODE_SIGNING_ALLOWED=NO test
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: ios-ui-diagnostics
+          path: |
+            /tmp/guardian-ui-tests.xcresult
+            /tmp/guardian-fixture-api.log
   android:
     runs-on: ubuntu-latest
     steps:
@@ -50,5 +74,8 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools platforms;android-36 build-tools;36.0.0
+          log-accepted-android-sdk-licenses: false
       - uses: gradle/actions/setup-gradle@v4
       - run: ./gradlew testDebugUnitTest assembleDebug lintDebug

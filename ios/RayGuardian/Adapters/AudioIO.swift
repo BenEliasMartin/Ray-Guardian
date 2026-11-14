@@ -16,16 +16,16 @@ enum PCMConverter {
 }
 @MainActor final class PhoneAudio: ObservableObject {
     @Published var status = "Off"
-    var onPCM: (([Int16]) -> Void)?, onTranscript: ((String,Bool,Float) -> Void)?, onFailure: ((String) -> Void)?
+    var onPCM: (([Int16],Double) -> Void)?, onTranscript: ((String,Bool,Float) -> Void)?, onFailure: ((String) -> Void)?
     private var engine: AVAudioEngine?, recognizer: SFSpeechRecognizer?, request: SFSpeechAudioBufferRecognitionRequest?, recognition: SFSpeechRecognitionTask?
     private var restart: Task<Void,Never>?, epoch = UUID(), wantsASR = false, suppressed = false
-    private var recognitionID = UUID()
+    private var recognitionID = UUID(), recognitionFailures = 0
     func start(localASR: Bool) async throws {
-        stop(); let token = epoch
+        stop(); recognitionFailures = 0; let token = epoch
         guard await AVAudioApplication.requestRecordPermission() else { throw DeviceError.message("Phone microphone permission denied.") }
         if localASR {
             let authorization = await withCheckedContinuation { continuation in SFSpeechRecognizer.requestAuthorization { continuation.resume(returning: $0) } }
-            guard authorization == .authorized, let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US")), recognizer.supportsOnDeviceRecognition else { throw DeviceError.message("On-device English speech recognition is unavailable. Download the language or use glasses speech; cloud ASR is not used for standby.") }
+            guard authorization == .authorized, let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US")), recognizer.supportsOnDeviceRecognition,recognizer.isAvailable else { throw DeviceError.message("On-device English speech recognition is unavailable. Download the language or use glasses speech; cloud ASR is not used for standby.") }
             self.recognizer = recognizer
         }
         guard token == epoch else { throw CancellationError() }; wantsASR = localASR
@@ -34,12 +34,13 @@ enum PCMConverter {
         let engine = AVAudioEngine(); self.engine = engine
         if localASR { beginRecognition(token: token) }
         engine.inputNode.installTap(onBus: 0,bufferSize: 1024,format: nil) { [weak self] buffer,_ in
+            let arrivedAt = ProcessInfo.processInfo.systemUptime
             let pcm = PCMConverter.samples(buffer)
             guard let copy = AVAudioPCMBuffer(pcmFormat:buffer.format,frameCapacity:buffer.frameLength) else { return }
             copy.frameLength = buffer.frameLength
             let source = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating:buffer.audioBufferList)), destination = UnsafeMutableAudioBufferListPointer(copy.mutableAudioBufferList)
             for index in 0..<min(source.count,destination.count) { if let src = source[index].mData,let dst = destination[index].mData { memcpy(dst,src,Int(source[index].mDataByteSize)) } }
-            Task { @MainActor in guard let self, self.epoch == token,!self.suppressed else { return }; self.request?.append(copy); self.onPCM?(pcm) }
+            Task { @MainActor in guard let self, self.epoch == token,!self.suppressed else { return }; self.request?.append(copy); self.onPCM?(pcm,arrivedAt) }
         }
         engine.prepare(); try engine.start(); status = localASR ? "Phone local speech + microphone active" : "Phone microphone active during capture"
     }
@@ -50,7 +51,11 @@ enum PCMConverter {
         recognition = recognizer?.recognitionTask(with: request) { [weak self] result,error in Task { @MainActor in
             guard let self, self.epoch == token,self.recognitionID == id,!self.suppressed else { return }
             if let result { let confidence = result.bestTranscription.segments.last?.confidence ?? -1; self.onTranscript?(result.bestTranscription.formattedString,result.isFinal,confidence) }
-            if error != nil || result?.isFinal == true { self.scheduleRestart(token: token) }
+            if let error {
+                self.recognitionFailures += 1; self.status = "Local speech unavailable: \(error.localizedDescription)"
+                if self.recognitionFailures >= 3 { self.onFailure?(self.status); return }
+                self.scheduleRestart(token:token,seconds:2)
+            } else if result?.isFinal == true { self.recognitionFailures = 0; self.scheduleRestart(token:token) }
         } }
         scheduleRestart(token: token, seconds: 50)
     }

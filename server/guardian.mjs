@@ -82,7 +82,7 @@ export class GuardianService {
       if(window.state==='complete')return window.result;
       if(window.state==='processing')fail(409,'already_processing','This observation is already processing; poll the session.');
       if(window.state!=='capturing'||this.now()>window.uploadEndsAt)fail(409,'window_expired','Capture upload window expired.');
-      if(observation.audio&&!s.consent.audio)fail(403,'audio_consent_required','Audio upload is not enabled.');
+      if((observation.audio||observation.transcript)&&!s.consent.audio)fail(403,'audio_consent_required','Audio upload is not enabled.');
       if(this.processing.size>=2)fail(503,'busy','Two observations are already processing.');
       const controller=new AbortController();
       const abort=()=>controller.abort();

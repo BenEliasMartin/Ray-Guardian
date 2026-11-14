@@ -17,7 +17,7 @@ import MWDATMockDevice
     @Published var speechStatus = "Off"
     @Published var cameraStatus = "Off"
     var onFrame: ((UIImage) -> Void)?
-    var onPCM: (([Int16]) -> Void)?
+    var onPCM: (([Int16],Double) -> Void)?
     var onTranscript: ((String, Bool, Float) -> Void)?
     var onMotion: ((MotionPoint) -> Void)?
     var onUnavailable: ((String) -> Void)?
@@ -126,8 +126,9 @@ import MWDATMockDevice
             Task { @MainActor in guard let self, self.cameraGeneration == token, let image = frame.makeUIImage() else { return }; self.onFrame?(image) }
         }.store(in: cameraTokens)
         attached.stream.audioFramePublisher.listen { [weak self] frame in
+            let arrivedAt = ProcessInfo.processInfo.systemUptime
             let pcm = PCMConverter.samples(frame.pcmBuffer)
-            Task { @MainActor in guard self?.cameraGeneration == token else { return }; self?.onPCM?(pcm) }
+            Task { @MainActor in guard self?.cameraGeneration == token else { return }; self?.onPCM?(pcm,arrivedAt) }
         }.store(in: cameraTokens)
         attached.stream.errorPublisher.listen { [weak self] error in Task { @MainActor in guard self?.cameraGeneration == token else { return }; self?.onUnavailable?("Camera: \(error.localizedDescription)") } }.store(in: cameraTokens)
         attached.stream.statePublisher.listen { [weak self] state in Task { @MainActor in guard self?.cameraGeneration == token else { return }; self?.cameraStatus = String(describing: state) } }.store(in: cameraTokens)
