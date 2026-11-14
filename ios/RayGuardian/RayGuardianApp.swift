@@ -10,6 +10,9 @@ import MWDATCore
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("--guardian-ui-fixture") {
             model.settings.usesEphemeralUITestConfiguration = true
+            model.settings.mockUsesReplay = true
+            model.settings.audio = .replay
+            model.settings.keywords = .glasses
             model.settings.apiURL = ProcessInfo.processInfo.environment["GUARDIAN_UI_TEST_API"] ?? "http://127.0.0.1:8787"
             model.settings.clientToken = "ui-test-only-client-token-never-production-12345"
             model.settings.consent.capture = true; model.settings.consent.cloud = true; model.settings.consent.audio = true
@@ -23,6 +26,8 @@ import MWDATCore
         ContentView(model: model).onOpenURL { url in
             guard URLComponents(url: url,resolvingAgainstBaseURL: false)?.queryItems?.contains(where: { $0.name == "metaWearablesAction" }) == true else { return }
             Task { do { if let error = model.glasses.configurationError { throw DeviceError.message(error) }; _ = try await Wearables.shared.handleUrl(url) } catch { model.error = error.localizedDescription } }
-        }.onChange(of: scenePhase) { _,phase in model.sceneChanged(active: phase == .active) }
+        }.onChange(of: scenePhase) { _,phase in
+            if phase != .inactive || !model.starting { model.sceneChanged(active: phase == .active) }
+        }
     } }
 }

@@ -15,7 +15,7 @@ final class RayGuardianUITests: XCTestCase {
         if !app.staticTexts["Guardian is armed"].waitForExistence(timeout:25) {
             XCTFail("Arming failed: \(app.debugDescription)"); return
         }
-        app.tabBars.buttons["Replay lab"].tap()
+        app.tabBars.buttons["Mock glasses"].tap()
         let inject = app.buttons["Inject ‘Guardian help me’"]
         XCTAssertTrue(inject.waitForExistence(timeout:5)); inject.tap()
         app.tabBars.buttons["Guardian"].tap()

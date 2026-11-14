@@ -23,21 +23,23 @@ enum Keychain {
 @MainActor final class Settings: ObservableObject {
     #if DEBUG
     var usesEphemeralUITestConfiguration = false
+    @Published var mockUsesReplay = false
     #endif
     @Published var apiURL: String
     @Published var clientToken: String
     @Published var input: InputMode = .mock { didSet { if input == .real && audio == .replay { audio = .glasses } } }
-    @Published var keywords: KeywordMode = .glasses
-    @Published var audio: AudioMode = .replay
+    @Published var keywords: KeywordMode = .phone
+    @Published var audio: AudioMode = .phone
     @Published var consent = Consent()
     @Published var automaticSceneChecks = false
+    @Published var elevenLabsListening = false
     @Published var heartRateEnabled = false
     @Published var heartRateThreshold = 160
     init() {
         apiURL = Keychain.read("apiURL") ?? (Bundle.main.object(forInfoDictionaryKey: "GuardianAPIURL") as? String ?? "http://127.0.0.1:8787")
         clientToken = Keychain.read("clientToken") ?? (Bundle.main.object(forInfoDictionaryKey: "GuardianClientToken") as? String ?? "")
         #if !DEBUG
-        input = .real; audio = .glasses
+        input = .real; audio = .glasses; keywords = .glasses
         #endif
     }
     func save() throws {

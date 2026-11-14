@@ -41,17 +41,17 @@
 /* Begin PBXFileReference section */
 		00EBC70A765FEBC77AEB530B /* IncidentLocation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IncidentLocation.swift; sourceTree = "<group>"; };
 		14E23221338668B14E283230 /* RayGuardianApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RayGuardianApp.swift; sourceTree = "<group>"; };
-		15B607E4FE51DAD92A975A38 /* GuardianCore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = GuardianCore; path = GuardianCore; sourceTree = SOURCE_ROOT; };
+		15B607E4FE51DAD92A975A38 /* GuardianCore */ = {isa = PBXFileReference; lastKnownFileType = folder; path = GuardianCore; sourceTree = SOURCE_ROOT; };
 		213B6A8BEDA9D601ABC657C1 /* GlassesAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlassesAdapter.swift; sourceTree = "<group>"; };
 		3D220C2C42836B777980A1D4 /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Release.xcconfig; sourceTree = "<group>"; };
 		3DF00DB6237907EACBAF966C /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		46B9B6DAB6A9CAC341F77FD4 /* Configuration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Configuration.swift; sourceTree = "<group>"; };
-		603BCDD80FECDBF272586594 /* RayGuardianUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = RayGuardianUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		603BCDD80FECDBF272586594 /* RayGuardianUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RayGuardianUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		71DB5A6D5B8ECB74FE6126A8 /* RayGuardianUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RayGuardianUITests.swift; sourceTree = "<group>"; };
-		8E6557896DE3E9CD9CB0B41B /* RayGuardian.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = RayGuardian.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		8E6557896DE3E9CD9CB0B41B /* RayGuardian.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = RayGuardian.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		91850367A3F52267F85F601C /* HeartRateMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeartRateMonitor.swift; sourceTree = "<group>"; };
 		9919DC4493884B03A640942F /* AudioIO.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioIO.swift; sourceTree = "<group>"; };
-		9F8310980943FFD67729B9D5 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		9F8310980943FFD67729B9D5 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		D28734A405CA466C5341C4D7 /* GuardianModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GuardianModel.swift; sourceTree = "<group>"; };
 		E5780C13BBF12BE849793957 /* ReplayLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReplayLibrary.swift; sourceTree = "<group>"; };
 		EDE3CD7026C5892AA2771CB3 /* ReplayMedia */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ReplayMedia; path = RayGuardian/Resources/ReplayMedia; sourceTree = SOURCE_ROOT; };
@@ -226,7 +226,6 @@
 						TestTargetID = 3C6AF1B9F8A35DC5BE19B9F6;
 					};
 					3C6AF1B9F8A35DC5BE19B9F6 = {
-						DevelopmentTeam = "";
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -385,8 +384,6 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				GUARDIAN_API_URL = "http:/$()/127.0.0.1:8787";
-				GUARDIAN_CLIENT_TOKEN = "";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.2;
 				MARKETING_VERSION = 0.2.0;
 				META_APP_ID = 0;
@@ -454,8 +451,6 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				GUARDIAN_API_URL = "http:/$()/127.0.0.1:8787";
-				GUARDIAN_CLIENT_TOKEN = "";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.2;
 				MARKETING_VERSION = 0.2.0;
 				META_APP_ID = 0;
@@ -477,6 +472,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = 2JPNVU63JU;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = "$(DERIVED_FILE_DIR)/GuardianInfo.plist";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -511,6 +507,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = 2JPNVU63JU;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = "$(DERIVED_FILE_DIR)/GuardianInfo.plist";
 				LD_RUNPATH_SEARCH_PATHS = (

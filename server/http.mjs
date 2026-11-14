@@ -293,7 +293,7 @@ export function createGuardianHTTP({
         return sendJSON(res, 200, clean({ incidents: g.store.list('incident', owner) }));
       }
 
-      const session = path.match(/^\/v1\/sessions\/([a-f0-9-]{36})(?:\/(arm|disarm|heartbeat|triggers|observations))?$/);
+      const session = path.match(/^\/v1\/sessions\/([a-f0-9-]{36})(?:\/(arm|disarm|heartbeat|triggers|observations|speech))?$/);
       if (session) {
         const g = ensureGuardian();
         const [, id, action] = session;
@@ -312,6 +312,7 @@ export function createGuardianHTTP({
             case 'heartbeat': result = g.heartbeat(owner, id); break;
             case 'triggers': result = g.trigger(owner, id, body); break;
             case 'observations': result = await g.observe(owner, id, body, abort.signal); break;
+            case 'speech': result = await g.monitorSpeech(owner, id, body, abort.signal); break;
             default: throw new ApiError(404, 'not_found', 'Endpoint not found.');
           }
           return sendJSON(res, 200, clean(result));

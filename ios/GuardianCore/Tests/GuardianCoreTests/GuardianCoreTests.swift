@@ -13,6 +13,11 @@ final class GuardianCoreTests: XCTestCase {
         XCTAssertNil(KeywordDetector.intent("Guardian help me",isFinal: true,confidence: 0.9,isPlayingVoice: true))
         XCTAssertNil(KeywordDetector.intent("The lifeguardian helped me",isFinal: true,confidence: 0.9))
         XCTAssertNil(KeywordDetector.intent("It is loud here",isFinal: true,confidence: 0.9))
+        XCTAssertEqual(KeywordDetector.intent("I’m going to kill you",isFinal: false,confidence: 0),.threat)
+        XCTAssertEqual(KeywordDetector.intent("im going to kill you",isFinal: true,confidence: 0.9),.threat)
+        XCTAssertNil(KeywordDetector.intent("I’m going to kill the lights",isFinal: true,confidence: 0.9))
+        XCTAssertEqual(KeywordDetector.intent("Help!",isFinal: true,confidence: -1),.distress)
+        XCTAssertEqual(KeywordDetector.intent("Somebody help me!",isFinal: false,confidence: 0),.distress)
     }
     func testMotionRequiresTimedFreeFallThenImpactAndCoolsDown() {
         var detector = FallCandidateDetector()

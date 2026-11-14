@@ -1,13 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { ApiError } from './nemotron.mjs';
 import { shouldCheckIn } from './detection.mjs';
-import { validateObservation,clearObservation } from './media.mjs';
+import { decodeBase64,inspectWAV,validateObservation,clearObservation } from './media.mjs';
 import { VOICE_PROMPTS } from './elevenlabs.mjs';
 
 const MINUTE=60_000,SESSION_MS=30*MINUTE,RECORD_TTL=24*60*MINUTE;
 const SCENE_LIMIT=30, EVENT_LIMIT=12;
 const SCENE_INTERVAL=20_000, EVENT_INTERVAL=10_000;
-const SIGNALS=['manual_sos','keyword_sos','keyword_distress','motion','heart_rate','loud_voice','scene_check'];
+const SIGNALS=['manual_sos','keyword_sos','keyword_distress','spoken_threat','motion','heart_rate','loud_voice','scene_check'];
 const TERMINAL=new Set(['cancelled','acknowledged','closed']);
 const CONSENTS=['capture','cloud','audio','voice','demoCalls','location','backgroundEscalation'];
 const fail=(status,code,message)=>{throw new ApiError(status,code,message);};
@@ -37,9 +37,11 @@ export class GuardianService {
   createSession(owner,body={}){
     if(body.mode!==undefined&&body.mode!=='demo')fail(403,'demo_only','Only demonstration sessions are supported.');
     const consent=Object.fromEntries(CONSENTS.map(key=>[key,body.consent?.[key]===true]));
+    consent.speechMonitoring=body.speechMonitoring===true;
     if(consent.audio&&!consent.cloud)fail(400,'invalid_consent','Cloud audio requires cloud consent.');
+    if(consent.speechMonitoring&&(!consent.audio||!consent.cloud))fail(400,'invalid_consent','Speech monitoring requires cloud and audio consent.');
     const source=['meta_mock','meta_glasses','phone','file_replay'].includes(body.source)?body.source:'meta_mock';
-    const enabledSignals=body.enabledSignals??['manual_sos','keyword_sos','keyword_distress','motion','heart_rate'];
+    const enabledSignals=body.enabledSignals??['manual_sos','keyword_sos','keyword_distress','spoken_threat','motion','heart_rate'];
     if(!Array.isArray(enabledSignals)||enabledSignals.some(s=>!SIGNALS.includes(s)))fail(400,'invalid_signals','Unknown trigger source.');
     const allowedSignals=enabledSignals.filter(signal=>signal!=='scene_check');
     if(body.automaticSceneChecks===true&&consent.capture&&consent.cloud)allowedSignals.push('scene_check');
@@ -70,6 +72,10 @@ export class GuardianService {
     if(incident&&TERMINAL.has(incident.state))incident=null;
     if(intentional&&!incident){incident=this.newIncident(s,null,body.signal,true);s=this.requireSession(owner,id);}
     if(intentional&&incident?.state==='check_in')incident=this.queueCall({...incident,checkInDeadline:null});
+    if(['spoken_threat','keyword_distress'].includes(body.signal)&&!incident){
+      incident=this.newIncident(s,null,body.signal,false);
+      s=this.requireSession(owner,id);
+    }
     const active=s.activeWindow;
     if(active&&(active.state==='processing'||(active.state==='capturing'&&this.now()<=active.uploadEndsAt))){
       return {accepted:true,reason:'window_already_active',session:s,incident};
@@ -90,6 +96,21 @@ export class GuardianService {
       recent.length>=(sceneCheck?SCENE_LIMIT:EVENT_LIMIT)?'capture_budget':'trigger_cooldown';
     return {accepted:true,reason,
       session:s,incident,window,limits:{maxFrames:6,maxFrameBytes:131072,maxAudioMs:8000,audioAllowed:s.consent.audio}};
+  }
+  async monitorSpeech(owner,id,body,signal){
+    const session=this.requireSession(owner,id);
+    this.requireArmed(session);
+    if(!session.consent.speechMonitoring)fail(403,'speech_consent_required','Enable ElevenLabs listening while armed.');
+    const audio=decodeBase64(body?.base64,128044);
+    try{
+      if(inspectWAV(audio).durationMs>4000)fail(400,'speech_window_too_long','Speech monitoring accepts clips of up to four seconds.');
+      const recent=this.recentBudget(owner,'speech_monitoring');
+      if(recent.length>=120||recent.at(-1)>this.now()-2500)fail(429,'speech_budget','Speech monitoring is temporarily rate limited.');
+      this.reserveBudget(owner,'speech_monitoring');
+      const result=await this.voice.transcribe(audio,signal);
+      this.requireArmed(this.requireSession(owner,id));
+      return {text:result.text};
+    }finally{audio.fill(0);}
   }
   async observe(owner,id,body,disconnectSignal){
     let s=this.requireSession(owner,id);this.requireArmed(s);

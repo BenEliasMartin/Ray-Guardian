@@ -1,15 +1,25 @@
 import Foundation
 
-public enum VoiceIntent: Equatable, Sendable { case sos, distress, cancel }
-/// Runs only on final local ASR results. No cloud keyword recognition is implied.
+public enum VoiceIntent: Equatable, Sendable { case sos, distress, cancel, threat }
 public enum KeywordDetector {
     public static func intent(_ text: String, isFinal: Bool, confidence: Float, isPlayingVoice: Bool = false) -> VoiceIntent? {
-        guard isFinal, !isPlayingVoice, confidence < 0 || confidence >= 0.55 else { return nil }
-        let words = text.lowercased().unicodeScalars.map { CharacterSet.alphanumerics.contains($0) ? String($0) : " " }.joined().split(separator: " ").map(String.init)
+        guard !isPlayingVoice else { return nil }
+        let normalized = text.lowercased().replacingOccurrences(of: "'", with: "").replacingOccurrences(of: "’", with: "")
+        let words = normalized.unicodeScalars.map { CharacterSet.alphanumerics.contains($0) ? String($0) : " " }.joined().split(separator: " ").map(String.init)
         let value = " " + words.joined(separator: " ") + " "
-        if value.contains(" guardian cancel ") || value.contains(" guardian i am okay ") { return .cancel }
-        if value.contains(" guardian sos ") || value.contains(" guardian call for help ") { return .sos }
-        if value.contains(" guardian help me ") { return .distress }
+        if isFinal, confidence < 0 || confidence >= 0.55 {
+            if value.contains(" guardian cancel ") || value.contains(" guardian i am okay ") { return .cancel }
+            if value.contains(" guardian sos ") || value.contains(" guardian call for help ") { return .sos }
+        }
+        if (confidence == 0 && !isFinal) || confidence < 0 || confidence >= 0.55 {
+            let threats = ["im going to kill you", "i am going to kill you", "im gonna kill you", "i will kill you", "ill kill you",
+                           "im going to shoot you", "im gonna shoot you", "i will shoot you", "ill shoot you",
+                           "im going to stab you", "im gonna stab you", "i will stab you", "ill stab you"]
+            if threats.contains(where: { value.contains(" " + $0 + " ") }) { return .threat }
+            let cries = ["help me", "somebody help", "someone help", "i need help", "please help"]
+            if (words == ["help"] || cries.contains(where: { value.contains(" " + $0 + " ") })),
+               isFinal || !value.contains(" guardian ") { return .distress }
+        }
         return nil
     }
 }

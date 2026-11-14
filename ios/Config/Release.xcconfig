@@ -1,2 +1,3 @@
+GUARDIAN_API_URL = http:/$()/127.0.0.1:8787
 #include? "Local.xcconfig"
 GUARDIAN_CLIENT_TOKEN =

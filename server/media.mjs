@@ -39,9 +39,9 @@ export function validateObservation(body) {
   if (typeof body.windowId !== 'string' || !/^[a-f0-9-]{36}$/.test(body.windowId)) invalid('Missing capture window.');
   const frames = body.frames ?? [];
   if (!Array.isArray(frames) || frames.length > MAX_FRAMES) invalid('Send at most six frames.');
-  let lastOffset = -1;
+  let lastOffset = -Infinity;
   const validatedFrames = frames.map(frame => {
-    if (!Number.isFinite(frame?.offsetMs) || frame.offsetMs < 0 || frame.offsetMs > MAX_CAPTURE_MS || frame.offsetMs < lastOffset) invalid('Frame offsets must be ordered inside the capture window.');
+    if (!Number.isFinite(frame?.offsetMs) || frame.offsetMs < -3000 || frame.offsetMs > MAX_CAPTURE_MS || frame.offsetMs < lastOffset) invalid('Frame offsets must be ordered between three seconds before and eight seconds after the trigger.');
     lastOffset = frame.offsetMs;
     validateInput({ consent:true, description:'frame', imageDataUrl:frame.imageDataUrl });
     if (frame.imageDataUrl == null) invalid('Every frame must contain inline image data.');

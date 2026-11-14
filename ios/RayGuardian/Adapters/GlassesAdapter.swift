@@ -39,18 +39,30 @@ import MWDATMockDevice
         guard try await Wearables.shared.requestPermission(.camera) == .granted else { throw DeviceError.message("Glasses camera permission denied.") }
         guard try await Wearables.shared.requestPermission(.microphone) == .granted else { throw DeviceError.message("Glasses microphone permission denied.") }
     }
-    func prepareMock(video: URL, motionCSV: URL? = nil) async throws {
+    func prepareMock(video: URL?, motionCSV: URL? = nil) async throws {
         try requireConfiguration()
         stop()
         #if DEBUG
-        if let mock { await MockDeviceKit.shared.unpairDevice(mock) }
+        if let mock { await MockDeviceKit.shared.unpairDevice(mock); self.mock = nil }
+        if video == nil {
+            guard AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) != nil else {
+                throw DeviceError.message("Run the live mock camera on an iPhone, or choose a replay for the Xcode Simulator.")
+            }
+            guard await AVCaptureDevice.requestAccess(for: .video) else {
+                throw DeviceError.message("Allow Ray Guardian to use the iPhone camera in Settings.")
+            }
+        }
+        try Task.checkCancellation()
         MockDeviceKit.shared.enable()
+        MockDeviceKit.shared.permissions.set(.camera, .granted)
+        MockDeviceKit.shared.permissions.set(.microphone, .granted)
         let glasses = try MockDeviceKit.shared.pairGlasses(model: .rayBanMeta)
-        glasses.services.camera.setCameraFeed(fileURL: video)
+        if let video { glasses.services.camera.setCameraFeed(fileURL: video) }
+        else { glasses.services.camera.setCameraFeed(cameraFacing: .back) }
         glasses.services.speech.setTranscriptionSource(.injected)
         if let motionCSV { glasses.services.motion.setMotionFeed(fileURL: motionCSV) }
         glasses.powerOn(); glasses.unfold(); glasses.don(); mock = glasses
-        status = "Mock glasses paired · actual video replay"
+        status = video == nil ? "Mock glasses paired · live iPhone camera" : "Mock glasses paired · video replay"
         #else
         throw DeviceError.message("MockDeviceKit is available in the Debug build.")
         #endif
