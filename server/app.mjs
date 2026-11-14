@@ -1,174 +1,29 @@
-import { createServer } from 'node:http';
-import { timingSafeEqual } from 'node:crypto';
-import { ApiError, validateInput } from './nemotron.mjs';
-import { createDispatchStore, validateBriefingRequest } from './dispatch.mjs';
-
-const MAX_BODY = 1100 * 1024;
-const MAX_SMALL_BODY = 16 * 1024;
-
-function authorized(header, token) {
-  const received = Buffer.from(header ?? '');
-  const expected = Buffer.from(`Bearer ${token}`);
-  return received.length === expected.length && timingSafeEqual(received, expected);
-}
-
-function readJson(req, maxBytes = MAX_BODY) {
-  return new Promise((resolve, reject) => {
-    const chunks = [];
-    let size = 0;
-    req.on('data', chunk => {
-      size += chunk.length;
-      if (size > maxBytes) {
-        req.pause();
-        reject(new ApiError(413, 'body_too_large', 'The submitted context is too large.'));
-      } else chunks.push(chunk);
-    });
-    req.on('end', () => {
-      try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf8'))); }
-      catch { reject(new ApiError(400, 'invalid_json', 'Invalid JSON request.')); }
-    });
-    req.on('error', () => reject(new ApiError(400, 'invalid_request', 'The request could not be read.')));
-  });
-}
+import { createGuardianHTTP } from './http.mjs';
+import { createDispatchStore } from './dispatch.mjs';
+import { createSimulatedDispatch } from './simulated-dispatch.mjs';
 
 export function createApp({
-  analyze,
-  speak,
+  analyze = null,
+  speak = null,
   dispatchStore = createDispatchStore(),
+  simulatedDispatch = createSimulatedDispatch(),
+  guardian = null,
   clientToken,
-  configured = true,
-  speechConfigured = Boolean(speak),
+  configured = guardian ? undefined : true,
+  speechConfigured = guardian ? undefined : Boolean(speak),
   now = Date.now,
+  limits = {},
 }) {
-  if (!clientToken || clientToken.length < 32) throw new Error('Set RAY_GUARDIAN_CLIENT_TOKEN to at least 32 characters.');
-  let inFlight = 0;
-  let windowStart = now();
-  let requestsInWindow = 0;
-  let briefingWindowStart = now();
-  let briefingsInWindow = 0;
-
-  const server = createServer(async (req, res) => {
-    const reply = (status, data) => {
-      if (res.destroyed) return;
-      res.writeHead(status, {
-        'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store',
-        'X-Content-Type-Options': 'nosniff', 'Connection': 'close',
-      });
-      res.end(JSON.stringify(data));
-    };
-
-    const replyAudio = audio => {
-      if (res.destroyed) return;
-      res.writeHead(200, {
-        'Content-Type': 'audio/mpeg', 'Content-Length': audio.length, 'Cache-Control': 'no-store',
-        'X-Content-Type-Options': 'nosniff', 'Connection': 'close',
-      });
-      res.end(audio);
-    };
-
-    const urlPath = (req.url ?? '').split('?')[0];
-
-    if (urlPath === '/health' && req.method === 'GET') {
-      return reply(200, { status: 'ok', aiConfigured: configured, speechConfigured, dispatchConfigured: true });
-    }
-
-    if (urlPath === '/v1/speech/briefing' && req.method === 'POST') {
-      if (!authorized(req.headers.authorization, clientToken)) return reply(401, { error: 'unauthorized' });
-      if (req.headers.origin) return reply(403, { error: 'browser_origin_not_allowed' });
-      if (!/^application\/json(?:;|$)/i.test(req.headers['content-type'] ?? '')) return reply(415, { error: 'json_required' });
-      try {
-        if (!speak || typeof speak.briefing !== 'function') {
-          throw new ApiError(503, 'speech_not_configured', 'Speech briefing synthesis is not configured.');
-        }
-        if (Number(req.headers['content-length']) > MAX_SMALL_BODY) {
-          throw new ApiError(413, 'body_too_large', 'Briefing request is too large.');
-        }
-        const body = await readJson(req, MAX_SMALL_BODY);
-        const script = validateBriefingRequest(body, dispatchStore.get);
-        if (now() - briefingWindowStart >= 60_000) {
-          briefingWindowStart = now();
-          briefingsInWindow = 0;
-        }
-        if (briefingsInWindow >= 20) {
-          throw new ApiError(429, 'rate_limited', 'Speech briefing limit reached. Wait a moment before retrying.');
-        }
-        briefingsInWindow++;
-        const audio = await speak.briefing(script);
-        return replyAudio(audio);
-      } catch (error) {
-        if (error instanceof ApiError) return reply(error.status, { error: error.code, message: error.message });
-        return reply(500, { error: 'internal_error', message: 'Emergency briefing speech could not be generated.' });
-      }
-    }
-
-    const speech = /^\/v1\/speech\/([a-z_]{1,40})$/.exec(urlPath);
-    if (speech && req.method === 'GET') {
-      if (!authorized(req.headers.authorization, clientToken)) return reply(401, { error: 'unauthorized' });
-      if (req.headers.origin) return reply(403, { error: 'browser_origin_not_allowed' });
-      try {
-        if (!speak) throw new ApiError(503, 'speech_not_configured', 'Speech is not configured.');
-        const audio = await speak(speech[1]);
-        return replyAudio(audio);
-      } catch (error) {
-        if (error instanceof ApiError) return reply(error.status, { error: error.code, message: error.message });
-        return reply(500, { error: 'internal_error', message: 'Speech could not be generated.' });
-      }
-    }
-
-    if (urlPath === '/v1/dispatch' && req.method === 'POST') {
-      if (!authorized(req.headers.authorization, clientToken)) return reply(401, { error: 'unauthorized' });
-      if (req.headers.origin) return reply(403, { error: 'browser_origin_not_allowed' });
-      if (!/^application\/json(?:;|$)/i.test(req.headers['content-type'] ?? '')) return reply(415, { error: 'json_required' });
-      try {
-        if (Number(req.headers['content-length']) > MAX_SMALL_BODY) {
-          throw new ApiError(413, 'body_too_large', 'Dispatch request is too large.');
-        }
-        const receipt = dispatchStore.record(await readJson(req, MAX_SMALL_BODY));
-        return reply(200, receipt);
-      } catch (error) {
-        if (error instanceof ApiError) return reply(error.status, { error: error.code, message: error.message });
-        return reply(500, { error: 'internal_error', message: 'Dispatch request could not be processed.' });
-      }
-    }
-
-    const dispatchLookup = /^\/v1\/dispatch\/([0-9a-fA-F-]{36})$/.exec(urlPath);
-    if (dispatchLookup && req.method === 'GET') {
-      if (!authorized(req.headers.authorization, clientToken)) return reply(401, { error: 'unauthorized' });
-      if (req.headers.origin) return reply(403, { error: 'browser_origin_not_allowed' });
-      const record = dispatchStore.get(dispatchLookup[1]);
-      if (!record) return reply(404, { error: 'incident_not_found', message: 'Incident record was not found.' });
-      const { context, ...publicReceipt } = record;
-      return reply(200, { ...publicReceipt, contextIncluded: Boolean(context) });
-    }
-
-    if (urlPath !== '/v1/analyze' || req.method !== 'POST') return reply(404, { error: 'not_found' });
-    if (!authorized(req.headers.authorization, clientToken)) return reply(401, { error: 'unauthorized' });
-    if (req.headers.origin) return reply(403, { error: 'browser_origin_not_allowed' });
-    if (!/^application\/json(?:;|$)/i.test(req.headers['content-type'] ?? '')) return reply(415, { error: 'json_required' });
-    const abort = new AbortController();
-    res.on('close', () => { if (!res.writableFinished) abort.abort(); });
-    let counted = false;
-    try {
-      if (Number(req.headers['content-length']) > MAX_BODY) throw new ApiError(413, 'body_too_large', 'The submitted context is too large.');
-      const input = validateInput(await readJson(req));
-      if (abort.signal.aborted) return;
-      if (now() - windowStart >= 60_000) { windowStart = now(); requestsInWindow = 0; }
-      if (requestsInWindow >= 10) throw new ApiError(429, 'rate_limited', 'Limit reached. Wait a minute before retrying.');
-      if (inFlight >= 2) throw new ApiError(503, 'busy', 'The AI server is busy. Try again shortly.');
-      requestsInWindow++;
-      inFlight++;
-      counted = true;
-      const analysis = await analyze(input, abort.signal);
-      reply(200, { ...analysis, advisoryOnly: true });
-    } catch (error) {
-      if (error instanceof ApiError) reply(error.status, { error: error.code, message: error.message });
-      else reply(500, { error: 'internal_error', message: 'The analysis could not be completed.' });
-    } finally {
-      if (counted) inFlight--;
-    }
+  return createGuardianHTTP({
+    guardian,
+    clientToken,
+    analyze,
+    speak,
+    dispatchStore,
+    simulatedDispatch,
+    configured,
+    speechConfigured,
+    now,
+    limits,
   });
-  server.requestTimeout = 15_000;
-  server.headersTimeout = 10_000;
-  server.timeout = 55_000;
-  return server;
 }

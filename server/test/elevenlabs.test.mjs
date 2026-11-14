@@ -64,13 +64,16 @@ test('sanitizes provider errors, does not cache failures, and needs a key', asyn
 });
 
 test('rehearsal phrase stays honest and hazard phrases match their services', () => {
-  assert.match(PHRASES.alert_created, /No one has been contacted/);
+  assert.equal(Object.keys(PHRASES).length, 13);
+  assert.match(PHRASES.alert_created, /demo emergency alert/);
   assert.match(PHRASES.hazard_medical, /Ambulance Services/);
-  assert.match(PHRASES.hazard_fire, /Fire and Rescue Services/);
-  assert.match(PHRASES.hazard_police, /Police Emergency Services/);
+  assert.match(PHRASES.hazard_trembling, /Ambulance Services/);
+  assert.match(PHRASES.hazard_crash, /Ambulance Services/);
+  assert.match(PHRASES.hazard_fire, /Fire Department/);
+  assert.match(PHRASES.hazard_police, /Police Services/);
   assert.match(PHRASES.calling_ambulance, /Ambulance Services/);
-  assert.match(PHRASES.calling_fire_department, /Fire and Rescue Services/);
-  assert.match(PHRASES.calling_police, /Police Emergency Services/);
+  assert.match(PHRASES.calling_fire_department, /Fire Department/);
+  assert.match(PHRASES.calling_police, /Police Services/);
 });
 
 test('speech routes require the client token and serve both fixed phrases and structured briefings', async () => {

@@ -28,6 +28,7 @@
         <meta-data android:name="com.meta.wearable.mwdat.CRASH_REPORTING_OPT_OUT" android:value="true" />
 
         <activity android:name=".AiActivity" android:exported="false" />
+        <activity android:name=".LiveGlassesActivity" android:exported="false" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

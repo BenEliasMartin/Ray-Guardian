@@ -9,11 +9,17 @@ class DemoSession {
     enum class Phase { DISARMED, ARMED, CHECK_IN, ALERT, ACKNOWLEDGED, CANCELLED }
     enum class Trigger(val wireName: String) {
         MANUAL("manual-sos"),
+        VOICE_SOS("manual-sos"),
         REPLAYED_CANDIDATE("staged-collapse"),
+        FALL_CANDIDATE("staged-collapse"),
         HEART_RATE_ANOMALY("heart-rate-anomaly"),
+        LIVE_VISION("live-vision"),
+        LOUD_SOUND("loud-sound"),
         ELDERLY_FALL("elderly-fall"),
         OPEN_FIRE("fire-hazard"),
         SAFETY_THREAT("safety-threat"),
+        TREMBLING("trembling"),
+        CRASH("crash"),
         GLASSES_AI_HAZARD("ai-hazard"),
     }
 
@@ -45,18 +51,21 @@ class DemoSession {
         phase = Phase.DISARMED
     }
 
-    fun manualSos(service: HelpService = targetService) {
+    fun manualSos(source: Trigger = Trigger.MANUAL, service: HelpService = targetService) {
         if (phase != Phase.ARMED && phase != Phase.CHECK_IN) return
+        if (source != Trigger.MANUAL && source != Trigger.VOICE_SOS) return
         deadlineMillis = null
-        trigger = Trigger.MANUAL
+        trigger = source
         targetService = service
         if (hazardType == HazardType.NONE) hazardType = HazardType.fromService(service)
         phase = Phase.ALERT
     }
 
+    fun manualSos(service: HelpService) = manualSos(Trigger.MANUAL, service)
+
     /** A candidate event always starts a check-in first; it never creates an alert directly. */
     fun replayCandidate(nowMillis: Long, source: Trigger = Trigger.REPLAYED_CANDIDATE) {
-        if (phase != Phase.ARMED || source == Trigger.MANUAL) return
+        if (phase != Phase.ARMED || source == Trigger.MANUAL || source == Trigger.VOICE_SOS) return
         val inferredHazard = when (source) {
             Trigger.OPEN_FIRE -> HazardType.FIRE
             Trigger.SAFETY_THREAT -> HazardType.POLICE
@@ -77,7 +86,7 @@ class DemoSession {
         recommendedService: HelpService? = null,
         urgentImmediate: Boolean = false,
     ) {
-        if (detectedHazard == HazardType.NONE || source == Trigger.MANUAL) return
+        if (detectedHazard == HazardType.NONE || source == Trigger.MANUAL || source == Trigger.VOICE_SOS) return
         if (phase == Phase.DISARMED || phase == Phase.CANCELLED) arm()
         if (phase != Phase.ARMED) return
         val windowMillis = when {

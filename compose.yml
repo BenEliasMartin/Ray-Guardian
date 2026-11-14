@@ -1,0 +1,31 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    env_file: .env
+    environment:
+      HOST: 0.0.0.0
+      DATA_PATH: /data/guardian.sqlite
+    ports:
+      - '${GUARDIAN_BIND:-127.0.0.1}:8787:8787'
+    volumes:
+      - guardian-data:/data
+      - ./ios/RayGuardian/Resources/ReplayMedia:/replays:ro
+    restart: unless-stopped
+  https:
+    image: caddy:2
+    profiles: [https]
+    environment:
+      GUARDIAN_DOMAIN: ${GUARDIAN_DOMAIN:-localhost}
+    ports: ['80:80', '443:443']
+    volumes:
+      - ./server/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on: [api]
+    restart: unless-stopped
+volumes:
+  guardian-data:
+  caddy-data:
+  caddy-config:

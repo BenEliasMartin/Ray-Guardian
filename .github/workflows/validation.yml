@@ -1,0 +1,93 @@
+name: Validate Guardian
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: node --test server/test/*.mjs
+      - run: python3 -m unittest discover -s scripts -p 'test_*.py'
+      - run: node scripts/bootstrap.mjs
+      - run: node scripts/doctor.mjs
+  swift-core:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 -m unittest discover -s scripts -p 'test_ios_config.py'
+      - run: swift test --package-path ios/GuardianCore
+      - run: swift run --package-path ios/GuardianCore GuardianCoreChecks
+  ios-build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+      - run: xcodebuild -version && swift --version
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Prepare one genuine wearer-POV fixture (media is not committed)
+        run: |
+          python3 -m venv /tmp/guardian-media
+          /tmp/guardian-media/bin/pip install -r validation/requirements.txt
+          /tmp/guardian-media/bin/python scripts/prepare_ios_ui_fixture.py
+      - name: Build native companion with pinned DAT SDK
+        run: >-
+          xcodebuild -project ios/RayGuardian.xcodeproj -scheme RayGuardian
+          -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator'
+          -derivedDataPath /tmp/guardian-ios CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- build
+      - name: Build real-device Release configuration
+        run: >-
+          xcodebuild -project ios/RayGuardian.xcodeproj -scheme RayGuardian
+          -configuration Release -sdk iphoneos -destination 'generic/platform=iOS'
+          -derivedDataPath /tmp/guardian-ios-release CODE_SIGNING_ALLOWED=NO build
+      - name: Exercise actual MockDeviceKit capture in Simulator
+        run: |
+          node server/test-support/fixture-server.mjs > /tmp/guardian-fixture-api.log 2>&1 &
+          fixture_pid=$!
+          trap 'kill "$fixture_pid" 2>/dev/null || true' EXIT
+          device_id=$(xcrun simctl list devices available --json | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for values in d["devices"].values() for x in values if "iPhone" in x["name"]))')
+          xcodebuild -project ios/RayGuardian.xcodeproj -scheme RayGuardian -configuration Debug \
+            -destination "platform=iOS Simulator,id=$device_id" -derivedDataPath /tmp/guardian-ios \
+            -resultBundlePath /tmp/guardian-ui-tests.xcresult CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- test
+      - name: Export readable Simulator failure diagnostics
+        if: failure()
+        run: |
+          mkdir -p /tmp/guardian-runtime-diagnostics
+          xcrun simctl spawn booted log show --last 10m --style compact --predicate 'process == "RayGuardian"' > /tmp/guardian-runtime-diagnostics/app.log 2>&1 || true
+          find "$HOME/Library/Logs/DiagnosticReports" -name 'RayGuardian*.ips' -exec cp {} /tmp/guardian-runtime-diagnostics/ \; || true
+          if [ -d /tmp/guardian-ui-tests.xcresult ]; then
+            xcrun xcresulttool export attachments --path /tmp/guardian-ui-tests.xcresult --output-path /tmp/guardian-ui-attachments || true
+          fi
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: ios-ui-diagnostics
+          path: |
+            /tmp/guardian-ui-tests.xcresult
+            /tmp/guardian-fixture-api.log
+            /tmp/guardian-ui-attachments
+            /tmp/guardian-runtime-diagnostics
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools platforms;android-36 build-tools;36.0.0
+          log-accepted-android-sdk-licenses: false
+      - uses: gradle/actions/setup-gradle@v4
+      - run: ./gradlew testDebugUnitTest assembleDebug lintDebug

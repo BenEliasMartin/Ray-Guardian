@@ -1,124 +1,88 @@
-import { createHash } from 'node:crypto';
 import { ApiError } from './nemotron.mjs';
+import { httpsEndpoint, providerRequest } from './lib/transport.mjs';
 
-export const API_URL = 'https://api.elevenlabs.io/v1/text-to-speech';
-export const MODEL_ID = 'eleven_v4';
-export const VOICE_ID = '7EzWGsX10sAS4c9m9cPf'; // Jack John - Conversational and Upbeat
-export const OUTPUT_FORMAT = 'mp3_44100_128';
-const MAX_AUDIO_BYTES = 1024 * 1024;
-const MAX_BRIEFING_CHARS = 650;
-const MAX_BRIEFING_CACHE = 64;
-
-/**
- * Fixed wearer prompts synthesized via GET /v1/speech/<phrase> and cached in memory.
- * Dynamic emergency call briefings use POST /v1/speech/briefing with structured incident validation.
- */
-export const PHRASES = Object.freeze({
-  check_in: "Are you okay? I noticed something that might need attention. Tap I'm okay on your phone to cancel. Otherwise, I'll create an alert in fifteen seconds.",
-  check_in_heart_rate: "Are you okay? Your watch reported an unusual heart rate. Tap I'm okay on your phone to cancel. Otherwise, I'll create an alert in fifteen seconds.",
-  check_in_cancelled: "Okay, glad you're alright. The check-in is cancelled.",
-  alert_created: 'This is a rehearsal. A simulated alert has been created. No one has been contacted.',
-  hazard_medical: 'Medical hazard detected. A person appears to have fallen or needs urgent medical attention. Cancel now if everyone is okay, otherwise calling Ambulance Services.',
-  hazard_fire: 'Warning! Large open fire detected ahead. Move to safety immediately. Calling Fire and Rescue Services unless you cancel.',
-  hazard_police: 'Safety threat detected. Calling Police Emergency Services shortly unless you cancel.',
-  calling_ambulance: 'Calling Ambulance Services now and transmitting your location and smart glasses report.',
-  calling_fire_department: 'Calling Fire and Rescue Services now and transmitting your location and smart glasses report.',
-  calling_police: 'Calling Police Emergency Services now and transmitting your location and smart glasses report.',
-  emergency_cancelled: 'Emergency call cancelled. Monitoring resumed.',
+export const VOICE_PROMPTS = Object.freeze({
+  check_in: 'Ray Guardian noticed a possible incident. Are you okay? Use the cancel button if you are okay, or the SOS button to continue. This is a demonstration.',
+  cancelled: 'The demonstration incident has been cancelled. No emergency services have been contacted.',
+  acknowledged: 'The demo operator acknowledged the demonstration. No real emergency responders have been dispatched.',
+  demo_dispatch: 'This is the Ray Guardian demonstration dispatch line. This is not an emergency service. The demonstration operator is receiving your incident report.',
 });
 
-export function validatePhrase(id) {
-  if (typeof id !== 'string' || !Object.hasOwn(PHRASES, id)) {
-    throw new ApiError(404, 'unknown_phrase', 'Unknown speech phrase.');
-  }
-  return id;
-}
-
-export function validateBriefingText(text) {
-  if (typeof text !== 'string') {
-    throw new ApiError(400, 'invalid_briefing_text', 'Briefing script must be a string.');
-  }
-  const cleaned = text.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim();
-  if (!cleaned || cleaned.length > MAX_BRIEFING_CHARS) {
-    throw new ApiError(400, 'invalid_briefing_text', `Briefing script must be between 1 and ${MAX_BRIEFING_CHARS} characters.`);
-  }
-  return cleaned;
-}
-
-export function createElevenLabs({ apiKey, voiceId = VOICE_ID, modelId = MODEL_ID, timeoutMs = 30_000, fetchImpl = fetch }) {
-  if (!/^[A-Za-z0-9]{8,64}$/.test(voiceId)) throw new Error('ELEVENLABS_VOICE_ID is invalid.');
-  if (!/^[a-z0-9_]{3,64}$/.test(modelId)) throw new Error('ELEVENLABS_MODEL_ID is invalid.');
-  const endpoint = `${API_URL}/${voiceId}?output_format=${OUTPUT_FORMAT}`;
-  const phraseCache = new Map(); // phrase ID -> Promise<Buffer>
-  const briefingCache = new Map(); // sha256(text) -> Promise<Buffer>
-
-  async function synthesizeText(text) {
-    if (!apiKey) throw new ApiError(503, 'speech_not_configured', 'Speech is not configured.');
-    try {
-      const response = await fetchImpl(endpoint, {
+export function createVoiceProvider({
+  apiKey,
+  voiceId = 'JBFqnCBsd6RMkjVDRZzb',
+  ttsModel = 'eleven_multilingual_v2',
+  sttModel = 'scribe_v2',
+  baseURL = 'https://api.elevenlabs.io',
+  enableLogging = true,
+  fetchImpl = fetch,
+} = {}) {
+  const resolvedVoiceId = voiceId || 'JBFqnCBsd6RMkjVDRZzb';
+  const resolvedTtsModel = ttsModel || 'eleven_multilingual_v2';
+  const resolvedSttModel = sttModel || 'scribe_v2';
+  const base = httpsEndpoint(baseURL, '');
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(resolvedVoiceId)) throw new Error('Invalid ELEVENLABS_VOICE_ID.');
+  const requireKey = () => {
+    if (!apiKey) throw new ApiError(503, 'elevenlabs_not_configured', 'Set ELEVENLABS_API_KEY on the backend.');
+  };
+  return {
+    async transcribe(wav, signal) {
+      requireKey();
+      const body = new FormData();
+      body.set('model_id', resolvedSttModel);
+      body.set('file', new Blob([wav], { type: 'audio/wav' }), 'incident-window.wav');
+      body.set('tag_audio_events', 'true');
+      body.set('diarize', 'false');
+      body.set('timestamps_granularity', 'word');
+      const { bytes } = await providerRequest(fetchImpl, `${base}/v1/speech-to-text?enable_logging=${enableLogging}`, {
         method: 'POST',
-        redirect: 'error',
-        signal: AbortSignal.timeout(timeoutMs),
+        headers: { 'xi-api-key': apiKey },
+        body,
+      }, { signal, timeoutMs: 30000, limit: 128 * 1024 });
+      let result;
+      try {
+        result = JSON.parse(bytes.toString('utf8'));
+      } catch {
+        throw new ApiError(502, 'invalid_transcript', 'ElevenLabs returned an invalid transcript.');
+      }
+      if (typeof result.text !== 'string' || result.text.length > 8000) {
+        throw new ApiError(502, 'invalid_transcript', 'ElevenLabs returned an invalid transcript.');
+      }
+      return {
+        text: result.text.slice(0, 4000),
+        language: typeof result.language_code === 'string' ? result.language_code : null,
+        source: 'elevenlabs_scribe',
+      };
+    },
+    async speak(text, signal) {
+      requireKey();
+      if (typeof text !== 'string' || !text.trim() || text.length > 1800) {
+        throw new ApiError(400, 'invalid_speech', 'Speech text must be 1–1800 characters.');
+      }
+      const { bytes, contentType } = await providerRequest(fetchImpl, `${base}/v1/text-to-speech/${resolvedVoiceId}?output_format=mp3_44100_128&enable_logging=${enableLogging}`, {
+        method: 'POST',
         headers: { 'xi-api-key': apiKey, 'Content-Type': 'application/json', 'Accept': 'audio/mpeg' },
-        body: JSON.stringify({ text, model_id: modelId }),
-      });
-      if (!response.ok) {
-        await response.body?.cancel();
-        throw new ApiError(502, 'speech_unavailable', 'ElevenLabs is unavailable. Try again later.');
+        body: JSON.stringify({
+          text,
+          model_id: resolvedTtsModel,
+          voice_settings: { stability: 0.6, similarity_boost: 0.75 },
+        }),
+      }, { signal, timeoutMs: 25000, limit: 3 * 1024 * 1024 });
+      if (!/^audio\//i.test(contentType) || bytes.length < 4) {
+        throw new ApiError(502, 'invalid_speech_audio', 'ElevenLabs returned no usable speech audio.');
       }
-      const reader = response.body.getReader();
-      const chunks = [];
-      let size = 0;
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        size += value.length;
-        if (size > MAX_AUDIO_BYTES) {
-          await reader.cancel();
-          throw new ApiError(502, 'speech_unavailable', 'ElevenLabs returned too much audio.');
-        }
-        chunks.push(value);
-      }
-      if (size === 0) throw new ApiError(502, 'speech_unavailable', 'ElevenLabs returned no audio.');
-      return Buffer.concat(chunks);
-    } catch (error) {
-      if (error instanceof ApiError) throw error;
-      if (error.name === 'TimeoutError') throw new ApiError(504, 'speech_timeout', 'ElevenLabs took too long.');
-      // Never expose upstream bodies, URLs, or the credential.
-      throw new ApiError(502, 'speech_unavailable', 'ElevenLabs is unavailable. Try again later.');
-    }
-  }
-
-  function speakPhrase(id) {
-    validatePhrase(id);
-    let pending = phraseCache.get(id);
-    if (!pending) {
-      pending = synthesizeText(PHRASES[id]);
-      phraseCache.set(id, pending);
-      pending.catch(() => phraseCache.delete(id));
-    }
-    return pending;
-  }
-
-  function speakBriefing(rawText) {
-    const cleaned = validateBriefingText(rawText);
-    const key = createHash('sha256').update(cleaned).digest('hex');
-    let pending = briefingCache.get(key);
-    if (pending) {
-      // Refresh LRU position
-      briefingCache.delete(key);
-      briefingCache.set(key, pending);
-      return pending;
-    }
-    pending = synthesizeText(cleaned);
-    briefingCache.set(key, pending);
-    if (briefingCache.size > MAX_BRIEFING_CACHE) {
-      briefingCache.delete(briefingCache.keys().next().value);
-    }
-    pending.catch(() => briefingCache.delete(key));
-    return pending;
-  }
-
-  speakPhrase.briefing = speakBriefing;
-  return speakPhrase;
+      return { bytes, contentType: 'audio/mpeg', source: 'elevenlabs', voiceId: resolvedVoiceId };
+    },
+  };
 }
+
+export {
+  createElevenLabs,
+  PHRASES,
+  validatePhrase,
+  validateBriefingText,
+  API_URL,
+  MODEL_ID,
+  VOICE_ID,
+  OUTPUT_FORMAT,
+} from './legacy-speech.mjs';

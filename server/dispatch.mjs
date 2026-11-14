@@ -41,12 +41,29 @@ export const VALID_TRIGGERS = Object.freeze([
   'fire-hazard',
   'safety-threat',
   'heart-rate-anomaly',
+  'trembling',
+  'crash',
+  'live-vision',
+  'loud-sound',
 ]);
+
+const TRIGGER_ALIASES = Object.freeze({
+  'open-fire': 'fire-hazard',
+  'trembling-anomaly': 'trembling',
+  'vehicle-crash': 'crash',
+  'crash-impact': 'crash',
+});
+
+export function normalizeTrigger(rawTrigger) {
+  if (typeof rawTrigger !== 'string') return rawTrigger;
+  const trimmed = rawTrigger.trim();
+  return Object.hasOwn(TRIGGER_ALIASES, trimmed) ? TRIGGER_ALIASES[trimmed] : trimmed;
+}
 
 const BLOCKED_SHORTCODES = new Set([
   '000', '08', '100', '101', '102', '103', '107', '108',
   '110', '111', '112', '113', '114', '115', '116', '117', '118', '119',
-  '120', '122', '190', '192', '193', '911', '988', '999',
+  '120', '122', '190', '191', '192', '193', '911', '988', '991', '999',
 ]);
 
 export function isBlockedEmergencyNumber(rawNumber) {
@@ -72,10 +89,13 @@ export function sanitizeSpeechField(value, maxLength = 300) {
 }
 
 export function resolveHazardType(hazardType, trigger, service) {
+  const normalizedTrigger = normalizeTrigger(trigger);
   if (hazardType === 'medical' || hazardType === 'fire' || hazardType === 'police') return hazardType;
-  if (trigger === 'fire-hazard') return 'fire';
-  if (trigger === 'safety-threat') return 'police';
-  if (['staged-collapse', 'elderly-fall', 'heart-rate-anomaly', 'ai-check-in'].includes(trigger)) return 'medical';
+  if (normalizedTrigger === 'fire-hazard') return 'fire';
+  if (normalizedTrigger === 'safety-threat') return 'police';
+  if (['staged-collapse', 'elderly-fall', 'heart-rate-anomaly', 'trembling', 'crash', 'live-vision', 'loud-sound', 'ai-check-in'].includes(normalizedTrigger)) {
+    return 'medical';
+  }
   if (service && Object.hasOwn(SERVICES, service)) return SERVICES[service].defaultHazard;
   return 'medical';
 }
@@ -94,17 +114,22 @@ export function buildBriefingScript({
   context = '',
   heartRateBpm = null,
 } = {}) {
-  const resolvedService = resolveService(hazardType, trigger, service);
-  const resolvedHazard = resolveHazardType(hazardType, trigger, resolvedService);
+  const normalizedTrigger = normalizeTrigger(trigger);
+  const resolvedService = resolveService(hazardType, normalizedTrigger, service);
+  const resolvedHazard = resolveHazardType(hazardType, normalizedTrigger, resolvedService);
   const serviceInfo = SERVICES[resolvedService];
 
   let hazardSentence;
   if (resolvedHazard === 'fire') {
     hazardSentence = 'Hazard detected: large open fire or heavy smoke.';
-  } else if (resolvedHazard === 'medical' && trigger === 'heart-rate-anomaly') {
+  } else if (resolvedHazard === 'medical' && normalizedTrigger === 'heart-rate-anomaly') {
     const bpmText = Number.isInteger(heartRateBpm) ? ` at ${heartRateBpm} beats per minute` : '';
     hazardSentence = `Hazard detected: sustained abnormal heart rate${bpmText} with no wearer response.`;
-  } else if (resolvedHazard === 'medical' && trigger === 'elderly-fall') {
+  } else if (resolvedHazard === 'medical' && normalizedTrigger === 'trembling') {
+    hazardSentence = 'Hazard detected: severe sustained trembling with no wearer cancellation.';
+  } else if (resolvedHazard === 'medical' && normalizedTrigger === 'crash') {
+    hazardSentence = 'Hazard detected: high-impact crash requiring immediate medical evaluation.';
+  } else if (resolvedHazard === 'medical' && normalizedTrigger === 'elderly-fall') {
     hazardSentence = 'Hazard detected: fallen person requiring immediate medical attention.';
   } else if (resolvedHazard === 'medical') {
     hazardSentence = 'Hazard detected: fall or acute medical emergency.';
@@ -140,7 +165,7 @@ export function validateDispatchInput(body) {
   if (typeof body.id !== 'string' || !UUID_V4_RE.test(body.id)) {
     throw new ApiError(400, 'invalid_incident_id', 'Provide a valid UUID v4 incident id.');
   }
-  const trigger = body.trigger ?? 'manual-sos';
+  const trigger = normalizeTrigger(body.trigger ?? 'manual-sos');
   if (typeof trigger !== 'string' || !VALID_TRIGGERS.includes(trigger)) {
     throw new ApiError(400, 'invalid_trigger', 'Unsupported incident trigger.');
   }
@@ -163,6 +188,7 @@ export function validateDispatchInput(body) {
     }
     heartRateBpm = body.heartRateBpm;
   }
+  let dialNumberConfigured = false;
   if (body.dialNumber != null) {
     if (typeof body.dialNumber !== 'string' || body.dialNumber.length > 32) {
       throw new ApiError(400, 'invalid_phone_number', 'Invalid phone number.');
@@ -170,6 +196,7 @@ export function validateDispatchInput(body) {
     if (isBlockedEmergencyNumber(body.dialNumber)) {
       throw new ApiError(400, 'blocked_emergency_shortcode', 'Public emergency shortcodes (112/911/999) are blocked in SDK builds. Configure a dedicated test or dispatch phone number.');
     }
+    dialNumberConfigured = Boolean(body.dialNumber.trim());
   }
   const resolvedService = resolveService(body.hazardType, trigger, body.service);
   const resolvedHazard = resolveHazardType(body.hazardType, trigger, resolvedService);
@@ -181,6 +208,7 @@ export function validateDispatchInput(body) {
     location: typeof body.location === 'string' && body.location.trim() ? body.location.trim() : null,
     context: typeof body.context === 'string' && body.context.trim() ? body.context.trim() : null,
     heartRateBpm,
+    dialNumberConfigured,
   };
 }
 
@@ -196,7 +224,7 @@ export function validateBriefingRequest(body, getIncident) {
     if (!existing) throw new ApiError(404, 'incident_not_found', 'Incident record was not found.');
     return existing.briefingScript;
   }
-  const trigger = body.trigger ?? 'manual-sos';
+  const trigger = normalizeTrigger(body.trigger ?? 'manual-sos');
   if (typeof trigger !== 'string' || !VALID_TRIGGERS.includes(trigger)) {
     throw new ApiError(400, 'invalid_trigger', 'Unsupported incident trigger.');
   }
@@ -230,6 +258,7 @@ export function createDispatchStore({ defaultLocation = DEFAULT_TEST_LOCATION, n
 
   function record(rawBody) {
     const input = validateDispatchInput(rawBody);
+    const timestamp = now();
     let entry = incidents.get(input.id);
     if (!entry) {
       const prefix = input.service === 'fire_department' ? 'FIRE' : input.service === 'police' ? 'POL' : 'MED';
@@ -240,12 +269,17 @@ export function createDispatchStore({ defaultLocation = DEFAULT_TEST_LOCATION, n
         service: input.service,
         serviceLabel: SERVICES[input.service].label,
         shortServiceLabel: SERVICES[input.service].shortLabel,
+        spokenService: SERVICES[input.service].spokenName,
         hazardType: input.hazardType,
         trigger: input.trigger,
         location: input.location ?? defaultLocation,
         context: input.context ?? null,
         heartRateBpm: input.heartRateBpm,
-        receivedAt: now(),
+        dialNumberConfigured: input.dialNumberConfigured,
+        simulatedOnly: true,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        receivedAt: timestamp,
       };
       incidents.set(input.id, entry);
       if (incidents.size > 200) incidents.delete(incidents.keys().next().value);
@@ -253,12 +287,15 @@ export function createDispatchStore({ defaultLocation = DEFAULT_TEST_LOCATION, n
       if (input.context) entry.context = input.context;
       if (input.location) entry.location = input.location;
       if (input.heartRateBpm != null) entry.heartRateBpm = input.heartRateBpm;
+      if (rawBody.dialNumber != null) entry.dialNumberConfigured = input.dialNumberConfigured;
       if (rawBody.service || rawBody.hazardType) {
         entry.service = input.service;
         entry.serviceLabel = SERVICES[input.service].label;
         entry.shortServiceLabel = SERVICES[input.service].shortLabel;
+        entry.spokenService = SERVICES[input.service].spokenName;
         entry.hazardType = input.hazardType;
       }
+      entry.updatedAt = timestamp;
     }
     entry.briefingScript = buildBriefingScript({
       service: entry.service,
@@ -276,5 +313,16 @@ export function createDispatchStore({ defaultLocation = DEFAULT_TEST_LOCATION, n
     return incidents.get(String(id).toLowerCase()) ?? null;
   }
 
-  return { record, get };
+  function cancel(id) {
+    const entry = incidents.get(String(id).toLowerCase());
+    if (!entry) return null;
+    const timestamp = now();
+    entry.status = 'cancelled';
+    entry.cancelledAt = timestamp;
+    entry.updatedAt = timestamp;
+    const { context, ...publicReceipt } = entry;
+    return { ...publicReceipt, contextIncluded: Boolean(context) };
+  }
+
+  return { record, get, cancel };
 }

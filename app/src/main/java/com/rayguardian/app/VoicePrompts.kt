@@ -24,25 +24,30 @@ import org.json.JSONObject
  * script so a hazard check-in or emergency briefing is never silent.
  */
 class VoicePrompts(context: Context, private val scope: CoroutineScope) {
-    /** IDs and wording must match PHRASES in server/elevenlabs.mjs. */
+    /** IDs and wording must match PHRASES in server/elevenlabs.mjs (single-line entries). */
     enum class Phrase(val id: String, val text: String) {
-        CHECK_IN("check_in", "Are you okay? I noticed something that might need attention. Tap I'm okay on your phone to cancel. Otherwise, I'll create an alert in fifteen seconds."),
-        CHECK_IN_HEART_RATE("check_in_heart_rate", "Are you okay? Your watch reported an unusual heart rate. Tap I'm okay on your phone to cancel. Otherwise, I'll create an alert in fifteen seconds."),
-        CHECK_IN_CANCELLED("check_in_cancelled", "Okay, glad you're alright. The check-in is cancelled."),
-        ALERT_CREATED("alert_created", "This is a rehearsal. A simulated alert has been created. No one has been contacted."),
-        HAZARD_MEDICAL("hazard_medical", "Medical hazard detected. A person appears to have fallen or needs urgent medical attention. Cancel now if everyone is okay, otherwise calling Ambulance Services."),
-        HAZARD_FIRE("hazard_fire", "Warning! Large open fire detected ahead. Move to safety immediately. Calling Fire and Rescue Services unless you cancel."),
-        HAZARD_POLICE("hazard_police", "Safety threat detected. Calling Police Emergency Services shortly unless you cancel."),
-        CALLING_AMBULANCE("calling_ambulance", "Calling Ambulance Services now and transmitting your location and smart glasses report."),
-        CALLING_FIRE_DEPARTMENT("calling_fire_department", "Calling Fire and Rescue Services now and transmitting your location and smart glasses report."),
-        CALLING_POLICE("calling_police", "Calling Police Emergency Services now and transmitting your location and smart glasses report."),
-        EMERGENCY_CANCELLED("emergency_cancelled", "Emergency call cancelled. Monitoring resumed.");
+        CHECK_IN("check_in", "Ray Guardian check in. Tap I'm okay if you do not need help."),
+        CHECK_IN_HEART_RATE("check_in_heart_rate", "Heart rate check in. Unusual heart rate detected. Tap I'm okay if you feel fine."),
+        CHECK_IN_CANCELLED("check_in_cancelled", "Okay. Check in cancelled."),
+        ALERT_CREATED("alert_created", "No response detected. Creating a demo emergency alert."),
+        HAZARD_MEDICAL("hazard_medical", "Medical alert. A person appears to have fallen. Calling Ambulance Services unless you cancel."),
+        HAZARD_FIRE("hazard_fire", "Fire warning! Large open fire detected ahead. Step back now. Calling the Fire Department unless you cancel."),
+        HAZARD_POLICE("hazard_police", "Safety alert. Urgent threat detected. Calling Police Services unless you cancel."),
+        HAZARD_TREMBLING("hazard_trembling", "Health alert. Severe trembling detected. Tap I'm okay to cancel, otherwise calling Ambulance Services."),
+        HAZARD_CRASH("hazard_crash", "Crash alert! High-impact crash detected. Stay still if injured. Calling Ambulance Services unless you cancel."),
+        CALLING_AMBULANCE("calling_ambulance", "Calling Ambulance Services now and sharing your location and scene report."),
+        CALLING_FIRE_DEPARTMENT("calling_fire_department", "Calling the Fire Department now and sharing your location and fire report."),
+        CALLING_POLICE("calling_police", "Calling Police Services now and sharing your location and scene report."),
+        EMERGENCY_CANCELLED("emergency_cancelled", "Emergency call cancelled.");
 
         companion object {
-            fun forHazardCheckIn(hazardType: HazardType): Phrase = when (hazardType) {
-                HazardType.FIRE -> HAZARD_FIRE
-                HazardType.POLICE -> HAZARD_POLICE
-                HazardType.MEDICAL, HazardType.NONE -> HAZARD_MEDICAL
+            fun forHazardCheckIn(hazardType: HazardType, trigger: DemoSession.Trigger? = null): Phrase = when {
+                trigger == DemoSession.Trigger.HEART_RATE_ANOMALY -> CHECK_IN_HEART_RATE
+                trigger == DemoSession.Trigger.TREMBLING -> HAZARD_TREMBLING
+                trigger == DemoSession.Trigger.CRASH -> HAZARD_CRASH
+                hazardType == HazardType.FIRE -> HAZARD_FIRE
+                hazardType == HazardType.POLICE -> HAZARD_POLICE
+                else -> HAZARD_MEDICAL
             }
 
             fun forCallingService(service: HelpService): Phrase = when (service) {
@@ -129,12 +134,15 @@ class VoicePrompts(context: Context, private val scope: CoroutineScope) {
         player = MediaPlayer().apply {
             setAudioAttributes(attributes)
             setDataSource(file.path)
-            setOnCompletionListener { if (player === it) player = null; it.release() }
+            setOnCompletionListener {
+                if (player === it) player = null
+                it.release()
+            }
             prepare()
             start()
         }
         true
-    } catch (error: Exception) {
+    } catch (_: Exception) {
         player?.release()
         player = null
         file.delete()

@@ -13,6 +13,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.text.InputType
+import android.view.View
 import android.view.WindowInsets
 import android.widget.Button
 import android.widget.CheckBox
@@ -23,6 +24,7 @@ import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import androidx.core.view.doOnNextLayout
 import androidx.lifecycle.lifecycleScope
 import com.meta.wearable.dat.core.Wearables
 import com.meta.wearable.dat.core.selectors.AutoDeviceSelector
@@ -61,6 +63,46 @@ class MainActivity : ComponentActivity() {
     private var deviceSessionStatus = "Not started"
     private var batteryStatus = "unknown"
     private var thermalStatus = "unknown"
+    private var cameraPermissionGranted = false
+    private var registered = false
+
+    private val triggers: TriggerRuntime by lazy {
+        TriggerRuntime(
+            lifecycleScope,
+            captureBudget,
+            onIncident = { signal ->
+                when (signal) {
+                    TriggerController.Signal.MANUAL_SOS -> demo.manualSos()
+                    TriggerController.Signal.VOICE_SOS -> demo.manualSos(DemoSession.Trigger.VOICE_SOS)
+                    TriggerController.Signal.FALL_CANDIDATE -> demo.replayCandidate(SystemClock.elapsedRealtime(), DemoSession.Trigger.FALL_CANDIDATE)
+                    TriggerController.Signal.HEART_RATE -> demo.replayCandidate(SystemClock.elapsedRealtime(), DemoSession.Trigger.HEART_RATE_ANOMALY)
+                    TriggerController.Signal.LOUD_VOICE -> Unit
+                }
+                if (::voice.isInitialized) {
+                    if (demo.phase == DemoSession.Phase.CHECK_IN) {
+                        voice.speak(
+                            if (signal == TriggerController.Signal.HEART_RATE) {
+                                VoicePrompts.Phrase.CHECK_IN_HEART_RATE
+                            } else {
+                                VoicePrompts.Phrase.CHECK_IN
+                            },
+                        )
+                    } else if (demo.phase == DemoSession.Phase.ALERT) {
+                        voice.speak(VoicePrompts.Phrase.ALERT_CREATED)
+                    }
+                }
+                handler.removeCallbacks(countdown)
+                if (demo.phase == DemoSession.Phase.CHECK_IN) handler.post(countdown)
+            },
+            onChanged = {
+                if (!triggers.controller.armed && (demo.phase == DemoSession.Phase.ARMED || demo.phase == DemoSession.Phase.CHECK_IN)) {
+                    demo.disarm()
+                    handler.removeCallbacks(countdown)
+                }
+                if (::content.isInitialized) render()
+            },
+        )
+    }
 
     private lateinit var cameraMonitor: GlassesCameraMonitor
     private var cameraStatus = "Camera idle (standby)"
@@ -90,13 +132,28 @@ class MainActivity : ComponentActivity() {
     private var heartRateValueText: TextView? = null
     private var heartRateStateText: TextView? = null
     private lateinit var content: LinearLayout
+    private lateinit var scroll: ScrollView
+    private var currentSessionCard: LinearLayout? = null
+    private var lastRenderedPhase = DemoSession.Phase.DISARMED
+    private var revealSession = false
+    private var topInset = 0
 
     private enum class IntegrationMode { REAL, MOCK }
 
     companion object {
+        // DAT and MockDeviceKit live for the process lifetime, including activity recreation.
         private var activeIntegrationMode: IntegrationMode? = null
+        // Coarse capture timestamps only. Disarming or activity recreation does not reset limits.
+        private val captureBudget = TriggerController.CaptureBudget()
         private const val DEFAULT_LOCATION = "Helsinki demo point · 60.1699, 24.9384"
         private const val AUTO_SCAN_INTERVAL_MILLIS = 12_000L
+    }
+
+    private val glassesCameraPermission = registerForActivityResult(Wearables.RequestPermissionContract()) { result ->
+        cameraPermissionGranted = false
+        result.fold(onSuccess = { cameraPermissionGranted = it == PermissionStatus.Granted }, onFailure = { _, _ -> })
+        refreshTriggerAvailability()
+        render()
     }
 
     private val bluetoothPermission =
@@ -112,7 +169,9 @@ class MainActivity : ComponentActivity() {
         registerForActivityResult(Wearables.RequestPermissionContract()) { result ->
             result.fold(
                 onSuccess = { status ->
-                    if (status is PermissionStatus.Granted) {
+                    cameraPermissionGranted = status is PermissionStatus.Granted
+                    refreshTriggerAvailability()
+                    if (cameraPermissionGranted) {
                         wearableSession?.let { cameraMonitor.start(it) }
                     } else {
                         cameraStatus = "Meta glasses camera permission was not granted."
@@ -120,6 +179,8 @@ class MainActivity : ComponentActivity() {
                     }
                 },
                 onFailure = { error, _ ->
+                    cameraPermissionGranted = false
+                    refreshTriggerAvailability()
                     cameraStatus = "Camera permission check failed: ${error.description}"
                     render()
                 },
@@ -224,7 +285,7 @@ class MainActivity : ComponentActivity() {
         }
         window.statusBarColor = color("#F6F7F4")
         window.navigationBarColor = color("#F6F7F4")
-        val scroll = ScrollView(this).apply {
+        scroll = ScrollView(this).apply {
             setBackgroundColor(color("#F6F7F4"))
             isFillViewport = true
         }
@@ -234,6 +295,7 @@ class MainActivity : ComponentActivity() {
         }
         scroll.setOnApplyWindowInsetsListener { _, insets ->
             val bars = insets.getInsets(WindowInsets.Type.systemBars())
+            topInset = bars.top
             content.setPadding(dp(22), dp(28) + bars.top, dp(22), dp(32) + bars.bottom)
             insets
         }
@@ -261,6 +323,8 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onPause() {
+        triggers.pause()
+        // The rehearsal is foreground-only. It must never imply background coverage.
         if (demo.phase == DemoSession.Phase.ARMED || demo.phase == DemoSession.Phase.CHECK_IN) {
             demo.disarm()
             handler.removeCallbacks(countdown)
@@ -282,10 +346,24 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        triggers.resume()
+        refreshTriggerAvailability()
+        if (mode == IntegrationMode.REAL) {
+            lifecycleScope.launch {
+                cameraPermissionGranted = false
+                Wearables.checkPermissionStatus(Permission.CAMERA).fold(
+                    onSuccess = { cameraPermissionGranted = it == PermissionStatus.Granted },
+                    onFailure = { _, _ -> },
+                )
+                refreshTriggerAvailability()
+                render()
+            }
+        }
         if (::content.isInitialized) render()
     }
 
     override fun onDestroy() {
+        triggers.pause()
         handler.removeCallbacks(countdown)
         handler.removeCallbacks(liveCountdown)
         handler.removeCallbacks(autoCameraScanner)
@@ -298,6 +376,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun render() {
+        if (demo.phase != lastRenderedPhase) {
+            lastRenderedPhase = demo.phase
+            revealSession = true
+        }
         content.removeAllViews()
         timerText = null
         liveTimerText = null
@@ -325,14 +407,27 @@ class MainActivity : ComponentActivity() {
         renderGlassesCard()
         renderHazardPipelineCard()
         renderRehearsalCard()
+        renderPrivacyCard()
         renderHeartRateCard()
 
         if (BuildConfig.AI_BASE_URL.isNotBlank()) {
-            sectionHeading("05", "AI context with Nemotron", "Inspect custom text and an image manually.")
+            sectionHeading("06", "AI context with Nemotron", "Inspect custom text and an image manually.")
             val aiCard = card("#FFFFFF")
             aiCard.addView(label("Submit a custom description or photo directly to Nemotron for structured observations and uncertainties.", 14, "#5B6D67"))
             aiCard.addView(button("Open Nemotron context", true) { startActivity(Intent(this, AiActivity::class.java)) })
             content.addView(aiCard)
+        }
+
+        content.addView(label("Built for careful testing", 14, "#277B69", true).apply { setPadding(0, dp(24), 0, dp(6)) })
+        content.addView(label("Camera context is opt-in and foreground-bounded. Public 112/911 shortcodes are blocked; heart-rate screening is unvalidated.", 13, "#71817A"))
+
+        if (revealSession) {
+            content.doOnNextLayout {
+                if (revealSession) {
+                    revealSession = false
+                    scroll.scrollTo(0, ((currentSessionCard?.top ?: 0) - topInset - dp(12)).coerceAtLeast(0))
+                }
+            }
         }
     }
 
@@ -358,7 +453,13 @@ class MainActivity : ComponentActivity() {
         } else if (mode == IntegrationMode.REAL) {
             deviceCard.addView(button("Open Meta AI registration", false) { Wearables.startRegistration(this) })
         }
-        if (mode != null && hasActiveDevice) {
+        if (mode != null && hasActiveDevice && !triggers.controller.armed) {
+            if (mode == IntegrationMode.REAL) {
+                deviceCard.addView(button("Open live glasses diagnostics", false) {
+                    stopWearableSession()
+                    startActivity(Intent(this, LiveGlassesActivity::class.java))
+                })
+            }
             if (wearableSession == null) {
                 deviceCard.addView(button("Start device session", false) { startWearableSession() })
             } else {
@@ -621,8 +722,9 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun renderRehearsalCard() {
-        sectionHeading("03", "Rehearse an alert", "Practice the local onboarding flow with zero backend or phone calls.")
+        sectionHeading("03", "Rehearse an alert", "Practice the flow using only simulated events.")
         val sessionCard = card("#FFFFFF")
+        currentSessionCard = sessionCard
         val phaseTitle: String
         val phaseDescription: String
         when (demo.phase) {
@@ -632,7 +734,7 @@ class MainActivity : ComponentActivity() {
             }
             DemoSession.Phase.ARMED -> {
                 phaseTitle = "Rehearsal active"
-                phaseDescription = "Choose a simulated SOS or replay a candidate event. No sensors are being watched."
+                phaseDescription = "Foreground rehearsal armed. Camera stays off until an enabled trigger and capture consent allow a brief context window."
             }
             DemoSession.Phase.CHECK_IN -> {
                 phaseTitle = "Are you okay?"
@@ -658,26 +760,31 @@ class MainActivity : ComponentActivity() {
         sessionCard.addView(label("LOCAL REHEARSAL", 11, "#71817A", true))
         sessionCard.addView(label(phaseTitle, 22, "#172B26", true).apply { setPadding(0, dp(8), 0, dp(5)) })
         sessionCard.addView(label(phaseDescription, 15, "#5B6D67"))
+        sessionCard.addView(label("Context: ${triggers.controller.reason}", 13, "#277B69").apply {
+            setPadding(0, dp(10), 0, 0)
+            accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
+        })
         when (demo.phase) {
             DemoSession.Phase.DISARMED -> sessionCard.addView(button("Start rehearsal", true) {
                 demo.arm()
                 voice.prefetch()
+                stopWearableSession()
+                refreshTriggerAvailability()
+                triggers.arm()
                 render()
             })
             DemoSession.Phase.ARMED -> {
                 sessionCard.addView(button("Simulate SOS", true) {
-                    demo.manualSos()
-                    voice.speak(VoicePrompts.Phrase.ALERT_CREATED)
-                    render()
+                    triggers.offer(TriggerController.Signal.MANUAL_SOS, mode == IntegrationMode.MOCK)
                 })
                 sessionCard.addView(button("Replay a possible incident", false) {
-                    demo.replayCandidate(SystemClock.elapsedRealtime())
-                    voice.speak(VoicePrompts.Phrase.CHECK_IN)
-                    render()
-                    handler.removeCallbacks(countdown)
-                    handler.post(countdown)
+                    triggers.offer(TriggerController.Signal.FALL_CANDIDATE, true)
                 })
-                sessionCard.addView(button("Stop rehearsal", false) { demo.disarm(); render() })
+                sessionCard.addView(button("Stop rehearsal", false) {
+                    demo.disarm()
+                    triggers.disarm()
+                    render()
+                })
             }
             DemoSession.Phase.CHECK_IN -> {
                 timerText = label("Simulated alert in 15 seconds", 16, "#A84436", true).apply {
@@ -686,13 +793,13 @@ class MainActivity : ComponentActivity() {
                 sessionCard.addView(timerText)
                 sessionCard.addView(button("I'm okay — cancel", true) {
                     demo.cancel()
+                    triggers.cancel()
                     voice.speak(VoicePrompts.Phrase.CHECK_IN_CANCELLED)
                     handler.removeCallbacks(countdown)
                     render()
                 })
                 sessionCard.addView(button("Simulate SOS now", false) {
-                    demo.manualSos()
-                    voice.speak(VoicePrompts.Phrase.ALERT_CREATED)
+                    triggers.offer(TriggerController.Signal.MANUAL_SOS, mode == IntegrationMode.MOCK)
                     handler.removeCallbacks(countdown)
                     render()
                 })
@@ -700,9 +807,19 @@ class MainActivity : ComponentActivity() {
             DemoSession.Phase.ALERT, DemoSession.Phase.ACKNOWLEDGED -> {
                 val triggerText = when (demo.trigger) {
                     DemoSession.Trigger.MANUAL -> "Trigger: simulated SOS"
+                    DemoSession.Trigger.VOICE_SOS -> "Trigger: simulated intentional voice SOS"
+                    DemoSession.Trigger.FALL_CANDIDATE -> "Trigger: replayed fall candidate"
                     DemoSession.Trigger.REPLAYED_CANDIDATE -> "Trigger: replayed incident"
                     DemoSession.Trigger.HEART_RATE_ANOMALY -> "Trigger: smartwatch ${heartRateAnomalySummary ?: "heart-rate anomaly"}"
-                    else -> "Trigger: ${demo.trigger?.wireName ?: "unavailable"}"
+                    DemoSession.Trigger.LIVE_VISION -> "Trigger: live glasses video"
+                    DemoSession.Trigger.LOUD_SOUND -> "Trigger: sustained loud sound"
+                    DemoSession.Trigger.ELDERLY_FALL -> "Trigger: elderly fall"
+                    DemoSession.Trigger.OPEN_FIRE -> "Trigger: open fire"
+                    DemoSession.Trigger.SAFETY_THREAT -> "Trigger: safety threat"
+                    DemoSession.Trigger.TREMBLING -> "Trigger: severe trembling"
+                    DemoSession.Trigger.CRASH -> "Trigger: high-impact crash"
+                    DemoSession.Trigger.GLASSES_AI_HAZARD -> "Trigger: glasses AI hazard"
+                    null -> "Trigger unavailable"
                 }
                 sessionCard.addView(label(triggerText, 13, "#71817A").apply { setPadding(0, dp(10), 0, 0) })
                 sessionCard.addView(label("Example location: Helsinki, Finland (test data)", 13, "#71817A").apply { setPadding(0, dp(5), 0, 0) })
@@ -710,8 +827,8 @@ class MainActivity : ComponentActivity() {
                 if (demo.phase == DemoSession.Phase.ALERT) {
                     sessionCard.addView(button("Simulate acknowledgment", true) { demo.acknowledge(); render() })
                 }
-                sessionCard.addView(button("Cancel simulated alert", false) { demo.cancel(); render() })
-                sessionCard.addView(button("Finish rehearsal", false) { demo.finish(); render() })
+                sessionCard.addView(button("Cancel simulated alert", false) { demo.cancel(); triggers.cancel(); render() })
+                sessionCard.addView(button("Finish rehearsal", false) { demo.finish(); triggers.disarm(); render() })
                 if (BuildConfig.AI_BASE_URL.isNotBlank()) {
                     sessionCard.addView(button("Review context with Nemotron", false) {
                         startActivity(Intent(this, AiActivity::class.java).putExtra(
@@ -719,22 +836,80 @@ class MainActivity : ComponentActivity() {
                             "SIMULATED REHEARSAL, not a real emergency. $triggerText. " +
                                 (if (demo.trigger == DemoSession.Trigger.HEART_RATE_ANOMALY) {
                                     "A smartwatch reported ${heartRateAnomalySummary ?: "an unusual heart rate"} under an unvalidated rule. " +
-                                        "No camera, microphone, or other sensor evidence is available. "
+                                        "No camera or microphone evidence is attached to this submission. "
                                 } else {
-                                    "No camera, microphone, or live sensor evidence is available. "
+                                    "No camera, microphone, or live sensor evidence is attached to this submission. "
                                 }) +
                                 "No contacts have been notified. Summarize the reported context and its limitations.",
                         ))
                     })
                 }
             }
-            DemoSession.Phase.CANCELLED -> sessionCard.addView(button("Finish rehearsal", true) { demo.finish(); render() })
+            DemoSession.Phase.CANCELLED -> sessionCard.addView(button("Finish rehearsal", true) {
+                demo.finish()
+                triggers.disarm()
+                render()
+            })
         }
         content.addView(sessionCard)
     }
 
+    private fun renderPrivacyCard() {
+        sectionHeading("04", "Triggered context & privacy", "Choose what can start a brief context window.")
+        val panel = card("#FFFFFF")
+        val controller = triggers.controller
+        val settings = controller.settings
+        panel.addView(label(if (controller.armed) "ARMED · FOREGROUND ONLY" else "DISARMED", 12, "#277B69", true))
+        panel.addView(label(controller.reason, 15, "#23463D").apply { setPadding(0, dp(8), 0, dp(8)) })
+        panel.addView(label("Frames in capture buffer: ${triggers.retainedFrames}. Images are temporary; no media files or audio recordings are made.", 13, "#71817A"))
+        fun option(title: String, checked: Boolean, enabled: Boolean = true, action: (Boolean) -> Unit) {
+            panel.addView(CheckBox(this).apply {
+                text = title
+                textSize = 14f
+                isChecked = checked
+                isEnabled = enabled
+                setOnCheckedChangeListener { _, value -> action(value) }
+            })
+        }
+        fun source(title: String, signal: TriggerController.Signal) {
+            option(title, signal in settings.enabled) { enabled ->
+                triggers.configure(settings.copy(enabled = if (enabled) settings.enabled + signal else settings.enabled - signal))
+            }
+        }
+        source("Use sustained watch candidates", TriggerController.Signal.HEART_RATE)
+        source("Enable replayed fall candidates (no motion sensor)", TriggerController.Signal.FALL_CANDIDATE)
+        source("Enable simulated SOS phrase (no listening)", TriggerController.Signal.VOICE_SOS)
+        source("Enable simulated loud-voice hint (never triggers alone)", TriggerController.Signal.LOUD_VOICE)
+        option("Allow up to 8 seconds of camera context after a trigger", settings.cameraContext) { enabled ->
+            triggers.configure(settings.copy(cameraContext = enabled, cloudContext = settings.cloudContext && enabled))
+        }
+        option(
+            "I agree to automatically send triggered images to Verda / Nemotron for advisory context",
+            settings.cloudContext,
+            settings.cameraContext && BuildConfig.AI_CLIENT_TOKEN.isNotBlank(),
+        ) { enabled ->
+            triggers.configure(settings.copy(cloudContext = enabled))
+        }
+        panel.addView(label("Camera and cloud sharing default off. Changing settings disarms the rehearsal. Sessions expire after 15 minutes; leaving this screen stops capture and cancels analysis. There is no pre-event video.", 13, "#5B6D67"))
+        if (mode == IntegrationMode.REAL && registered) {
+            panel.addView(label(if (cameraPermissionGranted) "Glasses camera permission granted" else "Glasses camera permission not granted", 13, "#71817A"))
+            panel.addView(button("Allow glasses camera", false) {
+                triggers.disarm()
+                glassesCameraPermission.launch(Permission.CAMERA)
+            })
+        }
+        if (BuildConfig.DEBUG) {
+            panel.addView(label("Replay controls generate synthetic events and synthetic images. They do not access a microphone or prove detection works.", 13, "#71817A"))
+            panel.addView(button("Replay SOS phrase", false) { triggers.offer(TriggerController.Signal.VOICE_SOS, true) })
+            panel.addView(button("Replay loud voices", false) { triggers.offer(TriggerController.Signal.LOUD_VOICE, true) })
+        }
+        if (controller.armed) panel.addView(button("Stop context and disarm", false) { triggers.disarm() })
+        triggers.assessment?.let { panel.addView(label(it, 14, "#23463D").apply { setPadding(0, dp(12), 0, 0) }) }
+        content.addView(panel)
+    }
+
     private fun renderHeartRateCard() {
-        sectionHeading("04", "Smartwatch heart rate", "Screen watch readings and escalate sustained anomalies to Ambulance check-in.")
+        sectionHeading("05", "Smartwatch heart rate", "Screen watch readings and escalate sustained anomalies to Ambulance check-in.")
         val card = card("#FFFFFF")
         val source = heartRateSource
         card.addView(label(if (source is SimulatedWatchSource) "SIMULATED WATCH" else "SMARTWATCH", 11, "#71817A", true))
@@ -759,6 +934,14 @@ class MainActivity : ComponentActivity() {
             card.addView(button("Disconnect watch", false) { stopHeartRateSource(); render() })
         }
         content.addView(card)
+    }
+
+    private fun refreshTriggerAvailability() {
+        triggers.availability(TriggerController.Availability(
+            connected = hasActiveDevice && registered,
+            cameraPermission = mode == IntegrationMode.MOCK || cameraPermissionGranted,
+            thermalSafe = mode == IntegrationMode.MOCK || thermalStatus in setOf("none", "light"),
+        ))
     }
 
     private fun scanLiveGlassesFeed() {
@@ -880,7 +1063,7 @@ class MainActivity : ComponentActivity() {
             recommendedService = service,
             urgentImmediate = urgentImmediate,
         )
-        voice.speak(VoicePrompts.Phrase.forHazardCheckIn(hazardType))
+        voice.speak(VoicePrompts.Phrase.forHazardCheckIn(hazardType, sourceTrigger))
         handler.removeCallbacks(liveCountdown)
         handler.post(liveCountdown)
         render()
@@ -983,7 +1166,9 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch {
             Wearables.checkPermissionStatus(Permission.CAMERA).fold(
                 onSuccess = { status ->
-                    if (status is PermissionStatus.Granted) {
+                    cameraPermissionGranted = status is PermissionStatus.Granted
+                    refreshTriggerAvailability()
+                    if (cameraPermissionGranted) {
                         cameraMonitor.start(session)
                     } else {
                         metaCameraPermission.launch(Permission.CAMERA)
@@ -1037,10 +1222,17 @@ class MainActivity : ComponentActivity() {
         if (assessment.newAnomaly) {
             heartRateAnomalySummary = "a sustained ${kindWord(assessment.kind)} heart rate (${assessment.latestBpm} bpm)"
             if (demo.phase == DemoSession.Phase.ARMED) {
-                demo.replayCandidate(SystemClock.elapsedRealtime(), DemoSession.Trigger.HEART_RATE_ANOMALY)
-                voice.speak(VoicePrompts.Phrase.CHECK_IN_HEART_RATE)
-                handler.removeCallbacks(countdown)
-                handler.post(countdown)
+                if (triggers.controller.armed) {
+                    triggers.offer(
+                        TriggerController.Signal.HEART_RATE,
+                        heartRateSource is SimulatedWatchSource || mode == IntegrationMode.MOCK,
+                    )
+                } else {
+                    demo.replayCandidate(SystemClock.elapsedRealtime(), DemoSession.Trigger.HEART_RATE_ANOMALY)
+                    voice.speak(VoicePrompts.Phrase.CHECK_IN_HEART_RATE)
+                    handler.removeCallbacks(countdown)
+                    handler.post(countdown)
+                }
             } else if (liveSession.phase in setOf(DemoSession.Phase.DISARMED, DemoSession.Phase.ARMED)) {
                 latestAssessment = HazardAssessment(
                     summary = "Smartwatch reported $heartRateAnomalySummary.",
@@ -1138,7 +1330,7 @@ class MainActivity : ComponentActivity() {
                     observeWearables()
                     android.util.Log.i("RayGuardian", "Meta MockDeviceKit simulator ready")
                 }
-            } catch (error: Exception) {
+            } catch (_: Exception) {
                 integrationError = "Could not start the simulated device. Restart the app to retry."
             }
             render()
@@ -1148,18 +1340,26 @@ class MainActivity : ComponentActivity() {
     private fun observeWearables() {
         lifecycleScope.launch {
             Wearables.registrationState.collect { state ->
+                registered = state == RegistrationState.REGISTERED
+                if (!registered) cameraPermissionGranted = false
                 registration = when (state) {
                     RegistrationState.REGISTERED -> if (mode == IntegrationMode.MOCK) "Simulated registration active" else "Connected to Meta AI"
                     RegistrationState.REGISTERING -> "Connecting…"
                     RegistrationState.UNREGISTERING -> "Disconnecting…"
                     else -> "Not registered"
                 }
+                refreshTriggerAvailability()
                 render()
             }
         }
         activeDeviceJob?.cancel()
         activeDeviceJob = lifecycleScope.launch {
             deviceSelector.activeDeviceFlow().collect { device ->
+                if (activeDeviceId != device) {
+                    // A different device must not inherit an open capture window.
+                    triggers.availability(TriggerController.Availability())
+                    cameraPermissionGranted = false
+                }
                 hasActiveDevice = device != null
                 activeDeviceId = device
                 if (device == null) {
@@ -1172,6 +1372,7 @@ class MainActivity : ComponentActivity() {
                     thermalStatus = "unknown"
                     observeSelectedDevice()
                 }
+                refreshTriggerAvailability()
                 render()
             }
         }
@@ -1193,6 +1394,7 @@ class MainActivity : ComponentActivity() {
                 batteryStatus = device.batteryLevel.takeIf { it in 0..100 }?.let { "$it%" } ?: "unknown"
                 thermalStatus = device.thermalLevel.name.lowercase()
                 updateDeviceDetails()
+                refreshTriggerAvailability()
                 render()
             }
         }

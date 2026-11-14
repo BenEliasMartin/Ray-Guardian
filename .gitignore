@@ -1,4 +1,5 @@
 .gradle/
+.kotlin/
 **/build/
 local.properties
 .idea/
@@ -15,4 +16,21 @@ validation/sources/*.pdf
 validation/sources/*.bin
 validation/sources/*.html
 __pycache__/
+server/data/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+ios/Config/Local.xcconfig
+ios/GuardianCore/.build/
+ios/GuardianCore/.swiftpm/
+**/xcuserdata/
+ios/RayGuardian/Resources/ReplayMedia/*
+!ios/RayGuardian/Resources/ReplayMedia/manifest.json
+*.xcarchive
+.DS_Store
 /voice-sample-*.mp3
+
+/ios/RayGuardian/Local.xcconfig
+**/xcuserdata/
+
+web-simulator/demo-pov.mp4

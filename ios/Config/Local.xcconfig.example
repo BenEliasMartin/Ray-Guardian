@@ -1,0 +1,7 @@
+DEVELOPMENT_TEAM = YOUR_TEAM_ID
+META_APP_ID = YOUR_META_APP_ID
+META_CLIENT_TOKEN = YOUR_META_CLIENT_TOKEN
+// xcconfig treats // as a comment: use this spelling for URL schemes.
+GUARDIAN_API_URL = https:/$()/guardian.example.com
+// Debug convenience only. Release uses the in-app Keychain setup screen.
+GUARDIAN_CLIENT_TOKEN = YOUR_BACKEND_CLIENT_TOKEN

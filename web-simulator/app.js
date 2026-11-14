@@ -23,12 +23,21 @@ const SERVICE_NAMES = {
   police: 'Police Emergency Dispatch',
 };
 
-const FALLBACK_PHRASES = {
-  hazard_medical: 'Medical hazard detected. A person appears to have fallen or needs urgent medical attention. Cancel now if everyone is okay, otherwise calling Ambulance Services.',
-  hazard_fire: 'Warning! Large open fire detected ahead. Move to safety immediately. Calling Fire and Rescue Services unless you cancel.',
-  hazard_police: 'Safety threat detected. Calling Police Emergency Services shortly unless you cancel.',
-  emergency_cancelled: 'Emergency call cancelled. Monitoring resumed.',
-};
+const FALLBACK_PHRASES = Object.freeze({
+  check_in: "Ray Guardian check in. Tap I'm okay if you do not need help.",
+  check_in_heart_rate: "Heart rate check in. Unusual heart rate detected. Tap I'm okay if you feel fine.",
+  check_in_cancelled: 'Okay. Check in cancelled.',
+  alert_created: 'No response detected. Creating a demo emergency alert.',
+  hazard_medical: 'Medical alert. A person appears to have fallen. Calling Ambulance Services unless you cancel.',
+  hazard_fire: 'Fire warning! Large open fire detected ahead. Step back now. Calling the Fire Department unless you cancel.',
+  hazard_police: 'Safety alert. Urgent threat detected. Calling Police Services unless you cancel.',
+  hazard_trembling: "Health alert. Severe trembling detected. Tap I'm okay to cancel, otherwise calling Ambulance Services.",
+  hazard_crash: 'Crash alert! High-impact crash detected. Stay still if injured. Calling Ambulance Services unless you cancel.',
+  calling_ambulance: 'Calling Ambulance Services now and sharing your location and scene report.',
+  calling_fire_department: 'Calling the Fire Department now and sharing your location and fire report.',
+  calling_police: 'Calling Police Services now and sharing your location and scene report.',
+  emergency_cancelled: 'Emergency call cancelled.',
+});
 
 const copy = {
   ready: ['Hazard detection ready', 'Scan the smart-glasses POV for falls, large open fires, or safety threats and route the call automatically.'],

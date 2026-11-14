@@ -9,13 +9,22 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 
-data class AiContext(val summary: String, val observations: List<String>, val uncertainties: List<String>)
+data class AiContext(
+    val summary: String,
+    val observations: List<String>,
+    val uncertainties: List<String>,
+    val checkInRecommended: Boolean = false,
+)
+
+internal data class SimulatedDispatchReceipt(val callId: String, val location: String)
 
 /** Talks only to our backend. Verda and ElevenLabs credentials never live inside the APK. */
 class AiClient {
     @Volatile private var active: HttpURLConnection? = null
 
-    fun cancel() { active?.disconnect() }
+    fun cancel() {
+        active?.disconnect()
+    }
 
     suspend fun analyze(description: String, imageDataUrl: String?): AiContext = withContext(Dispatchers.IO) {
         val response = postAnalyze(
@@ -25,10 +34,37 @@ class AiClient {
                 if (imageDataUrl != null) put("imageDataUrl", imageDataUrl)
             },
         )
-        AiContext(response.getString("summary"), parseList(response, "observations"), parseList(response, "uncertainties"))
+        AiContext(
+            summary = response.getString("summary"),
+            observations = parseList(response, "observations"),
+            uncertainties = parseList(response, "uncertainties"),
+        )
     }
 
-    suspend fun analyzeHazards(description: String, imageDataUrls: List<String>): HazardAssessment = withContext(Dispatchers.IO) {
+    suspend fun assessLiveFrames(frames: List<String>): AiContext = withContext(Dispatchers.IO) {
+        val response = postAnalyze(
+            JSONObject().apply {
+                put("consent", true)
+                put("description", "Ordered first-person video frames sampled from Meta glasses.")
+                put("imageDataUrls", JSONArray(frames))
+                put("assessCollapse", true)
+            },
+        )
+        val checkIn = response.opt("checkInRecommended") as? Boolean
+            ?: error("Nemotron returned an invalid check-in assessment.")
+        AiContext(
+            summary = response.getString("summary"),
+            observations = parseList(response, "observations"),
+            uncertainties = parseList(response, "uncertainties"),
+            checkInRecommended = checkIn,
+        )
+    }
+
+    suspend fun analyzeHazards(
+        description: String,
+        imageDataUrls: List<String>,
+        sandboxScenario: String? = null,
+    ): HazardAssessment = withContext(Dispatchers.IO) {
         val frames = JSONArray().apply { imageDataUrls.take(3).forEach { put(it) } }
         val response = postAnalyze(
             JSONObject().apply {
@@ -36,6 +72,7 @@ class AiClient {
                 put("description", description)
                 put("imageDataUrls", frames)
                 put("assessHazards", true)
+                if (!sandboxScenario.isNullOrBlank()) put("sandboxScenario", sandboxScenario)
             },
         )
         val hazardType = HazardType.fromWire(response.optString("hazardType"))
@@ -55,6 +92,14 @@ class AiClient {
             recommendedService = service,
             urgentImmediate = detected && response.optBoolean("urgentImmediate", false),
         )
+    }
+
+    internal suspend fun simulateDispatch(id: String, trigger: String, context: String?): SimulatedDispatchReceipt {
+        val request = JSONObject().put("id", id).put("trigger", trigger)
+        if (context != null) request.put("context", context.take(1000))
+        val response = postJson("/v1/simulated-dispatch", request, readTimeoutMillis = 5_000, maxResponseBytes = 32 * 1024)
+        check(response.optString("status") == "simulated-accepted") { "Unexpected dispatch response." }
+        return SimulatedDispatchReceipt(response.getString("callId"), response.getString("location"))
     }
 
     suspend fun dispatchIncident(
@@ -124,17 +169,31 @@ class AiClient {
     }
 
     private suspend fun postAnalyze(request: JSONObject): JSONObject {
+        val response = postJson("/v1/analyze", request, readTimeoutMillis = 50_000, maxResponseBytes = 64 * 1024)
+        val validSource = response.optString("source") in setOf("nemotron", "sandbox") || response.optBoolean("sandbox")
+        check(response.optBoolean("advisoryOnly") && validSource) {
+            "The AI service returned an unexpected response."
+        }
+        return response
+    }
+
+    private suspend fun postJson(
+        path: String,
+        request: JSONObject,
+        readTimeoutMillis: Int,
+        maxResponseBytes: Int,
+    ): JSONObject = withContext(Dispatchers.IO) {
         ensureActive()
         check(BuildConfig.AI_BASE_URL.isNotBlank() && BuildConfig.AI_CLIENT_TOKEN.isNotBlank()) {
             "The AI connection is not configured in this build."
         }
-        val connection = URL(BuildConfig.AI_BASE_URL.trimEnd('/') + "/v1/analyze").openConnection() as HttpURLConnection
+        val connection = URL(BuildConfig.AI_BASE_URL.trimEnd('/') + path).openConnection() as HttpURLConnection
         active = connection
         try {
             connection.requestMethod = "POST"
             connection.instanceFollowRedirects = false
             connection.connectTimeout = 8_000
-            connection.readTimeout = 50_000
+            connection.readTimeout = readTimeoutMillis
             connection.doOutput = true
             connection.setRequestProperty("Content-Type", "application/json")
             connection.setRequestProperty("Authorization", "Bearer ${BuildConfig.AI_CLIENT_TOKEN}")
@@ -154,12 +213,9 @@ class AiClient {
                 }
                 throw IllegalStateException(message)
             }
-            val response = readBoundedJson(connection, 64 * 1024)
+            val response = readBoundedJson(connection, maxResponseBytes)
             ensureActive()
-            check(response.optBoolean("advisoryOnly") && response.optString("source") == "nemotron") {
-                "The AI service returned an unexpected response."
-            }
-            return response
+            response
         } finally {
             if (active === connection) active = null
             connection.disconnect()
@@ -180,7 +236,7 @@ class AiClient {
         }
 
     private fun parseList(response: JSONObject, name: String): List<String> {
-        val values = response.getJSONArray(name)
+        val values = response.optJSONArray(name) ?: return emptyList()
         check(values.length() <= 6) { "The AI response was invalid." }
         return List(values.length()) { values.getString(it) }
     }
