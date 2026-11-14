@@ -11,10 +11,18 @@ import GuardianCore
     #endif
     let settings = Settings(), glasses = GlassesAdapter(), phone = PhoneAudio(), voice = VoicePlayer(), replays = ReplayLibrary()
     let heartRate = HeartRateMonitor(), locator = IncidentLocation(), phoneMotion = PhoneMotion()
-    private var phoneFall = FallCandidateDetector()
+    private var phoneFall = FallCandidateDetector(), phoneMotionActive = false
     private var heartRateDetector = SustainedHeartRate(), located = Set<String>()
     @Published private(set) var session: GuardianSession?
-    @Published private(set) var incident: Incident?
+    @Published private(set) var incident: Incident? {
+        didSet {
+            if armed, let incident, incident.state == "check_in", let deadline = incident.checkInDeadline {
+                glasses.showCheckIn(id: incident.id, deadline: Date(timeIntervalSince1970: deadline / 1000))
+            } else {
+                glasses.clearCheckIn()
+            }
+        }
+    }
     @Published private(set) var detection: Detection?
     @Published private(set) var health: Health?
     @Published private(set) var armed = false
@@ -31,33 +39,52 @@ import GuardianCore
     @Published private(set) var history: [Incident] = []
     private var api: GuardianAPI?, gate = PrivacyGate(), operation = UUID(), fall = FallCandidateDetector(), loudness = LoudnessDetector()
     private var captureTask: Task<Void,Never>?, replayAudioTask: Task<Void,Never>?, heartbeatTask: Task<Void,Never>?, uploadTask: Task<Void,Never>?, promptTask: Task<Void,Never>?
-    private var frames: [FramePayload] = [], pcm: [Int16] = [], captureStart = 0.0, lastFrameAt = -10.0, activeCapture: UUID?
+    private var candidates: [(time: Double, jpeg: Data, sharpness: Double)] = [], pcm: [Int16] = [], captureStart = 0.0, lastFrameAt = -10.0, activeCapture: UUID?
+    /// The camera stays on while armed (live mock preview, or the opt-in pre-trigger buffer for real glasses).
+    @Published private(set) var continuousCamera = false
+    private var earlyCameraRequests = 0, earlyCameraTask: Task<Void,Error>?
+    private var motionRecorder = MotionRecorder(), lastFallPattern: FallPattern?
     private var disarmTask: Task<Void,Never>?
     private var confirming = Set<String>()
     private var lastThreatAt: Double?
     private var lastDistressAt: Double?
     private var speechTask: Task<Void,Never>?
-    private var speechPCM: [Int16] = []
-    private var speechHasSound = false
-    private var recentPreviewFrames: [(time: Double, jpeg: Data)] = []
+    private var speechBuffer = SpeechClipBuffer()
+    private var pendingSpeech: [([Int16], Double)] = []
+    /// In-memory only: at most the last three seconds, uploaded only inside an accepted capture window.
+    private var recentPreviewFrames: [(time: Double, jpeg: Data, sharpness: Double)] = []
     @Published private(set) var cloudSpeechStatus = "Off"
     private var spoken = Set<String>(), relays = Set<AnyCancellable>(), isForeground = true
     init() {
         heartRate.onMeasurement = { [weak self] bpm in guard let self,self.armed,self.settings.heartRateEnabled else { return }; if self.heartRateDetector.consume(bpm:bpm,threshold:self.settings.heartRateThreshold,time:self.monotonic) { self.sendTrigger(.heart_rate) } }
-        voice.$playing.sink { [weak self] playing in self?.phone.setSuppressed(playing); self?.glasses.setVoiceSuppressed(playing) }.store(in:&relays)
+        voice.$playing.sink { [weak self] playing in
+            guard let self else { return }
+            self.phone.setSuppressed(playing); self.glasses.setVoiceSuppressed(playing)
+            if playing { self.speechBuffer = SpeechClipBuffer() }
+        }.store(in:&relays)
         glasses.onFrame = { [weak self] in self?.receiveFrame($0) }
         glasses.onPCM = { [weak self] in self?.receivePCM($0,source: .glasses,arrivedAt:$1) }
         phone.onPCM = { [weak self] in self?.receivePCM($0,source: .phone,arrivedAt:$1) }
         phone.onFailure = { [weak self] message in self?.error = message; self?.stop() }
         glasses.onTranscript = { [weak self] in self?.receiveTranscript($0,final: $1,confidence: $2) }
         phone.onTranscript = { [weak self] in self?.receiveTranscript($0,final: $1,confidence: $2) }
-        glasses.onMotion = { [weak self] point in guard let self,self.armed else { return }; if self.fall.consume(point) { self.sendTrigger(.motion) } }
+        glasses.onMotion = { [weak self] point in
+            guard let self,self.armed else { return }
+            // While the iPhone stands in for the glasses IMU, its samples alone feed the motion summary.
+            if !self.phoneMotionActive { self.motionRecorder.append(point.retimed(self.monotonic)) }
+            if let pattern = self.fall.detect(point) { self.lastFallPattern = pattern; self.sendTrigger(.motion) }
+        }
         phoneMotion.onMotion = { [weak self] point in
-            guard let self,self.armed,self.settings.input == .mock,self.settings.phoneMotionTesting else { return }
-            if self.phoneFall.consume(point) { self.sendTrigger(.motion_phone) }
+            guard let self,self.armed,self.phoneMotionActive else { return }
+            self.motionRecorder.append(point.retimed(self.monotonic))
+            if let pattern = self.phoneFall.detect(point) { self.lastFallPattern = pattern; self.sendTrigger(.motion_phone) }
         }
         phoneMotion.onFailure = { [weak self] message in self?.error = message; self?.stop() }
         glasses.onUnavailable = { [weak self] message in guard let self,self.armed || self.capturing else { return }; self.error = message; self.stop() }
+        glasses.onDisplayCancel = { [weak self] id in
+            guard let self, self.armed, self.isForeground, self.incident?.id == id, self.incident?.state == "check_in" else { return }
+            self.cancelIncident()
+        }
         settings.objectWillChange.sink { [weak self] _ in guard let self else { return }; if self.armed { self.stop() } }.store(in: &relays)
         NotificationCenter.default.publisher(for: AVAudioSession.interruptionNotification).sink { [weak self] _ in Task { @MainActor in guard let self,self.armed else { return }; self.error = "Audio interrupted; session stopped."; self.stop() } }.store(in: &relays)
         NotificationCenter.default.publisher(for: AVAudioSession.routeChangeNotification).sink { [weak self] note in
@@ -104,9 +131,14 @@ import GuardianCore
             if settings.input == .mock, !settings.mockUsesReplay, settings.consent.capture {
                 try await glasses.startCapture(includeGlassesAudio: settings.consent.audio && settings.audio == .glasses)
                 try checkOperation(token)
-                liveMockPreview = true
+                liveMockPreview = true; continuousCamera = true
             }
             #endif
+            if !continuousCamera, settings.preTriggerFrames, settings.consent.capture, settings.consent.cloud {
+                try await glasses.startCapture(includeGlassesAudio: settings.consent.audio && settings.audio == .glasses)
+                try checkOperation(token)
+                continuousCamera = true
+            }
             let sceneChecks = settings.automaticSceneChecks && settings.consent.capture && settings.consent.cloud
             let phoneMotionTesting = settings.input == .mock && settings.phoneMotionTesting
             let created: GuardianSession = try await client.post("v1/sessions",body: CreateSession(consent: settings.consent,source: settings.input == .mock ? .meta_mock : .meta_glasses,automaticSceneChecks: sceneChecks,speechMonitoring: settings.elevenLabsListening,phoneMotionTesting: phoneMotionTesting)); try checkOperation(token)
@@ -114,12 +146,12 @@ import GuardianCore
             let remaining = ((active.armedUntil ?? 0) / 1000) - Date().timeIntervalSince1970
             session = active
             guard active.armed, remaining > 0 else { throw DeviceError.message("The backend arming window expired.") }
-            incident = nil; detection = nil; lastEvidence = ""; spoken.removeAll(); fall = FallCandidateDetector(); lastThreatAt = nil; lastDistressAt = nil
+            incident = nil; detection = nil; lastEvidence = ""; spoken.removeAll(); fall = FallCandidateDetector(); motionRecorder.reset(); lastFallPattern = nil; lastThreatAt = nil; lastDistressAt = nil
             cloudSpeechStatus = settings.elevenLabsListening ? "Listening on iPhone mic" : "Off"
             gate.arm(consent: settings.consent,now: monotonic,duration: remaining)
             armed = true; status = "Armed · up to 30 minutes"
             phoneFall = FallCandidateDetector()
-            if phoneMotionTesting { try phoneMotion.start() }
+            if phoneMotionTesting { try phoneMotion.start(); phoneMotionActive = true }
             heartbeatTask?.cancel(); heartbeatTask = Task { [weak self] in
                 var nextSceneCheck = ProcessInfo.processInfo.systemUptime
                 while !Task.isCancelled {
@@ -143,11 +175,12 @@ import GuardianCore
     private func checkOperation(_ token: UUID) throws { guard token == operation,isForeground,!Task.isCancelled else { throw CancellationError() } }
     func stop(cancelPending: Bool = true) {
         let oldSession = session, client = api
-        operation = UUID(); gate.invalidate(); armed = false; starting = false; liveMockPreview = false; capturing = false; processing = false; activeCapture = nil
+        operation = UUID(); gate.invalidate(); armed = false; starting = false; liveMockPreview = false; continuousCamera = false; capturing = false; processing = false; activeCapture = nil
+        earlyCameraRequests = 0; earlyCameraTask?.cancel(); earlyCameraTask = nil; motionRecorder.reset(); lastFallPattern = nil
         captureTask?.cancel(); replayAudioTask?.cancel(); uploadTask?.cancel(); heartbeatTask?.cancel(); promptTask?.cancel()
-        speechTask?.cancel(); speechTask = nil; speechPCM.removeAll(); speechHasSound = false
+        speechTask?.cancel(); speechTask = nil; speechBuffer = SpeechClipBuffer(); pendingSpeech.removeAll()
         recentPreviewFrames.removeAll(); cloudSpeechStatus = "Off"
-        glasses.stop(); phone.stop(); phoneMotion.stop(); voice.stop(); locator.cancel(); clearMedia(); status = "Disarmed · camera and local triggers off"
+        glasses.stop(); phone.stop(); phoneMotion.stop(); phoneMotionActive = false; voice.stop(); locator.cancel(); clearMedia(); status = "Disarmed · camera and local triggers off"
         if let id = oldSession?.id,let client { disarmTask = Task { [weak self] in
             do { struct Disarm: Encodable { let cancelPending: Bool }; let _: GuardianSession = try await client.post("v1/sessions/\(id)/disarm",body: Disarm(cancelPending: cancelPending)); if self?.session?.id == id { await self?.refreshIncident() } }
             catch { self?.error = "Stopped locally. Server cancellation was not confirmed: \(error.localizedDescription)" }
@@ -159,34 +192,57 @@ import GuardianCore
         else { Task { await refreshIncident(); await loadHistory() } }
     }
     func sendTrigger(_ signal: TriggerSignal) {
-        guard armed,let session,let api else { return }; let token = operation
+        guard armed,let session,let api else { return }; let token = operation, triggeredAt = monotonic
+        // Start the camera now, in parallel with the server round trip, so the moments right after a fall are
+        // not lost. Frames stay in memory and are discarded unless the server opens a capture window.
+        let early = startEarlyCamera()
         Task { [weak self] in guard let self else { return }; do {
             let reply: TriggerReply = try await api.post("v1/sessions/\(session.id)/triggers",body: TriggerBody(signal)); try self.checkOperation(token)
             self.session = reply.session; self.incident = reply.incident ?? self.incident; self.shareLocationIfConsented(); self.status = reply.reason.replacingOccurrences(of: "_",with: " ")
-            if let window = reply.window,!self.capturing,!self.processing { self.beginCapture(window,token: token) }
-            else { await self.handleVoice() }
-        } catch { guard self.operation == token else { return }; self.error = error.localizedDescription } }
+            if let window = reply.window,!self.capturing,!self.processing { self.beginCapture(window,token: token,triggeredAt: triggeredAt,early: early) }
+            else { self.endEarlyCamera(early); await self.handleVoice() }
+        } catch { guard self.operation == token else { return }; self.endEarlyCamera(early); self.error = error.localizedDescription } }
     }
-    private func beginCapture(_ window: CaptureWindow,token: UUID) {
-        guard let epoch = gate.beginCapture(now: monotonic) else { return }
-        let duration = min(8,max(0,(window.captureEndsAt-Date().timeIntervalSince1970*1000)/1000))
-        guard duration > 0 else { gate.endCapture(); error = "Capture window expired before camera startup."; return }
-        clearMedia(); capturing = true; activeCapture = epoch; captureStart = monotonic; lastFrameAt = -10; status = "Capturing up to 8 seconds in memory"
-        if liveMockPreview {
-            frames = recentPreviewFrames.filter { captureStart - $0.time <= 3 }.map {
-                FramePayload(offsetMs: ($0.time - captureStart) * 1000,jpeg: $0.jpeg)
-            }
-            frameCount = frames.count
+    private var glassesCaptureAudio: Bool { session?.consent.audio == true && settings.audio == .glasses }
+    private func startEarlyCamera() -> Bool {
+        guard !continuousCamera,!capturing,!processing,session?.consent.capture == true,session?.consent.cloud == true else { return false }
+        earlyCameraRequests += 1
+        if earlyCameraRequests == 1 {
+            recentPreviewFrames.removeAll()
+            let audio = glassesCaptureAudio
+            earlyCameraTask = Task { [weak self] in guard let self else { return }; try await self.glasses.startCapture(includeGlassesAudio: audio) }
         }
+        return true
+    }
+    private func endEarlyCamera(_ early: Bool) {
+        guard early,earlyCameraRequests > 0 else { return }
+        earlyCameraRequests -= 1
+        guard earlyCameraRequests == 0,!capturing,!continuousCamera else { return }
+        earlyCameraTask?.cancel(); earlyCameraTask = nil; glasses.stopCapture(); recentPreviewFrames.removeAll()
+    }
+    private func beginCapture(_ window: CaptureWindow,token: UUID,triggeredAt: Double,early: Bool) {
+        guard let epoch = gate.beginCapture(now: monotonic) else { endEarlyCamera(early); return }
+        let now = monotonic, start = max(triggeredAt,now-3)
+        // Offsets are measured from the trigger itself; the capture never runs past eight seconds after it.
+        let duration = min(8-(now-start),max(0,(window.captureEndsAt-Date().timeIntervalSince1970*1000)/1000))
+        guard duration > 0 else { gate.endCapture(); endEarlyCamera(early); error = "Capture window expired before camera startup."; return }
+        clearMedia(); capturing = true; activeCapture = epoch; captureStart = start; lastFrameAt = -10; status = "Capturing up to 8 seconds in memory"
+        candidates = recentPreviewFrames.filter { start-$0.time <= 3 && $0.time <= now }
+        if !continuousCamera { recentPreviewFrames.removeAll() }
+        frameCount = min(KeyframeSelector.maximumFrames,candidates.count)
+        let cameraAlreadyRequested = early && earlyCameraRequests > 0, pendingCamera = earlyCameraTask
+        if early { earlyCameraRequests = max(0,earlyCameraRequests-1) }
         captureTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(duration)); guard let self,!Task.isCancelled,self.operation == token else { return }; self.finishCapture(window,token: token)
         }
         Task { [weak self] in guard let self else { return }; do {
-            if !self.liveMockPreview {
-                try await self.glasses.startCapture(includeGlassesAudio: self.session?.consent.audio == true && self.settings.audio == .glasses)
+            if !self.continuousCamera {
+                var running = false
+                if cameraAlreadyRequested,let pendingCamera { running = (try? await pendingCamera.value) != nil }
+                if !running { try await self.glasses.startCapture(includeGlassesAudio: self.glassesCaptureAudio) }
             }
             try self.checkOperation(token)
-            guard self.capturing,self.activeCapture == epoch else { if !self.liveMockPreview { self.glasses.stopCapture() }; return }
+            guard self.capturing,self.activeCapture == epoch else { if !self.continuousCamera { self.glasses.stopCapture() }; return }
             if self.session?.consent.audio == true {
                 if self.settings.audio == .phone,self.settings.keywords != .phone,!self.settings.elevenLabsListening { try await self.phone.start(localASR: false); guard self.capturing,self.operation == token else { self.phone.stop(); return } }
                 if self.settings.audio == .replay { try self.startReplayAudio(token: token) }
@@ -197,9 +253,9 @@ import GuardianCore
         let now = monotonic
         if liveMockPreview { preview = image }
         let captureFrame = capturing && activeCapture.map { gate.accepts($0,now: now) } == true &&
-            frames.count < 6 && now - captureStart - lastFrameAt >= 0.85
-        let bufferFrame = armed && liveMockPreview && settings.consent.cloud &&
-            (recentPreviewFrames.last.map { now - $0.time >= 0.85 } ?? true)
+            candidates.count < 40 && now - captureStart - lastFrameAt >= 0.3
+        let bufferFrame = armed && (continuousCamera || earlyCameraRequests > 0) && settings.consent.capture && settings.consent.cloud &&
+            (recentPreviewFrames.last.map { now - $0.time >= 0.4 } ?? true)
         guard captureFrame || bufferFrame else { return }
         let offset = now-captureStart
         let size = image.size, scale = min(1,640/max(size.width,size.height)), target = CGSize(width: size.width*scale,height: size.height*scale)
@@ -208,66 +264,109 @@ import GuardianCore
         var jpeg: Data?
         for quality: CGFloat in [0.65,0.45,0.25] { if let data = reduced.jpegData(compressionQuality: quality),data.count <= 131072 { jpeg = data; break } }
         guard let jpeg else { return }
+        let sharpness = Self.sharpness(reduced)
         if bufferFrame {
-            recentPreviewFrames.append((now,jpeg))
-            if recentPreviewFrames.count > 3 { recentPreviewFrames.removeFirst() }
+            recentPreviewFrames.append((now,jpeg,sharpness))
+            recentPreviewFrames.removeAll { now - $0.time > 3 }
         }
         guard captureFrame else { return }
-        frames.append(FramePayload(offsetMs: min(8000,offset*1000),jpeg: jpeg)); frameCount = frames.count; lastFrameAt = offset; preview = reduced
+        candidates.append((now,jpeg,sharpness)); frameCount = min(KeyframeSelector.maximumFrames,candidates.count); lastFrameAt = offset; preview = reduced
         #if DEBUG
-        debugLastCaptureFrames = frames.count
+        debugLastCaptureFrames = candidates.count
         if debugStopAfterFirstFrame { debugStopAfterFirstFrame = false; stop() }
         #endif
     }
+    /// Laplacian variance of a small grayscale copy: blurred or dark frames score low.
+    private static func sharpness(_ image: UIImage) -> Double {
+        guard let cg = image.cgImage,cg.width > 0 else { return 0 }
+        let width = 160, height = max(3,Int(Double(width)*Double(cg.height)/Double(cg.width)))
+        var gray = [UInt8](repeating: 0,count: width*height)
+        let drawn = gray.withUnsafeMutableBytes { buffer -> Bool in
+            guard let context = CGContext(data: buffer.baseAddress,width: width,height: height,bitsPerComponent: 8,bytesPerRow: width,
+                                          space: CGColorSpaceCreateDeviceGray(),bitmapInfo: CGImageAlphaInfo.none.rawValue) else { return false }
+            context.interpolationQuality = .medium
+            context.draw(cg,in: CGRect(x: 0,y: 0,width: width,height: height)); return true
+        }
+        return drawn ? FrameSharpness.laplacianVariance(gray,width: width,height: height) : 0
+    }
     private func receivePCM(_ samples: [Int16],source: AudioMode,arrivedAt:Double) {
         guard armed else { return }
-        if voice.suppressInput {
-            speechPCM.removeAll(keepingCapacity: true); speechHasSound = false
-            return
-        }
+        if voice.suppressInput { return }
         if source == .phone, settings.elevenLabsListening { monitorSpeech(samples) }
         if loudness.consume(samples,time: monotonic) { status = capturing ? "Loud audio during capture · evidence only" : "Loud audio detected locally · no capture triggered" }
         guard arrivedAt >= captureStart,capturing,session?.consent.audio == true,settings.audio == source,let epoch = activeCapture,gate.accepts(epoch,now: monotonic) else { return }
         pcm.append(contentsOf: samples.prefix(max(0,128000-pcm.count))); audioSeconds = Double(pcm.count)/16000
     }
     private func monitorSpeech(_ samples: [Int16]) {
-        guard let api, let session, !samples.isEmpty else { return }
-        speechHasSound = speechHasSound || samples.contains { abs(Int($0)) >= 450 }
-        speechPCM.append(contentsOf: samples)
-        guard speechPCM.count >= 64_000 else { return }
-        let clip = Array(speechPCM.prefix(64_000))
-        speechPCM.removeFirst(56_000)
-        let hasSound = speechHasSound
-        speechHasSound = false
-        guard hasSound, speechTask == nil else { return }
-        struct Transcript: Decodable { let text: String }
+        for clip in speechBuffer.consume(samples) {
+            if pendingSpeech.count >= 3 { pendingSpeech.removeFirst() }
+            pendingSpeech.append((clip, monotonic))
+        }
+        submitNextSpeechClip()
+    }
+    private func submitNextSpeechClip() {
+        guard speechTask == nil, armed, let api, let session else { return }
+        let now = monotonic
+        pendingSpeech.removeAll { now - $0.1 > 15 }
+        guard !pendingSpeech.isEmpty else { return }
+        let (clip, _) = pendingSpeech.removeFirst()
+        struct Transcript: Decodable {
+            let text: String
+            let detection: Detection?
+            let trigger: TriggerReply?
+        }
         let token = operation
+        cloudSpeechStatus = "Checking speech…"
         speechTask = Task { [weak self] in
             guard let self else { return }
-            defer { if self.operation == token { self.speechTask = nil } }
+            defer {
+                if self.operation == token {
+                    self.speechTask = nil
+                    self.submitNextSpeechClip()
+                }
+            }
             do {
                 let body = AudioPayload(wav: PCM16WAV.encode(clip),source: "phone")
                 let result: Transcript = try await api.post("v1/sessions/\(session.id)/speech",body: body)
                 try self.checkOperation(token)
-                self.cloudSpeechStatus = result.text.isEmpty ? "No speech in last clip" : "Speech recognized"
-                self.receiveTranscript(result.text,final: true,confidence: -1)
+                self.receiveTranscript(result.text,final: true,confidence: -1,commandsOnly: true)
+                try self.checkOperation(token)
+                if let assessment = result.detection {
+                    self.cloudSpeechStatus = assessment.source == "nemotron_unavailable"
+                        ? "Speech assessment unavailable" : "Speech assessed by Nemotron"
+                } else {
+                    self.cloudSpeechStatus = result.text.isEmpty ? "No speech in last clip" : "Speech recognized"
+                }
+                if let trigger = result.trigger {
+                    self.session = trigger.session
+                    self.incident = trigger.incident ?? self.incident
+                    self.detection = result.detection
+                    self.lastEvidence = "Speech transcribed by ElevenLabs"
+                    self.shareLocationIfConsented()
+                    if let window = trigger.window, !self.capturing, !self.processing {
+                        self.beginCapture(window,token: token,triggeredAt: self.monotonic,early: false)
+                    }
+                    await self.handleVoice()
+                }
             } catch {
                 guard self.operation == token else { return }
                 self.cloudSpeechStatus = error.localizedDescription
             }
         }
     }
-    private func receiveTranscript(_ text: String,final: Bool,confidence: Float) {
+    private func receiveTranscript(_ text: String,final: Bool,confidence: Float,commandsOnly: Bool = false) {
         guard armed,!voice.suppressInput else { return }
         guard let intent = KeywordDetector.intent(text,isFinal: final,confidence: confidence,isPlayingVoice: voice.suppressInput) else { return }
         switch intent {
         case .cancel: cancelIncident()
         case .sos: sendTrigger(.keyword_sos)
         case .distress:
+            guard !commandsOnly, !settings.elevenLabsListening else { return }
             guard lastDistressAt.map({ monotonic - $0 >= 30 }) ?? true else { return }
             lastDistressAt = monotonic
             sendTrigger(.keyword_distress)
         case .threat:
+            guard !commandsOnly, !settings.elevenLabsListening else { return }
             guard lastThreatAt.map({ monotonic - $0 >= 30 }) ?? true else { return }
             lastThreatAt = monotonic
             sendTrigger(.spoken_threat)
@@ -285,12 +384,15 @@ import GuardianCore
         }
     }
     private func finishCapture(_ window: CaptureWindow,token: UUID) {
-        if !liveMockPreview { glasses.stopCapture() }
+        if !continuousCamera,earlyCameraRequests == 0 { glasses.stopCapture(); recentPreviewFrames.removeAll() }
         replayAudioTask?.cancel(); if settings.keywords != .phone && !settings.elevenLabsListening { phone.stop() }
         capturing = false; gate.endCapture(); activeCapture = nil
         guard let session,let api else { clearMedia(); return }
         let audio = pcm.count >= 1600 ? AudioPayload(wav: PCM16WAV.encode(pcm),source: settings.audio.rawValue) : nil
-        let payload = ObservationPayload(windowId: window.id,frames: frames,audio: audio,transcript: nil,source: session.source)
+        let picked = KeyframeSelector.select(offsets: candidates.map { $0.time-captureStart },sharpness: candidates.map { $0.sharpness })
+        let frames = picked.map { FramePayload(offsetMs: min(8000,max(-3000,((candidates[$0].time-captureStart)*1000).rounded())),jpeg: candidates[$0].jpeg) }
+        let motion = motionRecorder.summary(triggerAt: captureStart,endAt: monotonic,fallPattern: [TriggerSignal.motion.rawValue,TriggerSignal.motion_phone.rawValue].contains(window.signal) ? lastFallPattern : nil)
+        let payload = ObservationPayload(windowId: window.id,frames: frames,audio: audio,transcript: nil,source: session.source,motion: motion)
         let hasEvidence = !frames.isEmpty || audio != nil
         clearMedia(); guard hasEvidence else { error = "No usable frames or bounded microphone audio arrived in the capture window."; return }
         processing = true; status = "Transcribing audio and asking Nemotron to assess actual evidence"
@@ -299,7 +401,7 @@ import GuardianCore
             self.processing = false; self.lastEvidence = "\(result.framesAnalyzed) frames analyzed · \(String(format: "%.1f",result.audioDurationMs/1000)) seconds of audio · transcription: \(result.audioTranscriptionSource ?? "none")"; self.detection = result.detection; self.incident = result.incident ?? self.incident; self.shareLocationIfConsented(); self.status = "\(result.detection.source): \(result.detection.label.replacingOccurrences(of: "_",with: " ")) · \(result.detection.confidence) confidence"; await self.handleVoice()
         } catch { guard self.operation == token else { return }; self.processing = false; self.error = error.localizedDescription } }
     }
-    private func clearMedia() { frames.removeAll(keepingCapacity: false); pcm.withUnsafeMutableBufferPointer { $0.initialize(repeating: 0) }; pcm.removeAll(keepingCapacity: false); if !liveMockPreview { preview = nil }; frameCount = 0; audioSeconds = 0 }
+    private func clearMedia() { candidates.removeAll(keepingCapacity: false); pcm.withUnsafeMutableBufferPointer { $0.initialize(repeating: 0) }; pcm.removeAll(keepingCapacity: false); if !liveMockPreview { preview = nil }; frameCount = 0; audioSeconds = 0 }
     func refreshIncident() async {
         guard let id = session?.incidentId ?? incident?.id,let api else { return }; let epoch = operation
         do {

@@ -34,6 +34,31 @@ export function inspectWAV(bytes) {
   return { durationMs, sampleRate: 16000, channels: 1, pcm: data };
 }
 
+export const FALL_PATTERNS = ['free_fall_impact','rapid_tilt','slump'];
+
+/** Optional summary of the wearer's own glasses IMU movement around the trigger. No raw samples are accepted. */
+export function validateMotionSummary(value) {
+  if (value == null) return null;
+  if (typeof value !== 'object' || Array.isArray(value)) invalid('Motion summary must be an object.');
+  const number = (key, min, max, optional = false) => {
+    const v = value[key];
+    if (optional && v == null) return null;
+    if (!Number.isFinite(v) || v < min || v > max) invalid(`Motion summary ${key} is out of range.`);
+    return Math.round(v * 100) / 100;
+  };
+  const pattern = value.fallPattern ?? null;
+  if (pattern !== null && !FALL_PATTERNS.includes(pattern)) invalid('Unknown motion fall pattern.');
+  return {
+    fallPattern: pattern,
+    peakImpactG: number('peakImpactG', 0, 50), minG: number('minG', 0, 50),
+    tiltDegrees: number('tiltDegrees', 0, 180),
+    peakRotationDegPerSec: number('peakRotationDegPerSec', 0, 20000, true),
+    stillSecondsAtEnd: number('stillSecondsAtEnd', 0, 12),
+    coveredFromMs: number('coveredFromMs', -3000, MAX_CAPTURE_MS), coveredToMs: number('coveredToMs', -3000, MAX_CAPTURE_MS),
+    samples: Math.trunc(number('samples', 1, 5000)),
+  };
+}
+
 export function validateObservation(body) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) invalid('Expected an observation object.');
   if (typeof body.windowId !== 'string' || !/^[a-f0-9-]{36}$/.test(body.windowId)) invalid('Missing capture window.');
@@ -58,7 +83,8 @@ export function validateObservation(body) {
   const transcript = typeof body.transcript === 'string' ? body.transcript.trim() : '';
   if (transcript.length > 4000) invalid('Transcript exceeds 4000 characters.');
   if (!validatedFrames.length && !audio && !transcript) throw new ApiError(422,'no_evidence','No usable visual or audio evidence was provided.');
-  return { windowId:body.windowId, frames:validatedFrames, audio, transcript,
+  const motion = validateMotionSummary(body.motion);
+  return { windowId:body.windowId, frames:validatedFrames, audio, transcript, motion,
     source: ['meta_mock','meta_glasses','phone','file_replay'].includes(body.source) ? body.source : 'unknown' };
 }
 

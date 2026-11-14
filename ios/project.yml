@@ -93,6 +93,10 @@ targets:
       - package: MetaWearablesDAT
         product: MWDATCore
       - package: MetaWearablesDAT
+        product: MWDATDisplay
+      - package: MetaWearablesDAT
+        product: MWDATInputs
+      - package: MetaWearablesDAT
         product: MWDATCamera
       - package: MetaWearablesDAT
         product: MWDATMotion

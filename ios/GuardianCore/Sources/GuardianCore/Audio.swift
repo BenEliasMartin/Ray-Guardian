@@ -1,5 +1,62 @@
 import Foundation
 public enum AudioError: Error { case invalidWAV }
+
+/// Groups mono 16 kHz PCM around sound, rather than arbitrary clock boundaries.
+/// This is an energy gate; ElevenLabs decides whether the clip contains speech.
+public struct SpeechClipBuffer {
+    private static let frameSize = 320  // 20 ms
+    private static let leadFrames = 20  // 400 ms
+    private static let pauseFrames = 35 // 700 ms
+    private static let maxSamples = 128_000
+    private var frame: [Int16] = []
+    private var lead: [Int16] = []
+    private var clip: [Int16] = []
+    private var quiet = 0
+    private var active = 0
+    public init() {}
+
+    public mutating func consume(_ samples: [Int16]) -> [[Int16]] {
+        var completed: [[Int16]] = []
+        var offset = 0
+        while offset < samples.count {
+            let end = min(samples.count, offset + Self.frameSize - frame.count)
+            frame.append(contentsOf: samples[offset..<end])
+            offset = end
+            guard frame.count == Self.frameSize else { continue }
+            let energy = frame.reduce(Int64(0)) { $0 + Int64($1) * Int64($1) }
+            let sound = energy >= Int64(Self.frameSize * 200 * 200)
+            if clip.isEmpty && !sound {
+                keepLead(frame)
+            } else {
+                if clip.isEmpty { clip = lead; lead = [] }
+                clip.append(contentsOf: frame)
+                if sound { quiet = 0; active += 1 } else { quiet += 1 }
+                let paused = quiet >= Self.pauseFrames
+                if paused || clip.count >= Self.maxSamples {
+                    // Ignore brief transients. Keep context for a new clip, overlapping
+                    // longer runs by a second when they reach the provider's length limit.
+                    if active >= 4 { completed.append(clip) }
+                    if paused {
+                        lead = Array(clip.suffix(Self.leadFrames * Self.frameSize))
+                        clip = []; quiet = 0
+                    } else {
+                        clip = Array(clip.suffix(50 * Self.frameSize))
+                    }
+                    active = 0
+                }
+            }
+            frame.removeAll(keepingCapacity: true)
+        }
+        return completed
+    }
+
+    private mutating func keepLead(_ samples: [Int16]) {
+        lead.append(contentsOf: samples)
+        let overflow = lead.count - Self.leadFrames * Self.frameSize
+        if overflow > 0 { lead.removeFirst(overflow) }
+    }
+}
+
 public enum PCM16WAV {
     public static func encode(_ samples: [Int16]) -> Data {
         let bounded = samples.prefix(128000)

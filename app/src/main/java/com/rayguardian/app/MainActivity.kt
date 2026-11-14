@@ -39,8 +39,10 @@ import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 class MainActivity : ComponentActivity() {
     private val demo = DemoSession()
@@ -452,6 +454,9 @@ class MainActivity : ComponentActivity() {
             }
         } else if (mode == IntegrationMode.REAL) {
             deviceCard.addView(button("Open Meta AI registration", false) { Wearables.startRegistration(this) })
+        }
+        if (BuildConfig.DEBUG && activeIntegrationMode == IntegrationMode.MOCK && !triggers.controller.armed) {
+            deviceCard.addView(button("Open glasses POV feed", true) { openMockFeed(false) })
         }
         if (mode != null && hasActiveDevice && !triggers.controller.armed) {
             if (mode == IntegrationMode.REAL) {
@@ -1329,6 +1334,10 @@ class MainActivity : ComponentActivity() {
                     activeIntegrationMode = IntegrationMode.MOCK
                     observeWearables()
                     android.util.Log.i("RayGuardian", "Meta MockDeviceKit simulator ready")
+                    if (intent.getBooleanExtra("ray_guardian_feed", false)) {
+                        intent.removeExtra("ray_guardian_feed")
+                        openMockFeed(true)
+                    }
                 }
             } catch (_: Exception) {
                 integrationError = "Could not start the simulated device. Restart the app to retry."
@@ -1453,6 +1462,18 @@ class MainActivity : ComponentActivity() {
         sessionStarted = false
         deviceSessionStatus = "Stopped"
         session.stop()
+    }
+
+    private fun openMockFeed(autoplay: Boolean) {
+        if (!BuildConfig.DEBUG || activeIntegrationMode != IntegrationMode.MOCK || triggers.controller.armed) return
+        val previous = wearableSession
+        stopWearableSession()
+        lifecycleScope.launch {
+            if (previous != null) withTimeoutOrNull(3000) { previous.state.first { it == DeviceSessionState.STOPPED } }
+            startActivity(Intent().setClassName(packageName, "$packageName.FeedActivity")
+                .putExtra("autoplay", autoplay)
+                .putExtra("local_replay", intent.getBooleanExtra("ray_guardian_local_replay", false)))
+        }
     }
 
     private fun sectionHeading(number: String, title: String, description: String) {

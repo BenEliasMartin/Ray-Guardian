@@ -31,7 +31,9 @@ enum Keychain {
     @Published var keywords: KeywordMode = .phone
     @Published var audio: AudioMode = .phone
     @Published var consent = Consent()
-    @Published var automaticSceneChecks = false
+    @Published var automaticSceneChecks = true
+    /// Keeps the camera on while armed so that up to three seconds before a trigger are available. Off by default.
+    @Published var preTriggerFrames = false
     @Published var phoneMotionTesting = false
     @Published var elevenLabsListening = false
     @Published var heartRateEnabled = false

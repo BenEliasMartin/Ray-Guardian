@@ -37,32 +37,6 @@ public enum KeywordDetector {
         return nil
     }
 }
-public struct MotionPoint: Sendable {
-    public let time: Double, x: Double, y: Double, z: Double
-    public init(time: Double, x: Double, y: Double, z: Double) { self.time = time; self.x = x; self.y = y; self.z = z }
-    public var g: Double { sqrt(x*x+y*y+z*z)/9.80665 }
-    /// Core Motion includes gravity and reports g; DAT reports m/s².
-    public static func phoneAcceleration(time: Double, x: Double, y: Double, z: Double) -> MotionPoint {
-        MotionPoint(time:time,x:x*9.80665,y:y*9.80665,z:z*9.80665)
-    }
-}
-/// Candidate detector, not a medical fall classifier. Requires free-fall followed by impact.
-public struct FallCandidateDetector: Sendable {
-    private var lowAt: Double?, lastTime: Double?, lastTrigger: Double?
-    public init() {}
-    public mutating func consume(_ p: MotionPoint) -> Bool {
-        guard p.time.isFinite, p.g.isFinite else { return false }
-        if let lastTime, p.time <= lastTime { return false }
-        if let lastTime, p.time-lastTime > 1 { lowAt = nil }
-        lastTime = p.time
-        if let lastTrigger, p.time-lastTrigger < 60 { return false }
-        if p.g < 0.55 { if lowAt == nil { lowAt = p.time }; return false }
-        guard let start = lowAt else { return false }
-        if p.time-start > 1.5 { lowAt = nil; return false }
-        if p.g >= 2.4, p.time-start >= 0.04 { lowAt = nil; lastTrigger = p.time; return true }
-        return false
-    }
-}
 public struct LoudnessDetector: Sendable {
     private var loudSince: Double?
     public init() {}

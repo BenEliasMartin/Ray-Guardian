@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		30AB1463EE055A762D9F90A4 /* MWDATInputs in Frameworks */ = {isa = PBXBuildFile; productRef = 30AB1463EE055A762D9F90A3 /* MWDATInputs */; };
+		30AB1463EE055A762D9F90A2 /* MWDATDisplay in Frameworks */ = {isa = PBXBuildFile; productRef = 30AB1463EE055A762D9F90A1 /* MWDATDisplay */; };
 		06866B9FC75A465DAD21395B /* IncidentLocation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00EBC70A765FEBC77AEB530B /* IncidentLocation.swift */; };
 		0EFDE40216BBE27587E5884D /* Configuration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46B9B6DAB6A9CAC341F77FD4 /* Configuration.swift */; };
 		1BC1CEECBE8ACCD57E266F4B /* RayGuardianUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71DB5A6D5B8ECB74FE6126A8 /* RayGuardianUITests.swift */; };
@@ -72,6 +74,8 @@
 				C0F253393B04E57DDD88B185 /* MWDATCore in Frameworks */,
 				6CEA0CDF2F5C7563A7395351 /* MWDATCamera in Frameworks */,
 				38520740661C303B6C427F0D /* MWDATMotion in Frameworks */,
+				30AB1463EE055A762D9F90A4 /* MWDATInputs in Frameworks */,
+				30AB1463EE055A762D9F90A2 /* MWDATDisplay in Frameworks */,
 				DA9A3D6C42A1759CF343ADFD /* MWDATSpeech in Frameworks */,
 				512C2BDF2E55E6580C73F8B2 /* MWDATMockDevice in Frameworks */,
 			);
@@ -210,6 +214,8 @@
 				2F01618883A2EDA43A1B1AA5 /* MWDATCore */,
 				FCC5CC594AEAF72559DCEAB5 /* MWDATCamera */,
 				039B17C87BA077347BA649EC /* MWDATMotion */,
+				30AB1463EE055A762D9F90A3 /* MWDATInputs */,
+				30AB1463EE055A762D9F90A1 /* MWDATDisplay */,
 				4EAE40580AF6D31927A8813B /* MWDATSpeech */,
 				5EA2CBE8FAD1D0893BBF6302 /* MWDATMockDevice */,
 			);
@@ -589,6 +595,16 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		30AB1463EE055A762D9F90A3 /* MWDATInputs */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 2468E9D0A48356EFA434DC2D /* XCRemoteSwiftPackageReference "meta-wearables-dat-ios" */;
+			productName = MWDATInputs;
+		};
+		30AB1463EE055A762D9F90A1 /* MWDATDisplay */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 2468E9D0A48356EFA434DC2D /* XCRemoteSwiftPackageReference "meta-wearables-dat-ios" */;
+			productName = MWDATDisplay;
+		};
 		039B17C87BA077347BA649EC /* MWDATMotion */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 2468E9D0A48356EFA434DC2D /* XCRemoteSwiftPackageReference "meta-wearables-dat-ios" */;

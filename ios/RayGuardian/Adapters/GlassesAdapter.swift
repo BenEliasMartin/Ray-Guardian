@@ -4,6 +4,8 @@ import UIKit
 import AVFoundation
 import MWDATCore
 import MWDATCamera
+import MWDATDisplay
+import MWDATInputs
 import MWDATMotion
 import MWDATSpeech
 import GuardianCore
@@ -12,10 +14,13 @@ import MWDATMockDevice
 #endif
 
 @MainActor final class GlassesAdapter: ObservableObject {
+    /// Several frames per second let keyframe selection skip blurred frames around a fall.
+    static let captureFrameRate: UInt = 7
     @Published var status = "Disconnected"
     @Published var motionStatus = "Off"
     @Published var speechStatus = "Off"
     @Published var cameraStatus = "Off"
+    @Published private(set) var displayStatus = "Off"
     var configurationError: String?
     private func requireConfiguration() throws { if let configurationError { throw DeviceError.message(configurationError) } }
     var onFrame: ((UIImage) -> Void)?
@@ -23,11 +28,16 @@ import MWDATMockDevice
     var onTranscript: ((String, Bool, Float) -> Void)?
     var onMotion: ((MotionPoint) -> Void)?
     var onUnavailable: ((String) -> Void)?
+    var onDisplayCancel: ((String) -> Void)?
     private var session: DeviceSession?, camera: Camera?, motion: Motion?, speech: Speech?
     private var imageDecoder: StreamImageDecoder?
     private let standbyTokens = ListenerTokenBag(), cameraTokens = ListenerTokenBag()
     private var motionSamplesReceived = 0
     private var motionTask: Task<Void,Never>?
+    private var display: Display?
+    private var displayTask: Task<Void,Never>?
+    private var inputTask: Task<Void,Never>?
+    private var displayedIncident: String?
     private var generation = UUID()
     private var cameraGeneration = UUID()
     private var selector: AutoDeviceSelector?
@@ -116,7 +126,11 @@ import MWDATMockDevice
                         guard !Task.isCancelled, let self, self.generation == token else { break }
                         self.motionSamplesReceived += 1
                         if self.motionSamplesReceived == 1 || self.motionSamplesReceived % 30 == 0 { self.motionStatus = "Receiving \(String(describing:sample.source)) samples (\(self.motionSamplesReceived))" }
-                        if sample.source == .glasses, let a = sample.accelerometer { self.onMotion?(MotionPoint(time: Double(sample.timestampNs)/1e9, x: Double(a.x), y: Double(a.y), z: Double(a.z))) }
+                        if sample.source == .glasses, let a = sample.accelerometer {
+                            let r = sample.gyroscope
+                            self.onMotion?(MotionPoint(time: Double(sample.timestampNs)/1e9, x: Double(a.x), y: Double(a.y), z: Double(a.z),
+                                                       rotationX: r.map { Double($0.x) }, rotationY: r.map { Double($0.y) }, rotationZ: r.map { Double($0.z) }))
+                        }
                     }
                 }
                 attached.start()
@@ -142,7 +156,7 @@ import MWDATMockDevice
         guard try await Wearables.shared.checkPermissionStatus(.camera) == .granted else { throw DeviceError.message("Glasses camera permission required.") }
         if includeGlassesAudio, try await Wearables.shared.checkPermissionStatus(.microphone) != .granted { throw DeviceError.message("Glasses microphone permission required.") }
         guard token == cameraGeneration, self.session === session, session.state == .started, !Task.isCancelled else { throw CancellationError() }
-        let config = StreamConfiguration(videoCodec: .hvc1, audioCodec: includeGlassesAudio ? .pcm(sampleRate: .rate16000, numberOfChannels: 1) : nil, resolution: .low, frameRate: 7)
+        let config = StreamConfiguration(videoCodec: .hvc1, audioCodec: includeGlassesAudio ? .pcm(sampleRate: .rate16000, numberOfChannels: 1) : nil, resolution: .low, frameRate: Self.captureFrameRate)
         guard let attached = try session.addCamera(config: config) else { throw DeviceError.message("Camera unavailable.") }
         camera = attached
         let decoder = StreamImageDecoder(); imageDecoder = decoder
@@ -160,7 +174,87 @@ import MWDATMockDevice
         attached.stream.start(); cameraStatus = "Starting bounded stream"
     }
     func stopCapture() { cameraGeneration = UUID(); cameraTokens.clear(); camera?.stop(); camera = nil; imageDecoder?.close(); imageDecoder = nil; cameraStatus = "Off" }
-    func stop() { generation = UUID(); stopCapture(); standbyTokens.clear(); motionTask?.cancel(); motionTask = nil; speech?.stop(); motion?.stop(); session?.stop(); speech = nil; motion = nil; session = nil; selector = nil; motionStatus = "Off"; speechStatus = "Off"; status = "Stopped" }
+    func showCheckIn(id: String, deadline: Date) {
+        guard displayedIncident != id, let session, session.state == .started,
+              session.device?.deviceType() == .metaRayBanDisplay else { return }
+        displayedIncident = id
+        displayTask?.cancel()
+        displayTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let display = try self.display ?? session.addDisplay()
+                self.display = display
+                if display.state == .stopped { display.start() }
+                while display.state != .started && Date() < deadline {
+                    try await Task.sleep(for: .milliseconds(100))
+                }
+                try Task.checkCancellation()
+                guard Date() < deadline, self.displayedIncident == id else { return }
+                let content = FlexBox(direction: .column, spacing: 12) {
+                    MWDATDisplay.Text("Are you okay?", style: .heading)
+                    MWDATDisplay.Button(label: "I’m okay", onClick: { [weak self] in
+                        Task { @MainActor in
+                            guard let self, self.displayedIncident == id, Date() < deadline else { return }
+                            self.onDisplayCancel?(id)
+                        }
+                    }).actionRole(.primary)
+                }.padding(24).background(.card)
+                try await display.send(content)
+                guard !Task.isCancelled, self.displayedIncident == id else { return }
+                self.displayStatus = "Check-in on glasses"
+                if let inputs = try session.addInputs(configuration: InputsConfiguration(sources: [.neuralBand], consumeBack: false)) {
+                    self.inputTask = Task { [weak self] in
+                        for await event in inputs.events {
+                            guard !Task.isCancelled, let self, self.displayedIncident == id, Date() < deadline else { break }
+                            if case .select(source: .neuralBand, timestampMs: _) = event {
+                                self.onDisplayCancel?(id)
+                            }
+                        }
+                    }
+                }
+            } catch {
+                guard !Task.isCancelled, self.displayedIncident == id else { return }
+                self.displayStatus = "Glasses check-in or gesture unavailable: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    func clearCheckIn() {
+        guard displayedIncident != nil else { return }
+        displayedIncident = nil
+        displayTask?.cancel()
+        inputTask?.cancel()
+        inputTask = nil
+        if let session { try? session.removeInputs() }
+        displayTask = Task { [display] in
+            guard !Task.isCancelled, let display, display.state == .started else { return }
+            try? await display.clearDisplay()
+        }
+        displayStatus = "Off"
+    }
+
+    func stop() {
+        generation = UUID()
+        clearCheckIn()
+        displayTask?.cancel()
+        displayTask = nil
+        display?.stop()
+        display = nil
+        stopCapture()
+        standbyTokens.clear()
+        motionTask?.cancel()
+        motionTask = nil
+        speech?.stop()
+        motion?.stop()
+        session?.stop()
+        speech = nil
+        motion = nil
+        session = nil
+        selector = nil
+        motionStatus = "Off"
+        speechStatus = "Off"
+        status = "Stopped"
+    }
     func setVoiceSuppressed(_ value: Bool) { if value { speech?.stop() } else { speech?.start() } }
     func injectSpeech(_ text: String) {
         #if DEBUG
@@ -169,8 +263,16 @@ import MWDATMockDevice
     }
     func replayMotion() {
         #if DEBUG
-        let points: [(Int64,Float)] = [(0,9.8),(100_000_000,9.8),(200_000_000,0),(300_000_000,0),(450_000_000,30),(550_000_000,9.8),(900_000_000,9.8)]
-        let samples = points.map { MWDATMockDevice.MotionSample(timestampNs: $0.0, accelerometer: MWDATMockDevice.Vector3(x: 0,y: 0,z: $0.1),source: .glasses) }
+        // Upright, a short free fall, an impact with a fast head rotation, then lying still on the side.
+        var samples: [MWDATMockDevice.MotionSample] = []
+        func add(_ ms: Int, _ ax: Float, _ az: Float, spin: Float = 0) {
+            samples.append(MWDATMockDevice.MotionSample(timestampNs: Int64(ms)*1_000_000, accelerometer: MWDATMockDevice.Vector3(x: ax,y: 0,z: az),
+                                                        gyroscope: MWDATMockDevice.Vector3(x: 0,y: spin,z: 0),source: .glasses))
+        }
+        for ms in stride(from: 0, to: 1_000, by: 33) { add(ms, 0, 9.8) }
+        for ms in stride(from: 1_000, to: 1_300, by: 33) { add(ms, 0.6, 1.5, spin: 4) }
+        add(1_330, 22, 18, spin: 7); add(1_363, 14, 6, spin: 3)
+        for ms in stride(from: 1_396, to: 6_000, by: 33) { add(ms, 9.8, 0.2) }
         let token = generation
         Task { [weak self] in
             guard let self, let motion = self.motion, let mock = self.mock else { return }

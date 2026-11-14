@@ -22,7 +22,7 @@ public struct Incident: Codable, Equatable, Identifiable, Sendable {
         switch trigger {
         case "keyword_distress": return "Speech recognized a request for help or a report of danger"
         case "spoken_threat": return "Speech matched a possible threat"
-        case "motion_phone": return "Test iPhone detected free-fall followed by impact; wearer fall unconfirmed"
+        case "motion_phone": return "Test iPhone motion matched a fall pattern; wearer fall unconfirmed"
         default: return detectedBy == "nemotron" ? "Evidence assessed by Nemotron" : "Wearer initiated SOS; awaiting optional Nemotron evidence"
         }
     }
@@ -49,8 +49,9 @@ public struct AudioPayload: Encodable, Sendable {
 }
 public struct ObservationPayload: Encodable, Sendable {
     public let windowId: String, frames: [FramePayload], audio: AudioPayload?, transcript: String?, source: CaptureSource
-    public init(windowId: String, frames: [FramePayload], audio: AudioPayload?, transcript: String?, source: CaptureSource) {
-        self.windowId = windowId; self.frames = frames; self.audio = audio; self.transcript = transcript; self.source = source
+    public let motion: MotionSummary?
+    public init(windowId: String, frames: [FramePayload], audio: AudioPayload?, transcript: String?, source: CaptureSource, motion: MotionSummary? = nil) {
+        self.windowId = windowId; self.frames = frames; self.audio = audio; self.transcript = transcript; self.source = source; self.motion = motion
     }
 }
 public struct ReplayClip: Codable, Identifiable, Sendable {

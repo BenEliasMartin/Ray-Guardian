@@ -1,13 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { ApiError } from './nemotron.mjs';
 import { shouldCheckIn } from './detection.mjs';
-import { decodeBase64,inspectWAV,validateObservation,clearObservation } from './media.mjs';
+import { decodeBase64,inspectWAV,validateObservation,clearObservation,MAX_AUDIO_BYTES } from './media.mjs';
 import { VOICE_PROMPTS } from './elevenlabs.mjs';
 
 const MINUTE=60_000,SESSION_MS=30*MINUTE,RECORD_TTL=24*60*MINUTE;
 const SCENE_LIMIT=30, EVENT_LIMIT=12;
+const INCIDENT_LIMIT=30, DEMO_CALL_LIMIT=3;
 const SCENE_INTERVAL=20_000, EVENT_INTERVAL=10_000;
-const SIGNALS=['manual_sos','keyword_sos','keyword_distress','spoken_threat','motion','heart_rate','loud_voice','scene_check'];
+const SIGNALS=['manual_sos','keyword_sos','keyword_distress','spoken_threat','motion','motion_phone','heart_rate','loud_voice','scene_check'];
 const TERMINAL=new Set(['cancelled','acknowledged','closed']);
 const CONSENTS=['capture','cloud','audio','voice','demoCalls','location','backgroundEscalation'];
 const fail=(status,code,message)=>{throw new ApiError(status,code,message);};
@@ -16,7 +17,7 @@ export class GuardianService {
   constructor({store,detect,voice,calls,now=Date.now,checkInMs=15000,providerStatus={},mediaLibrary=null}) {
     this.store=store;this.detect=detect;this.voice=voice;this.calls=calls;this.now=now;this.checkInMs=checkInMs;
     this.providerStatus=providerStatus;this.mediaLibrary=mediaLibrary;
-    this.processing=new Map();this.callTasks=new Map();this.audioCache=new Map();this.audioPending=new Map();this.closed=false;
+    this.processing=new Map();this.speechProcessing=new Set();this.callTasks=new Map();this.audioCache=new Map();this.audioPending=new Map();this.closed=false;
     // A process restart after an ambiguous POST must NEVER automatically redial.
     for(const job of store.list('call_job'))if(job.state==='sending'){
       const incident=store.get('incident',job.id,job.owner);
@@ -43,8 +44,10 @@ export class GuardianService {
     const source=['meta_mock','meta_glasses','phone','file_replay'].includes(body.source)?body.source:'meta_mock';
     const enabledSignals=body.enabledSignals??['manual_sos','keyword_sos','keyword_distress','spoken_threat','motion','heart_rate'];
     if(!Array.isArray(enabledSignals)||enabledSignals.some(s=>!SIGNALS.includes(s)))fail(400,'invalid_signals','Unknown trigger source.');
-    const allowedSignals=enabledSignals.filter(signal=>signal!=='scene_check');
+    const allowedSignals=enabledSignals.filter(signal=>signal!=='scene_check'&&signal!=='motion_phone');
     if(body.automaticSceneChecks===true&&consent.capture&&consent.cloud)allowedSignals.push('scene_check');
+    // A test iPhone standing in for the glasses IMU is only accepted for explicit mock sessions.
+    if(body.phoneMotionTesting===true&&source==='meta_mock')allowedSignals.push('motion_phone');
     return this.saveSession({id:randomUUID(),owner,mode:'demo',source,consent,enabledSignals:[...new Set(allowedSignals)],
       armed:false,armedUntil:null,createdAt:this.now(),expiresAt:this.now()+RECORD_TTL,heartbeatAt:this.now(),
       windows:[],activeWindow:null,lastAutomaticAt:null,incidentId:null});
@@ -62,7 +65,7 @@ export class GuardianService {
     return this.requireSession(owner,id);
   }
   requireArmed(s){if(!s.armed||this.now()>=s.armedUntil||this.now()-s.heartbeatAt>30_000)fail(409,'not_armed','Session is disarmed, expired, or has lost its foreground heartbeat.');}
-  trigger(owner,id,body={}){
+  trigger(owner,id,body={},detection=null){
     let s=this.requireSession(owner,id);this.requireArmed(s);
     if(!SIGNALS.includes(body.signal))fail(400,'invalid_signal','Unknown trigger.');
     const intentional=['manual_sos','keyword_sos'].includes(body.signal);
@@ -73,7 +76,7 @@ export class GuardianService {
     if(intentional&&!incident){incident=this.newIncident(s,null,body.signal,true);s=this.requireSession(owner,id);}
     if(intentional&&incident?.state==='check_in')incident=this.queueCall({...incident,checkInDeadline:null});
     if(['spoken_threat','keyword_distress'].includes(body.signal)&&!incident){
-      incident=this.newIncident(s,null,body.signal,false);
+      incident=this.newIncident(s,detection,body.signal,false);
       s=this.requireSession(owner,id);
     }
     const active=s.activeWindow;
@@ -101,16 +104,30 @@ export class GuardianService {
     const session=this.requireSession(owner,id);
     this.requireArmed(session);
     if(!session.consent.speechMonitoring)fail(403,'speech_consent_required','Enable ElevenLabs listening while armed.');
-    const audio=decodeBase64(body?.base64,128044);
+    if(this.speechProcessing.has(owner))fail(429,'speech_busy','A speech clip is already being assessed.');
+    const audio=decodeBase64(body?.base64,MAX_AUDIO_BYTES);
+    this.speechProcessing.add(owner);
     try{
-      if(inspectWAV(audio).durationMs>4000)fail(400,'speech_window_too_long','Speech monitoring accepts clips of up to four seconds.');
+      inspectWAV(audio);
       const recent=this.recentBudget(owner,'speech_monitoring');
-      if(recent.length>=120||recent.at(-1)>this.now()-2500)fail(429,'speech_budget','Speech monitoring is temporarily rate limited.');
+      if(recent.length>=120)fail(429,'speech_budget','Speech monitoring is temporarily rate limited.');
       this.reserveBudget(owner,'speech_monitoring');
       const result=await this.voice.transcribe(audio,signal);
+      if(signal?.aborted)fail(499,'request_cancelled','Speech assessment cancelled.');
+      const current=this.requireSession(owner,id);
+      this.requireArmed(current);
+      const existing=current.incidentId?this.store.get('incident',current.incidentId,owner):null;
+      if(!result.text.trim()||(existing&&!TERMINAL.has(existing.state)))return {text:result.text};
+      const detection=await this.detect({frames:[],transcript:result.text,trigger:'speech_monitoring',source:current.source},signal);
+      if(signal?.aborted)fail(499,'request_cancelled','Speech assessment cancelled.');
       this.requireArmed(this.requireSession(owner,id));
-      return {text:result.text};
-    }finally{audio.fill(0);}
+      const threat=detection.label==='immediate_danger';
+      if(detection.wearerInvolved!==true||(!threat&&detection.label!=='distress_request')||!shouldCheckIn(detection)){
+        return {text:result.text,detection};
+      }
+      const trigger=this.trigger(owner,id,{signal:threat?'spoken_threat':'keyword_distress'},detection);
+      return {text:result.text,detection,trigger};
+    }finally{audio.fill(0);this.speechProcessing.delete(owner);}
   }
   async observe(owner,id,body,disconnectSignal){
     let s=this.requireSession(owner,id);this.requireArmed(s);
@@ -135,14 +152,14 @@ export class GuardianService {
         let audioSource=null;
         if(observation.audio){const recognized=await this.voice.transcribe(observation.audio.bytes,controller.signal);transcript=recognized.text;audioSource=recognized.source;}
         if(controller.signal.aborted)fail(499,'request_cancelled','Observation cancelled.');
-        const detection=await this.detect({frames:observation.frames,transcript,trigger:window.signal,source:observation.source},controller.signal);
+        const detection=await this.detect({frames:observation.frames,transcript,trigger:window.signal,source:observation.source,motion:observation.motion??null},controller.signal);
         if(controller.signal.aborted)fail(499,'request_cancelled','Observation cancelled.');
         s=this.requireSession(owner,id);
         if(!s.armed||s.activeWindow?.id!==window.id||!s.consent.cloud)fail(409,'window_cancelled','The session changed during analysis.');
         let incident=s.incidentId?this.store.get('incident',s.incidentId,owner):null;
         if(incident&&TERMINAL.has(incident.state))incident=null;
         if(!incident&&shouldCheckIn(detection)){incident=this.newIncident(s,detection,window.signal,false);s=this.requireSession(owner,id);}
-        else if(incident){incident=this.saveIncident({...incident,detection,detectedBy:detection.source});}
+        else if(incident&&detection.source!=='nemotron_unavailable'){incident=this.saveIncident({...incident,detection,detectedBy:detection.source});}
         const result={detection,incident,audioTranscriptionSource:audioSource,framesAnalyzed:observation.frames.length,
           audioDurationMs:observation.audio?.durationMs??0,rawMediaRetained:false};
         s=this.requireSession(owner,id);
@@ -159,7 +176,7 @@ export class GuardianService {
     }finally{clearObservation(observation);}
   }
   newIncident(session,detection,trigger,intentional){
-    if(this.recentBudget(session.owner,'incident').length>=3)fail(429,'incident_budget','Three demonstration incidents per ten minutes are allowed.');
+    if(this.recentBudget(session.owner,'incident').length>=INCIDENT_LIMIT)fail(429,'incident_budget','Thirty demonstration incidents per ten minutes are allowed.');
     this.reserveBudget(session.owner,'incident');
     const incident=this.saveIncident({id:randomUUID(),owner:session.owner,sessionId:session.id,mode:'demo',state:'check_in',
       trigger,detection,detectedBy:detection?.source??null,createdAt:this.now(),updatedAt:this.now(),expiresAt:this.now()+RECORD_TTL,
@@ -171,8 +188,15 @@ export class GuardianService {
   queueCall(incident){
     if(TERMINAL.has(incident.state))return incident;
     if(!incident.demoCallConsent||!incident.voiceConsent)return this.saveIncident({...incident,state:'needs_demo_call_consent',checkInDeadline:null});
+    // Review and cancellation should not exhaust the dial allowance. Reserve only
+    // when a distinct incident is actually submitted for demo call processing.
+    if(this.store.get('call_job',incident.id,incident.owner))return incident;
+    if(this.recentBudget(incident.owner,'demo_call').length>=DEMO_CALL_LIMIT){
+      return this.saveIncident({...incident,state:'demo_call_limited',checkInDeadline:null,escalationToken:null});
+    }
+    this.reserveBudget(incident.owner,'demo_call');
     const queued=this.saveIncident({...incident,state:'call_queued',checkInDeadline:null,call:{transport:this.calls.transport,status:'queued',providerCallId:null}});
-    if(!this.store.get('call_job',incident.id,incident.owner))this.store.put('call_job',{
+    this.store.put('call_job',{
       id:incident.id,owner:incident.owner,state:'ready',createdAt:this.now(),expiresAt:incident.expiresAt,
     },{owner:incident.owner,expires:incident.expiresAt,expectedRevision:0});
     return queued;
