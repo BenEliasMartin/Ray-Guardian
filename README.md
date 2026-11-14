@@ -53,6 +53,8 @@ For real glasses, select **Real glasses**, register through Meta AI, grant the p
 
 The optional Bluetooth heart-rate setup connects to standard Heart Rate Service sensors. Three fresh elevated measurements spanning at least eight seconds can request an assessment; exercise and high heart rate alone never establish an incident. The threshold is configurable.
 
+For hands-free visual assessment, enable **Automatically check the scene while armed** along with camera capture and cloud sharing. The iPhone requests its first check after a successful heartbeat and can request another after 65 seconds. Scene checks share the three-captures-per-ten-minutes budget with other signals. Nemotron can assess visible physical struggle and immediate threats to the wearer. Immediate danger requires high confidence and concrete observations before the server opens a check-in. Events between captures can be missed.
+
 ## Prepare real replay media
 
 Media stays local and is ignored by git. The committed index contains provenance and hashes only.

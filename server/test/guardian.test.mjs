@@ -41,6 +41,22 @@ test('normal activity and uncertain low confidence do not auto-escalate',async t
   const {g,s,observation}=fixture(t,{detect:async()=>ordinary});const tr=g.trigger('owner',s.id,{signal:'motion'});assert.equal((await g.observe('owner',s.id,observation(tr.window))).incident,null);
   assert.equal(shouldCheckIn({...fall,confidence:'low'}),false);assert.equal(shouldCheckIn({...fall,wearerInvolved:false}),false);assert.equal(shouldCheckIn({...fall,label:'uncertain'}),false);assert.throws(()=>parseDetection('{"label":"fall"}'));
 });
+test('opted-in scene checks replace expired empty windows and assess visible threats',async t=>{
+  const danger={...fall,label:'immediate_danger',confidence:'high',observations:['A weapon is pointed toward the wearer.']};
+  const {g,s,advance,observation}=fixture(t,{detect:async()=>danger});
+  assert.equal(g.trigger('owner',s.id,{signal:'scene_check'}).reason,'source_disabled');
+  const optedIn=g.createSession('owner',{consent:{capture:true,cloud:true},automaticSceneChecks:true});
+  g.arm('owner',optedIn.id);
+  const empty=g.trigger('owner',optedIn.id,{signal:'scene_check'}).window;
+  assert.ok(empty);
+  advance(65_000);
+  g.heartbeat('owner',optedIn.id);
+  const next=g.trigger('owner',optedIn.id,{signal:'scene_check'}).window;
+  assert.notEqual(next.id,empty.id);
+  assert.equal((await g.observe('owner',optedIn.id,observation(next))).incident.state,'check_in');
+  assert.equal(shouldCheckIn({...danger,wearerInvolved:null}),false);
+  assert.equal(shouldCheckIn({...danger,confidence:'medium'}),false);
+});
 test('loudness alone rejected, consent and capture budgets enforced',async t=>{
   const {g,s,advance,observation}=fixture(t);assert.equal(g.trigger('owner',s.id,{signal:'loud_voice'}).accepted,false);
   for(let n=0;n<3;n++){g.heartbeat('owner',s.id);const tr=g.trigger('owner',s.id,{signal:'motion'});assert.ok(tr.window);await g.observe('owner',s.id,observation(tr.window));await g.cancel('owner',g.requireSession('owner',s.id).incidentId);advance(61000);}

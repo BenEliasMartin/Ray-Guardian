@@ -30,6 +30,7 @@ enum Keychain {
     @Published var keywords: KeywordMode = .glasses
     @Published var audio: AudioMode = .replay
     @Published var consent = Consent()
+    @Published var automaticSceneChecks = false
     @Published var heartRateEnabled = false
     @Published var heartRateThreshold = 160
     init() {

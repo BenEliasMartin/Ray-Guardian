@@ -96,6 +96,9 @@ struct SettingsView: View {
             Section("Per-session privacy choices · off by default") {
                 Toggle("Allow triggered camera capture",isOn: $settings.consent.capture)
                 Toggle("Allow bounded evidence sent to cloud AI",isOn: $settings.consent.cloud)
+                Toggle("Automatically check the scene while armed",isOn: $settings.automaticSceneChecks)
+                    .disabled(!settings.consent.capture || !settings.consent.cloud)
+                Text("Scene checks take short camera samples without a voice or fall cue. The shared capture limit leaves gaps between checks.").font(.caption)
                 Toggle("Include audio in cloud transcription",isOn: $settings.consent.audio)
                 Toggle("Play real ElevenLabs voice",isOn: $settings.consent.voice)
                 Toggle("Allow demo escalation / test calls",isOn: $settings.consent.demoCalls)

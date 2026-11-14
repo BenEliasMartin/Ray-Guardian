@@ -69,10 +69,12 @@ import GuardianCore
             try checkOperation(token)
             try await glasses.startStandby(useSpeech: settings.keywords == .glasses); try checkOperation(token)
             if settings.keywords == .phone { try await phone.start(localASR: true); try checkOperation(token) }
-            let created: GuardianSession = try await client.post("v1/sessions",body: CreateSession(consent: settings.consent,source: settings.input == .mock ? .meta_mock : .meta_glasses)); try checkOperation(token)
+            let sceneChecks = settings.automaticSceneChecks && settings.consent.capture && settings.consent.cloud
+            let created: GuardianSession = try await client.post("v1/sessions",body: CreateSession(consent: settings.consent,source: settings.input == .mock ? .meta_mock : .meta_glasses,automaticSceneChecks: sceneChecks)); try checkOperation(token)
             let active: GuardianSession = try await client.post("v1/sessions/\(created.id)/arm"); try checkOperation(token)
             session = active; incident = nil; detection = nil; lastEvidence = ""; spoken.removeAll(); fall = FallCandidateDetector(); gate.arm(consent: settings.consent,now: monotonic); armed = true; status = "Armed · camera off · expires in 15 minutes"
             heartbeatTask?.cancel(); heartbeatTask = Task { [weak self] in
+                var nextSceneCheck = ProcessInfo.processInfo.systemUptime
                 while !Task.isCancelled {
                     try? await Task.sleep(for: .seconds(5)); guard let self,!Task.isCancelled,self.operation == token,self.armed else { return }
                     do {
@@ -80,6 +82,11 @@ import GuardianCore
                         self.session = refreshed
                         if !refreshed.armed || (refreshed.armedUntil ?? 0) <= Date().timeIntervalSince1970*1000 { self.stop(); return }
                         await self.refreshIncident()
+                        if sceneChecks, self.operation == token, self.isForeground, !self.capturing, !self.processing,
+                           self.incident?.terminal != false, self.monotonic >= nextSceneCheck {
+                            nextSceneCheck = self.monotonic + 65
+                            self.sendTrigger(.scene_check)
+                        }
                     } catch { guard self.operation == token else { return }; self.error = "Backend heartbeat lost: \(error.localizedDescription)"; self.stop(); return }
                 }
             }
