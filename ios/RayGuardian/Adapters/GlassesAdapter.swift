@@ -16,6 +16,8 @@ import MWDATMockDevice
     @Published var motionStatus = "Off"
     @Published var speechStatus = "Off"
     @Published var cameraStatus = "Off"
+    var configurationError: String?
+    private func requireConfiguration() throws { if let configurationError { throw DeviceError.message(configurationError) } }
     var onFrame: ((UIImage) -> Void)?
     var onPCM: (([Int16],Double) -> Void)?
     var onTranscript: ((String, Bool, Float) -> Void)?
@@ -31,12 +33,14 @@ import MWDATMockDevice
     private var mock: (any MockGlasses)?
     #endif
 
-    func register() async throws { try await Wearables.shared.startRegistration() }
+    func register() async throws { try requireConfiguration(); try await Wearables.shared.startRegistration() }
     func requestPermissions() async throws {
+        try requireConfiguration()
         guard try await Wearables.shared.requestPermission(.camera) == .granted else { throw DeviceError.message("Glasses camera permission denied.") }
         guard try await Wearables.shared.requestPermission(.microphone) == .granted else { throw DeviceError.message("Glasses microphone permission denied.") }
     }
     func prepareMock(video: URL, motionCSV: URL? = nil) async throws {
+        try requireConfiguration()
         stop()
         #if DEBUG
         if let mock { await MockDeviceKit.shared.unpairDevice(mock) }
@@ -52,6 +56,7 @@ import MWDATMockDevice
         #endif
     }
     func useReal() async {
+        guard configurationError == nil else { return }
         stop()
         #if DEBUG
         if let mock { await MockDeviceKit.shared.unpairDevice(mock); self.mock = nil }
@@ -59,6 +64,7 @@ import MWDATMockDevice
         #endif
     }
     func startStandby(useSpeech: Bool) async throws {
+        try requireConfiguration()
         stop(); let token = generation
         let selector = AutoDeviceSelector(wearables: Wearables.shared); self.selector = selector
         let deadline = ProcessInfo.processInfo.systemUptime+15
@@ -114,6 +120,7 @@ import MWDATMockDevice
         }
     }
     func startCapture(includeGlassesAudio: Bool) async throws {
+        try requireConfiguration()
         stopCapture(); let token = cameraGeneration
         guard let session, session.state == .started else { throw DeviceError.message("No started glasses session.") }
         guard try await Wearables.shared.checkPermissionStatus(.camera) == .granted else { throw DeviceError.message("Glasses camera permission required.") }

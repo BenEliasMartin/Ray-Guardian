@@ -79,9 +79,19 @@ targets:
         UIBackgroundModes: [bluetooth-central, bluetooth-peripheral, external-accessory]
         UILaunchScreen: {}
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+    preBuildScripts:
+      - name: Prepare DAT registration configuration
+        path: Scripts/prepare-info.sh
+        inputFiles:
+          - $(SRCROOT)/RayGuardian/Info.plist
+          - $(SRCROOT)/Scripts/prepare-info.sh
+        outputFiles:
+          - $(DERIVED_FILE_DIR)/GuardianInfo.plist
+        basedOnDependencyAnalysis: false
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.rayguardian.companion
+        INFOPLIST_FILE: $(DERIVED_FILE_DIR)/GuardianInfo.plist
         GENERATE_INFOPLIST_FILE: NO
     dependencies:
       - package: GuardianCore

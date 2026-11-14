@@ -30,6 +30,8 @@ The checked-in [Xcode project](ios/RayGuardian.xcodeproj) includes a shared RayG
 6. Arm for 15 minutes. In **Replay lab**, inject ‘Guardian help me’ or replay the motion sequence. The SDK delivers those events to the same listeners as real glasses. The accepted indicator opens a maximum eight-second window. The monitoring screen reports the actual Nemotron result.
 7. A qualifying result starts a 15-second check-in. ‘Guardian cancel’ or **I'm okay** cancels it. If demo escalation is enabled, an unanswered check-in advances to the configured demo transport. **SOS** is a deliberate request and can escalate before visual assessment; it is labeled separately from Nemotron detection.
 
+With `META_APP_ID=0`, the build omits all three Meta attestation keys for Developer Mode. Registered apps require the Meta app ID, client token and Apple team together; partial configuration fails the build.
+
 For real glasses, select **Real glasses**, register through Meta AI, grant the permissions and enable the required capabilities in your Meta project. Camera audio and glasses speech are experimental capabilities; Meta currently limits their publishing availability. If local glasses ASR is unavailable, explicitly select **Phone local speech**, which requires on-device English recognition. There is no cloud standby recognition fallback. Phone microphone selection explicitly uses the built-in mic.
 
 The optional Bluetooth heart-rate setup connects to standard Heart Rate Service sensors. Three fresh elevated measurements spanning at least eight seconds can request an assessment; exercise and high heart rate alone never establish an incident. The threshold is configurable.

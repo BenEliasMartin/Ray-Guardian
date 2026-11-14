@@ -21,6 +21,7 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+      - run: python3 -m unittest discover -s scripts -p 'test_ios_config.py'
       - run: swift test --package-path ios/GuardianCore
       - run: swift run --package-path ios/GuardianCore GuardianCoreChecks
   ios-build:

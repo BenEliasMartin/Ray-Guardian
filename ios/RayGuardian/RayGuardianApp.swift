@@ -5,8 +5,8 @@ import MWDATCore
     @Environment(\.scenePhase) private var scenePhase
     init() {
         var setupError: String?
-        do { try Wearables.configure() } catch { setupError = error.localizedDescription }
-        let model = GuardianModel(); model.error = setupError
+        do { try Wearables.configure() } catch WearablesError.alreadyConfigured { } catch { setupError = "Wearables configuration: \(error.localizedDescription). Check Meta and Apple settings in Local.xcconfig." }
+        let model = GuardianModel(); model.error = setupError; model.glasses.configurationError = setupError
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("--guardian-ui-fixture") {
             model.settings.usesEphemeralUITestConfiguration = true
@@ -21,7 +21,7 @@ import MWDATCore
     var body: some Scene { WindowGroup {
         ContentView(model: model).onOpenURL { url in
             guard URLComponents(url: url,resolvingAgainstBaseURL: false)?.queryItems?.contains(where: { $0.name == "metaWearablesAction" }) == true else { return }
-            Task { do { _ = try await Wearables.shared.handleUrl(url) } catch { model.error = error.localizedDescription } }
+            Task { do { if let error = model.glasses.configurationError { throw DeviceError.message(error) }; _ = try await Wearables.shared.handleUrl(url) } catch { model.error = error.localizedDescription } }
         }.onChange(of: scenePhase) { _,phase in model.sceneChanged(active: phase == .active) }
     } }
 }

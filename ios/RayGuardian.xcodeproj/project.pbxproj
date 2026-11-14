@@ -189,6 +189,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 3E8C5BCFE1E2C52E4B0ED908 /* Build configuration list for PBXNativeTarget "RayGuardian" */;
 			buildPhases = (
+				4DF0947DEE0B6D3504B2ECEF /* Prepare DAT registration configuration */,
 				28507394542300D136100D2A /* Sources */,
 				275A592D2310F3BA0CD57009 /* Resources */,
 				BAE47486B01D7664D59B1583 /* Frameworks */,
@@ -266,6 +267,31 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		4DF0947DEE0B6D3504B2ECEF /* Prepare DAT registration configuration */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/RayGuardian/Info.plist",
+				"$(SRCROOT)/Scripts/prepare-info.sh",
+			);
+			name = "Prepare DAT registration configuration";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(DERIVED_FILE_DIR)/GuardianInfo.plist",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "#!/bin/sh\nset -eu\nsource_plist=\"${SRCROOT}/RayGuardian/Info.plist\"\noutput_plist=\"${DERIVED_FILE_DIR}/GuardianInfo.plist\"\ncp \"$source_plist\" \"$output_plist\"\n# DAT treats partially supplied attestation as a configuration failure. Developer Mode\n# uses no attestation dictionary keys, including when Xcode has an Apple signing team.\ncase \"${META_APP_ID:-0}\" in\n  ''|0)\n    /usr/libexec/PlistBuddy -c 'Delete :MWDAT:MetaAppID' \"$output_plist\"\n    /usr/libexec/PlistBuddy -c 'Delete :MWDAT:ClientToken' \"$output_plist\"\n    /usr/libexec/PlistBuddy -c 'Delete :MWDAT:TeamID' \"$output_plist\"\n    ;;\n  *)\n    if [ -z \"${META_CLIENT_TOKEN:-}\" ] || [ -z \"${DEVELOPMENT_TEAM:-}\" ]; then\n      echo 'error: Registered Meta apps need META_CLIENT_TOKEN and DEVELOPMENT_TEAM; use META_APP_ID=0 for Developer Mode.' >&2\n      exit 1\n    fi\n    ;;\nesac\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		28507394542300D136100D2A /* Sources */ = {
@@ -452,7 +478,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = RayGuardian/Info.plist;
+				INFOPLIST_FILE = "$(DERIVED_FILE_DIR)/GuardianInfo.plist";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -486,7 +512,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = RayGuardian/Info.plist;
+				INFOPLIST_FILE = "$(DERIVED_FILE_DIR)/GuardianInfo.plist";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
