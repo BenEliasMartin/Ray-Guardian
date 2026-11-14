@@ -14,7 +14,8 @@ struct IncidentAnimationView: View {
         VStack(spacing: 0) {
             HStack {
                 Text(presentation.kind == .patrol ? "SAFETY CHECK-IN" : "FALL / MEDICAL CHECK-IN")
-                    .font(.system(size:10,weight:.medium,design:.monospaced)).tracking(1.4)
+                    .font(.system(.caption2,design:.monospaced).weight(.medium)).tracking(1.1)
+                    .fixedSize(horizontal:false,vertical:true)
                 Spacer(minLength:0)
             }.foregroundStyle(presentation.kind == .patrol ? IncidentArtwork.cyan : IncidentArtwork.lime)
                 .padding(.horizontal,16).padding(.top,15)
@@ -30,10 +31,13 @@ struct IncidentAnimationView: View {
             if presentation.kind == .pulse {
                 Text("Illustrative pulse · not a heart-rate reading")
                     .font(.caption2).foregroundStyle(IncidentArtwork.lime.opacity(0.7))
+                    .fixedSize(horizontal:false,vertical:true)
+                    .padding(.horizontal,16)
                     .padding(.bottom,12)
             }
         }
         .background(presentation.kind == .patrol ? Color(red:0.06,green:0.11,blue:0.13) : Color(red:0.08,green:0.13,blue:0.10),in:RoundedRectangle(cornerRadius:22))
+        .clipShape(RoundedRectangle(cornerRadius:22))
         .accessibilityElement(children:.ignore)
         .accessibilityLabel(presentation.kind == .patrol ? "Safety check-in. Patrol car illustration." : "Fall or medical check-in. Illustrated pulse, not a measured heart rate.")
         .accessibilityIdentifier("guardian.animation.\(presentation.kind.rawValue)")

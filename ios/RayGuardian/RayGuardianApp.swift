@@ -35,7 +35,11 @@ import GuardianCore
         _model = StateObject(wrappedValue: model)
     }
     var body: some Scene { WindowGroup {
-        ContentView(model: model).onOpenURL { url in
+        ContentView(model: model)
+            #if DEBUG
+            .modifier(GuardianUITestTextSize())
+            #endif
+            .onOpenURL { url in
             guard URLComponents(url: url,resolvingAgainstBaseURL: false)?.queryItems?.contains(where: { $0.name == "metaWearablesAction" }) == true else { return }
             Task { do { if let error = model.glasses.configurationError { throw DeviceError.message(error) }; _ = try await Wearables.shared.handleUrl(url) } catch { model.error = error.localizedDescription } }
         }.task(id: scenePhase) {
@@ -52,3 +56,16 @@ import GuardianCore
         }
     } }
 }
+
+#if DEBUG
+private struct GuardianUITestTextSize: ViewModifier {
+    @ViewBuilder func body(content: Content) -> some View {
+        if ProcessInfo.processInfo.arguments.contains("--guardian-ui-fixture"),
+           ProcessInfo.processInfo.arguments.contains("--guardian-large-text") {
+            content.dynamicTypeSize(.accessibility5)
+        } else {
+            content
+        }
+    }
+}
+#endif

@@ -1,10 +1,11 @@
 import XCTest
 final class RayGuardianUITests: XCTestCase {
     override func setUpWithError() throws { continueAfterFailure = false }
-    private func launch(stopAfterFirstFrame: Bool = false) -> XCUIApplication {
+    private func launch(stopAfterFirstFrame: Bool = false, largeText: Bool = false) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--guardian-ui-fixture"]
         if stopAfterFirstFrame { app.launchArguments.append("--guardian-stop-after-first-frame") }
+        if largeText { app.launchArguments.append("--guardian-large-text") }
         app.launchEnvironment["GUARDIAN_UI_TEST_API"] =
             ProcessInfo.processInfo.environment["GUARDIAN_UI_TEST_API"] ?? "http://127.0.0.1:8787"
         app.launch()
@@ -23,7 +24,7 @@ final class RayGuardianUITests: XCTestCase {
     }
     private func armAndInject(_ app: XCUIApplication, event: String = "guardian.injectMotion") {
         let arm = app.buttons["guardian.arm"]
-        XCTAssertTrue(arm.waitForExistence(timeout:15)); arm.tap()
+        XCTAssertTrue(arm.waitForExistence(timeout:15)); tap("guardian.arm",in:app)
         if !app.staticTexts["Guardian is armed"].waitForExistence(timeout:25) {
             XCTFail("Arming failed: \(app.debugDescription)"); return
         }
@@ -41,6 +42,18 @@ final class RayGuardianUITests: XCTestCase {
         XCTAssertFalse(app.staticTexts["guardian.activeIncident"].exists)
         tap("guardian.stop",in:app)
         XCTAssertTrue(app.staticTexts["Your camera is off"].waitForExistence(timeout:5))
+    }
+    func testPatrolAnimationKeepsCancellationReachableAtLargestTextSize() {
+        let app = launch(largeText:true)
+        armAndInject(app,event:"guardian.injectThreat")
+        let artwork = app.descendants(matching:.any)["guardian.animation.patrol"]
+        XCTAssertTrue(artwork.waitForExistence(timeout:10))
+        let cancel = app.buttons["guardian.cancelAlert"]
+        XCTAssertTrue(cancel.waitForExistence(timeout:5))
+        XCTAssertTrue(cancel.isHittable,"Cancel must be visible before the artwork at accessibility sizes.")
+        cancel.tap()
+        XCTAssertTrue(app.staticTexts["Check-in cancelled"].waitForExistence(timeout:10))
+        XCTAssertFalse(artwork.exists)
     }
     func testStopClearsActualMockCapture() {
         let app = launch(stopAfterFirstFrame:true); armAndInject(app)

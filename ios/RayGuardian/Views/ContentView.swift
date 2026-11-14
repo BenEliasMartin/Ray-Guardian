@@ -146,6 +146,7 @@ struct MonitorView: View {
                     .frame(minHeight: space.size.height)
                     .frame(maxWidth: .infinity)
                 }
+                .id(model.incident?.id)
             }
             .background(GuardianPalette.background.ignoresSafeArea())
             .foregroundStyle(GuardianPalette.ink)
@@ -448,15 +449,20 @@ private extension Incident {
 struct IncidentView: View {
     @ObservedObject var model: GuardianModel
     let incident: Incident
+    @Environment(\.dynamicTypeSize) private var textSize
+
+    @ViewBuilder private var visual: some View {
+        if let animation = model.incidentAnimation, animation.incidentID == incident.id, !incident.terminal {
+            IncidentAnimationView(presentation:animation)
+                .id("\(animation.incidentID):\(animation.kind.rawValue)")
+        } else {
+            GuardianMark(symbol:"bell",attention:true)
+        }
+    }
 
     var body: some View {
         VStack(spacing: 18) {
-            if let animation = model.incidentAnimation, animation.incidentID == incident.id, !incident.terminal {
-                IncidentAnimationView(presentation:animation)
-                    .id("\(animation.incidentID):\(animation.kind.rawValue)")
-            } else {
-                GuardianMark(symbol: "bell", attention: true)
-            }
+            if !textSize.isAccessibilitySize { visual }
             Text(model.audibleAlertID == incident.id ? "Alert active" : incident.displayState)
                 .font(.system(.largeTitle, design: .serif).weight(.medium))
                 .accessibilityAddTraits(.isHeader)
@@ -476,6 +482,7 @@ struct IncidentView: View {
                     model.cancelIncident()
                 }
                 .buttonStyle(GuardianActionStyle())
+                .accessibilityIdentifier("guardian.cancelAlert")
                 if model.armed {
                     Text(model.handGesturesActive
                         ? (model.gestureFeedback == .holding ? "🤙 Detected. Keep holding." : "Or hold 🤙 in front of your glasses or say “Guardian cancel.”")
@@ -484,6 +491,7 @@ struct IncidentView: View {
                         .foregroundStyle(GuardianPalette.muted)
                 }
             }
+            if textSize.isAccessibilitySize { visual }
         }
         .multilineTextAlignment(.center)
         .frame(maxWidth: .infinity)
@@ -799,6 +807,7 @@ struct ReplayView: View {
                 Button("Simulate ‘I’m in danger’") { model.glasses.injectSpeech("I'm in danger") }.accessibilityIdentifier("guardian.injectDanger")
                 Button("Simulate ‘No, please don’t’") { model.glasses.injectSpeech("No, please don't") }.accessibilityIdentifier("guardian.injectRefusal")
                 Button("Simulate spoken threat") { model.glasses.injectSpeech("I’m going to kill you") }
+                    .accessibilityIdentifier("guardian.injectThreat")
                 Button("Inject ‘Guardian help me’") { model.glasses.injectSpeech("Guardian help me") }.accessibilityIdentifier("guardian.injectDistress")
                 Button("Replay free-fall and impact samples") { model.replayMotion() }.accessibilityIdentifier("guardian.injectMotion")
                 Button("Inject ‘Guardian cancel’") { model.glasses.injectSpeech("Guardian cancel") }.accessibilityIdentifier("guardian.injectCancel")

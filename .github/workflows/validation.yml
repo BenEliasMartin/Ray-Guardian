@@ -54,11 +54,6 @@ jobs:
           CONFIG
           xcodebuild -quiet -project ios/RayGuardian.xcodeproj -scheme RayGuardian -configuration Debug -sdk iphonesimulator -showBuildSettings -json > /tmp/guardian-build-settings.json
           python3 -c 'import json; a=next(x["buildSettings"] for x in json.load(open("/tmp/guardian-build-settings.json")) if x["target"]=="RayGuardian"); assert a["DEVELOPMENT_TEAM"]=="TESTTEAM00"; assert a["META_APP_ID"]=="12345"; assert a["GUARDIAN_CLIENT_TOKEN"]=="configuration-test-client-token-123456"; assert a["PRODUCT_BUNDLE_IDENTIFIER"]=="com.example.guardian.configurationtest"; print("Local Apple/Meta/client settings override defaults correctly")'
-      - name: Prepare one genuine wearer-POV fixture (media is not committed)
-        run: |
-          python3 -m venv /tmp/guardian-media
-          /tmp/guardian-media/bin/pip install -r validation/requirements.txt
-          /tmp/guardian-media/bin/python scripts/prepare_ios_ui_fixture.py
       - name: Build native companion with pinned DAT SDK
         run: >-
           xcodebuild -project ios/RayGuardian.xcodeproj -scheme RayGuardian
@@ -69,6 +64,17 @@ jobs:
           xcodebuild -project ios/RayGuardian.xcodeproj -scheme RayGuardian
           -configuration Release -sdk iphoneos -destination 'generic/platform=iOS'
           -derivedDataPath /tmp/guardian-ios-release CODE_SIGNING_ALLOWED=NO build
+      - name: Prepare one genuine wearer-POV fixture (media is not committed)
+        run: |
+          python3 -m venv /tmp/guardian-media
+          /tmp/guardian-media/bin/pip install -r validation/requirements.txt
+          for attempt in 1 2 3; do
+            if /tmp/guardian-media/bin/python scripts/prepare_ios_ui_fixture.py; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then exit 1; fi
+            sleep 5
+          done
       - name: Exercise actual MockDeviceKit capture in Simulator
         run: |
           node server/test-support/fixture-server.mjs > /tmp/guardian-fixture-api.log 2>&1 &
