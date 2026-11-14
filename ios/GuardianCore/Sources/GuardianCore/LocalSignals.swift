@@ -52,7 +52,12 @@ public struct PrivacyGate: Sendable {
     public private(set) var epoch = UUID(), armedUntil: Double?, captureEndsAt: Double?
     public private(set) var consent = Consent()
     public init() {}
-    public mutating func arm(consent: Consent, now: Double) { invalidate(); self.consent = consent; armedUntil = now+900 }
+    public static let maximumArmedDuration: TimeInterval = 30 * 60
+    public mutating func arm(consent: Consent, now: Double, duration: TimeInterval = maximumArmedDuration) {
+        invalidate()
+        self.consent = consent
+        armedUntil = now + min(max(0, duration), Self.maximumArmedDuration)
+    }
     public mutating func invalidate() { epoch = UUID(); armedUntil = nil; captureEndsAt = nil }
     public mutating func beginCapture(now: Double) -> UUID? {
         guard consent.capture, consent.cloud, let until = armedUntil, now < until, captureEndsAt == nil else { return nil }

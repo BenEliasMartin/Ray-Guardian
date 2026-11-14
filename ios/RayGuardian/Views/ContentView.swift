@@ -24,7 +24,7 @@ struct MonitorView: View {
                 Text("Local motion and selected speech can trigger an eight-second capture. There is no pre-event video buffer.").font(.callout)
             }
             HStack {
-                Button { Task { await model.arm() } } label: { Label("Arm for 15 minutes",systemImage: "shield.checkered").frame(maxWidth: .infinity) }.buttonStyle(.borderedProminent).disabled(model.armed)
+                Button { Task { await model.arm() } } label: { Label("Arm for 30 minutes",systemImage: "shield.checkered").frame(maxWidth: .infinity) }.buttonStyle(.borderedProminent).disabled(model.armed)
                 Button("Stop",role: .destructive) { model.stop() }.buttonStyle(.bordered)
             }
             Button { model.sendTrigger(.manual_sos) } label: { Label("SOS · Start demo escalation",systemImage: "sos").font(.headline).frame(maxWidth: .infinity).padding(.vertical,12) }.buttonStyle(.borderedProminent).tint(.red).disabled(!model.armed)

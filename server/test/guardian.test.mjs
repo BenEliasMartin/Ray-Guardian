@@ -37,6 +37,13 @@ test('fall result starts check-in then one demo call; completed upload is idempo
   assert.deepEqual(await g.observe('owner',s.id,observation(trigger.window)),result);
   advance(16000);await g.sweep();await Promise.all(g.callTasks.values());assert.equal(placed(),1);await g.sweep();assert.equal(placed(),1);assert.equal(g.requireIncident('owner',result.incident.id).state,'demo_call_active');
 });
+test('arming lasts 30 minutes without renewal from heartbeats',t=>{
+  const {g,s,advance}=fixture(t);
+  advance(29*60_000+59_000);
+  assert.doesNotThrow(()=>g.requireArmed(g.heartbeat('owner',s.id)));
+  advance(1000);
+  assert.throws(()=>g.requireArmed(g.heartbeat('owner',s.id)),{code:'not_armed'});
+});
 test('normal activity and uncertain low confidence do not auto-escalate',async t=>{
   const {g,s,observation}=fixture(t,{detect:async()=>ordinary});const tr=g.trigger('owner',s.id,{signal:'motion'});assert.equal((await g.observe('owner',s.id,observation(tr.window))).incident,null);
   assert.equal(shouldCheckIn({...fall,confidence:'low'}),false);assert.equal(shouldCheckIn({...fall,wearerInvolved:false}),false);assert.equal(shouldCheckIn({...fall,label:'uncertain'}),false);assert.throws(()=>parseDetection('{"label":"fall"}'));

@@ -4,7 +4,7 @@ import { shouldCheckIn } from './detection.mjs';
 import { validateObservation,clearObservation } from './media.mjs';
 import { VOICE_PROMPTS } from './elevenlabs.mjs';
 
-const MINUTE=60_000,SESSION_MS=15*MINUTE,RECORD_TTL=24*60*MINUTE;
+const MINUTE=60_000,SESSION_MS=30*MINUTE,RECORD_TTL=24*60*MINUTE;
 const SIGNALS=['manual_sos','keyword_sos','keyword_distress','motion','heart_rate','loud_voice','scene_check'];
 const TERMINAL=new Set(['cancelled','acknowledged','closed']);
 const CONSENTS=['capture','cloud','audio','voice','demoCalls','location','backgroundEscalation'];

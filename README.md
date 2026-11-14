@@ -44,7 +44,7 @@ The checked-in [Xcode project](ios/RayGuardian.xcodeproj) includes a shared RayG
 3. In **Setup**, enter/check the backend URL and client token. Provider keys do not belong here. Grant glasses permissions through the explicit setup buttons; grant location before arming if using it.
 4. Choose Mock glasses or Real glasses, local keyword source, and capture audio source. Every capture/cloud/audio/voice/demo-call consent starts off. Enable the choices needed for the rehearsal.
 5. For MockDeviceKit, prepare/download replay media as below. Select a clip before arming. Choose **Replay WAV** for its original audio. Choose **Glasses local speech** to exercise injected Mock speech events.
-6. Arm for 15 minutes. In **Replay lab**, inject ‘Guardian help me’ or replay the motion sequence. The SDK delivers those events to the same listeners as real glasses. The accepted indicator opens a maximum eight-second window. The monitoring screen reports the actual Nemotron result.
+6. Arm for 30 minutes. In **Replay lab**, inject ‘Guardian help me’ or replay the motion sequence. The SDK delivers those events to the same listeners as real glasses. The accepted indicator opens a maximum eight-second window. The monitoring screen reports the actual Nemotron result.
 7. A qualifying result starts a 15-second check-in. ‘Guardian cancel’ or **I'm okay** cancels it. If demo escalation is enabled, an unanswered check-in advances to the configured demo transport. **SOS** is a deliberate request and can escalate before visual assessment; it is labeled separately from Nemotron detection.
 
 With `META_APP_ID=0`, the build omits all three Meta attestation keys for Developer Mode. Registered apps require the Meta app ID, client token and Apple team together; partial configuration fails the build.
@@ -95,7 +95,7 @@ For deployment, `docker compose up --build -d` starts the API with encrypted per
 
 ## Privacy behavior
 
-The camera is off in armed standby. Selected local speech recognition and motion/heart-rate sensing can remain active while the app is foregrounded. Loudness alone does not trigger capture. A successful trigger permits at most six compressed frames and eight seconds of optional audio, with a 60-second capture cooldown and three bursts per ten minutes. Arming expires after fifteen minutes.
+The camera is off in armed standby. Selected local speech recognition and motion/heart-rate sensing can remain active while the app is foregrounded. Loudness alone does not trigger capture. A successful trigger permits at most six compressed frames and eight seconds of optional audio, with a 60-second capture cooldown and three bursts per ten minutes. Arming expires after thirty minutes.
 
 Leaving the app, changing consent, device removal/disconnection, thermal/battery faults, or losing the backend heartbeat disarms capture. Epoch guards reject queued old callbacks. Cancellation aborts in-flight inference and prevents later results from recreating an incident. No pre-event video is retained. iOS background transitions do not provide continuous monitoring; optional background escalation only permits the server to continue an already-created demo incident.
 

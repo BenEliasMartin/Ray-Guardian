@@ -23,7 +23,7 @@ All routes except health, signed Twilio callbacks and signed call audio require 
 | GET | `/health` | Configuration flags, demo transport, readiness of keys; does not prove upstream availability |
 | POST | `/v1/sessions` | Create demo session with independent consent booleans and input source |
 | GET / DELETE | `/v1/sessions/:id` | Read or disarm/delete session |
-| POST | `/v1/sessions/:id/arm` | Arm for fifteen minutes |
+| POST | `/v1/sessions/:id/arm` | Arm for thirty minutes |
 | POST | `/v1/sessions/:id/heartbeat` | Refresh foreground heartbeat; expires after thirty seconds |
 | POST | `/v1/sessions/:id/disarm` | Stop observation; `cancelPending` defaults true |
 | POST | `/v1/sessions/:id/triggers` | Submit signal; return permitted capture window and limits |

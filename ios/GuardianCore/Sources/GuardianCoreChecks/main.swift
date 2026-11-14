@@ -23,7 +23,7 @@ let epoch = gate.beginCapture(now:3)!
 verify(gate.accepts(epoch,now:4),"Current capture accepted")
 verify(!gate.accepts(epoch,now:12),"Capture expires")
 gate.invalidate(); verify(!gate.accepts(epoch,now:4),"Disarm invalidates callbacks")
-gate.arm(consent:consent,now:0); verify(gate.beginCapture(now:901) == nil,"Arming expires")
+gate.arm(consent:consent,now:0); verify(gate.beginCapture(now:1800) == nil,"Arming expires")
 let samples = (0..<3200).map { Int16($0-1600) }, wav = PCM16WAV.encode(samples)
 let decoded = try PCM16WAV.decode(wav); verify(decoded == samples,"Actual PCM WAV round trip")
 let bounded = try PCM16WAV.decode(PCM16WAV.encode(Array(repeating:Int16(1),count:140000))); verify(bounded.count == 128000,"Audio capped at eight seconds")

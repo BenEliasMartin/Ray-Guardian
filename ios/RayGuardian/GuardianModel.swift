@@ -72,7 +72,12 @@ import GuardianCore
             let sceneChecks = settings.automaticSceneChecks && settings.consent.capture && settings.consent.cloud
             let created: GuardianSession = try await client.post("v1/sessions",body: CreateSession(consent: settings.consent,source: settings.input == .mock ? .meta_mock : .meta_glasses,automaticSceneChecks: sceneChecks)); try checkOperation(token)
             let active: GuardianSession = try await client.post("v1/sessions/\(created.id)/arm"); try checkOperation(token)
-            session = active; incident = nil; detection = nil; lastEvidence = ""; spoken.removeAll(); fall = FallCandidateDetector(); gate.arm(consent: settings.consent,now: monotonic); armed = true; status = "Armed · camera off · expires in 15 minutes"
+            let remaining = ((active.armedUntil ?? 0) / 1000) - Date().timeIntervalSince1970
+            session = active
+            guard active.armed, remaining > 0 else { throw DeviceError.message("The backend arming window expired.") }
+            incident = nil; detection = nil; lastEvidence = ""; spoken.removeAll(); fall = FallCandidateDetector()
+            gate.arm(consent: settings.consent,now: monotonic,duration: remaining)
+            armed = true; status = "Armed · up to 30 minutes"
             heartbeatTask?.cancel(); heartbeatTask = Task { [weak self] in
                 var nextSceneCheck = ProcessInfo.processInfo.systemUptime
                 while !Task.isCancelled {
