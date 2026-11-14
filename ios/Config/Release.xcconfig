@@ -1,0 +1,2 @@
+#include? "Local.xcconfig"
+GUARDIAN_CLIENT_TOKEN =

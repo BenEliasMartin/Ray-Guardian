@@ -1,0 +1,2 @@
+// Local overrides are ignored by git. Do not place provider keys in the app.
+#include? "Local.xcconfig"

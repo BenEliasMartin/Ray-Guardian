@@ -5,6 +5,17 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class DemoSessionTest {
+    @Test fun intentionalVoiceSosUsesDirectPathAndCannotBeACandidate() {
+        val session = DemoSession()
+        session.arm()
+        session.replayCandidate(0, DemoSession.Trigger.VOICE_SOS)
+        assertEquals(DemoSession.Phase.ARMED, session.phase)
+        session.manualSos(DemoSession.Trigger.VOICE_SOS)
+        assertEquals(DemoSession.Phase.ALERT, session.phase)
+        assertEquals(DemoSession.Trigger.VOICE_SOS, session.trigger)
+        assertNull(session.deadlineMillis)
+    }
+
     @Test fun manualSosOnlyWorksAfterArmingAndSkipsCheckIn() {
         val session = DemoSession()
         session.manualSos()

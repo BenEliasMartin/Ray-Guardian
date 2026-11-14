@@ -1,0 +1,494 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		06866B9FC75A465DAD21395B /* IncidentLocation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00EBC70A765FEBC77AEB530B /* IncidentLocation.swift */; };
+		0EFDE40216BBE27587E5884D /* Configuration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46B9B6DAB6A9CAC341F77FD4 /* Configuration.swift */; };
+		20837E3C0B269555CED7A0CE /* GuardianModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D28734A405CA466C5341C4D7 /* GuardianModel.swift */; };
+		38520740661C303B6C427F0D /* MWDATMotion in Frameworks */ = {isa = PBXBuildFile; productRef = 039B17C87BA077347BA649EC /* MWDATMotion */; };
+		424B180B34BF0105C19FFB34 /* HeartRateMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91850367A3F52267F85F601C /* HeartRateMonitor.swift */; };
+		42D9B1BC001D08968928F162 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3DF00DB6237907EACBAF966C /* ContentView.swift */; };
+		512C2BDF2E55E6580C73F8B2 /* MWDATMockDevice in Frameworks */ = {isa = PBXBuildFile; productRef = 5EA2CBE8FAD1D0893BBF6302 /* MWDATMockDevice */; };
+		5B7C40396A6FD28B9D1237CC /* GuardianCore in Frameworks */ = {isa = PBXBuildFile; productRef = EA2780B13C26944C10864460 /* GuardianCore */; };
+		6CEA0CDF2F5C7563A7395351 /* MWDATCamera in Frameworks */ = {isa = PBXBuildFile; productRef = FCC5CC594AEAF72559DCEAB5 /* MWDATCamera */; };
+		A1DBAE0B5515210B26EF0366 /* AudioIO.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9919DC4493884B03A640942F /* AudioIO.swift */; };
+		A967AD3F9A93DBF9A99B2DF4 /* RayGuardianApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14E23221338668B14E283230 /* RayGuardianApp.swift */; };
+		B904C22A58CAA3EE6107B73B /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 9F8310980943FFD67729B9D5 /* PrivacyInfo.xcprivacy */; };
+		C0F253393B04E57DDD88B185 /* MWDATCore in Frameworks */ = {isa = PBXBuildFile; productRef = 2F01618883A2EDA43A1B1AA5 /* MWDATCore */; };
+		C587682A1053616401501D0E /* GlassesAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 213B6A8BEDA9D601ABC657C1 /* GlassesAdapter.swift */; };
+		C9426D6E0C9A607AC6D73D1C /* ReplayLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5780C13BBF12BE849793957 /* ReplayLibrary.swift */; };
+		D8866D30AAD906C29ADB9437 /* ReplayMedia in Resources */ = {isa = PBXBuildFile; fileRef = EDE3CD7026C5892AA2771CB3 /* ReplayMedia */; };
+		DA9A3D6C42A1759CF343ADFD /* MWDATSpeech in Frameworks */ = {isa = PBXBuildFile; productRef = 4EAE40580AF6D31927A8813B /* MWDATSpeech */; };
+		DD03A6A346A12E67957F754C /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = FD43046E6948D8E094CC79A0 /* Assets.xcassets */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		00EBC70A765FEBC77AEB530B /* IncidentLocation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IncidentLocation.swift; sourceTree = "<group>"; };
+		14E23221338668B14E283230 /* RayGuardianApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RayGuardianApp.swift; sourceTree = "<group>"; };
+		15B607E4FE51DAD92A975A38 /* GuardianCore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = GuardianCore; path = GuardianCore; sourceTree = SOURCE_ROOT; };
+		213B6A8BEDA9D601ABC657C1 /* GlassesAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlassesAdapter.swift; sourceTree = "<group>"; };
+		3D220C2C42836B777980A1D4 /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Release.xcconfig; sourceTree = "<group>"; };
+		3DF00DB6237907EACBAF966C /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		46B9B6DAB6A9CAC341F77FD4 /* Configuration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Configuration.swift; sourceTree = "<group>"; };
+		8E6557896DE3E9CD9CB0B41B /* RayGuardian.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = RayGuardian.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		91850367A3F52267F85F601C /* HeartRateMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeartRateMonitor.swift; sourceTree = "<group>"; };
+		9919DC4493884B03A640942F /* AudioIO.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioIO.swift; sourceTree = "<group>"; };
+		9F8310980943FFD67729B9D5 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		D28734A405CA466C5341C4D7 /* GuardianModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GuardianModel.swift; sourceTree = "<group>"; };
+		E5780C13BBF12BE849793957 /* ReplayLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReplayLibrary.swift; sourceTree = "<group>"; };
+		EDE3CD7026C5892AA2771CB3 /* ReplayMedia */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ReplayMedia; path = RayGuardian/Resources/ReplayMedia; sourceTree = SOURCE_ROOT; };
+		F45D1426A232E44EF40B2576 /* Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Debug.xcconfig; sourceTree = "<group>"; };
+		FD43046E6948D8E094CC79A0 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		BAE47486B01D7664D59B1583 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				5B7C40396A6FD28B9D1237CC /* GuardianCore in Frameworks */,
+				C0F253393B04E57DDD88B185 /* MWDATCore in Frameworks */,
+				6CEA0CDF2F5C7563A7395351 /* MWDATCamera in Frameworks */,
+				38520740661C303B6C427F0D /* MWDATMotion in Frameworks */,
+				DA9A3D6C42A1759CF343ADFD /* MWDATSpeech in Frameworks */,
+				512C2BDF2E55E6580C73F8B2 /* MWDATMockDevice in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		1B9B5FEC4471BD7E60B4EAF0 /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				F45D1426A232E44EF40B2576 /* Debug.xcconfig */,
+				3D220C2C42836B777980A1D4 /* Release.xcconfig */,
+			);
+			path = Config;
+			sourceTree = "<group>";
+		};
+		26EFD705C362CEA059496AA2 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				8E6557896DE3E9CD9CB0B41B /* RayGuardian.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		4310035DFFBD398A47B04A28 /* Packages */ = {
+			isa = PBXGroup;
+			children = (
+				15B607E4FE51DAD92A975A38 /* GuardianCore */,
+			);
+			name = Packages;
+			sourceTree = "<group>";
+		};
+		50FA6C2608DEEF7A5DC60625 /* Adapters */ = {
+			isa = PBXGroup;
+			children = (
+				9919DC4493884B03A640942F /* AudioIO.swift */,
+				213B6A8BEDA9D601ABC657C1 /* GlassesAdapter.swift */,
+				91850367A3F52267F85F601C /* HeartRateMonitor.swift */,
+				00EBC70A765FEBC77AEB530B /* IncidentLocation.swift */,
+			);
+			path = Adapters;
+			sourceTree = "<group>";
+		};
+		51677BE065E1ED861DE794A6 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				3DF00DB6237907EACBAF966C /* ContentView.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		61456470216FA7908EF940B3 = {
+			isa = PBXGroup;
+			children = (
+				1B9B5FEC4471BD7E60B4EAF0 /* Config */,
+				4310035DFFBD398A47B04A28 /* Packages */,
+				76C4A8A4BE4E008DDCAF4C73 /* RayGuardian */,
+				26EFD705C362CEA059496AA2 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		76C4A8A4BE4E008DDCAF4C73 /* RayGuardian */ = {
+			isa = PBXGroup;
+			children = (
+				46B9B6DAB6A9CAC341F77FD4 /* Configuration.swift */,
+				D28734A405CA466C5341C4D7 /* GuardianModel.swift */,
+				9F8310980943FFD67729B9D5 /* PrivacyInfo.xcprivacy */,
+				14E23221338668B14E283230 /* RayGuardianApp.swift */,
+				E5780C13BBF12BE849793957 /* ReplayLibrary.swift */,
+				50FA6C2608DEEF7A5DC60625 /* Adapters */,
+				79742DD57EF28DCBAAA0751E /* Resources */,
+				51677BE065E1ED861DE794A6 /* Views */,
+			);
+			path = RayGuardian;
+			sourceTree = "<group>";
+		};
+		79742DD57EF28DCBAAA0751E /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				FD43046E6948D8E094CC79A0 /* Assets.xcassets */,
+				EDE3CD7026C5892AA2771CB3 /* ReplayMedia */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		3C6AF1B9F8A35DC5BE19B9F6 /* RayGuardian */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 3E8C5BCFE1E2C52E4B0ED908 /* Build configuration list for PBXNativeTarget "RayGuardian" */;
+			buildPhases = (
+				28507394542300D136100D2A /* Sources */,
+				275A592D2310F3BA0CD57009 /* Resources */,
+				BAE47486B01D7664D59B1583 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = RayGuardian;
+			packageProductDependencies = (
+				EA2780B13C26944C10864460 /* GuardianCore */,
+				2F01618883A2EDA43A1B1AA5 /* MWDATCore */,
+				FCC5CC594AEAF72559DCEAB5 /* MWDATCamera */,
+				039B17C87BA077347BA649EC /* MWDATMotion */,
+				4EAE40580AF6D31927A8813B /* MWDATSpeech */,
+				5EA2CBE8FAD1D0893BBF6302 /* MWDATMockDevice */,
+			);
+			productName = RayGuardian;
+			productReference = 8E6557896DE3E9CD9CB0B41B /* RayGuardian.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		739DA429D2C2AB6514FE352A /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					3C6AF1B9F8A35DC5BE19B9F6 = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 1C45CBFFBE1F891AB33257E5 /* Build configuration list for PBXProject "RayGuardian" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 61456470216FA7908EF940B3;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				2468E9D0A48356EFA434DC2D /* XCRemoteSwiftPackageReference "meta-wearables-dat-ios" */,
+				37FB818BFE7B3F1EF4C52E92 /* XCLocalSwiftPackageReference "GuardianCore" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 26EFD705C362CEA059496AA2 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				3C6AF1B9F8A35DC5BE19B9F6 /* RayGuardian */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		275A592D2310F3BA0CD57009 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DD03A6A346A12E67957F754C /* Assets.xcassets in Resources */,
+				B904C22A58CAA3EE6107B73B /* PrivacyInfo.xcprivacy in Resources */,
+				D8866D30AAD906C29ADB9437 /* ReplayMedia in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		28507394542300D136100D2A /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A1DBAE0B5515210B26EF0366 /* AudioIO.swift in Sources */,
+				0EFDE40216BBE27587E5884D /* Configuration.swift in Sources */,
+				42D9B1BC001D08968928F162 /* ContentView.swift in Sources */,
+				C587682A1053616401501D0E /* GlassesAdapter.swift in Sources */,
+				20837E3C0B269555CED7A0CE /* GuardianModel.swift in Sources */,
+				424B180B34BF0105C19FFB34 /* HeartRateMonitor.swift in Sources */,
+				06866B9FC75A465DAD21395B /* IncidentLocation.swift in Sources */,
+				A967AD3F9A93DBF9A99B2DF4 /* RayGuardianApp.swift in Sources */,
+				C9426D6E0C9A607AC6D73D1C /* ReplayLibrary.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		25A7573816A796B853C6ACC1 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = F45D1426A232E44EF40B2576 /* Debug.xcconfig */;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 2;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				GUARDIAN_API_URL = "http:/$()/127.0.0.1:8787";
+				GUARDIAN_CLIENT_TOKEN = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.2;
+				MARKETING_VERSION = 0.2.0;
+				META_APP_ID = 0;
+				META_CLIENT_TOKEN = "";
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_STRICT_CONCURRENCY = targeted;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		3DF29D1146D74FBED397B5F6 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 3D220C2C42836B777980A1D4 /* Release.xcconfig */;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 2;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = "";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				GUARDIAN_API_URL = "http:/$()/127.0.0.1:8787";
+				GUARDIAN_CLIENT_TOKEN = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.2;
+				MARKETING_VERSION = 0.2.0;
+				META_APP_ID = 0;
+				META_CLIENT_TOKEN = "";
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_STRICT_CONCURRENCY = targeted;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		565D067A2222AEDA9E65627B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = RayGuardian/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.rayguardian.companion;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		BC9EBAA360A47C0302A99E47 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = RayGuardian/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.rayguardian.companion;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		1C45CBFFBE1F891AB33257E5 /* Build configuration list for PBXProject "RayGuardian" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				25A7573816A796B853C6ACC1 /* Debug */,
+				3DF29D1146D74FBED397B5F6 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		3E8C5BCFE1E2C52E4B0ED908 /* Build configuration list for PBXNativeTarget "RayGuardian" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BC9EBAA360A47C0302A99E47 /* Debug */,
+				565D067A2222AEDA9E65627B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		37FB818BFE7B3F1EF4C52E92 /* XCLocalSwiftPackageReference "GuardianCore" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = GuardianCore;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		2468E9D0A48356EFA434DC2D /* XCRemoteSwiftPackageReference "meta-wearables-dat-ios" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/meta/meta-wearables-dat-ios.git";
+			requirement = {
+				kind = exactVersion;
+				version = 1.0.1;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		039B17C87BA077347BA649EC /* MWDATMotion */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 2468E9D0A48356EFA434DC2D /* XCRemoteSwiftPackageReference "meta-wearables-dat-ios" */;
+			productName = MWDATMotion;
+		};
+		2F01618883A2EDA43A1B1AA5 /* MWDATCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 2468E9D0A48356EFA434DC2D /* XCRemoteSwiftPackageReference "meta-wearables-dat-ios" */;
+			productName = MWDATCore;
+		};
+		4EAE40580AF6D31927A8813B /* MWDATSpeech */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 2468E9D0A48356EFA434DC2D /* XCRemoteSwiftPackageReference "meta-wearables-dat-ios" */;
+			productName = MWDATSpeech;
+		};
+		5EA2CBE8FAD1D0893BBF6302 /* MWDATMockDevice */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 2468E9D0A48356EFA434DC2D /* XCRemoteSwiftPackageReference "meta-wearables-dat-ios" */;
+			productName = MWDATMockDevice;
+		};
+		EA2780B13C26944C10864460 /* GuardianCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = GuardianCore;
+		};
+		FCC5CC594AEAF72559DCEAB5 /* MWDATCamera */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 2468E9D0A48356EFA434DC2D /* XCRemoteSwiftPackageReference "meta-wearables-dat-ios" */;
+			productName = MWDATCamera;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 739DA429D2C2AB6514FE352A /* Project object */;
+}

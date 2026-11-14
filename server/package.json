@@ -2,9 +2,12 @@
   "name": "ray-guardian-ai",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22.13"
+  },
   "scripts": {
     "start": "node --env-file-if-exists=.env index.mjs",
-    "test": "node --test"
+    "test": "node --test",
+    "setup": "node ../scripts/bootstrap.mjs"
   }
 }
