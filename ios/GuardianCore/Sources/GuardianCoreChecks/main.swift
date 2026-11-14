@@ -71,6 +71,12 @@ if let summary = recorder.summary(triggerAt: 103.42,endAt: 107,fallPattern: .rap
     verify((summary.peakRotationDegPerSec ?? 0) > 300,"Summary converts rotation rate to degrees per second")
 } else { verify(false,"Summary is produced") }
 verify(MotionRecorder().summary(triggerAt: 1,endAt: 2) == nil,"No summary without samples")
+var lateRecorder = MotionRecorder()
+for p in timeline(98,111,{ pose($0,0,g: $0 > 108 ? 10 : 1) }) { lateRecorder.append(p) }
+if let summary = lateRecorder.summary(triggerAt:100,endAt:111) {
+    verify(summary.coveredToMs <= 8000 && summary.peakImpactG == 1,"Delayed capture completion excludes sensor samples after eight seconds")
+} else { verify(false,"Bounded delayed summary is produced") }
+verify(lateRecorder.summary(triggerAt:.nan,endAt:111) == nil,"Nonfinite motion window is rejected")
 let offsets = stride(from: -2.8, through: 7.9, by: 0.35).map { $0 }
 var sharp = offsets.map { _ in 1.0 }; sharp[3] = 50; sharp[9] = 80
 let picked = KeyframeSelector.select(offsets: offsets,sharpness: sharp)

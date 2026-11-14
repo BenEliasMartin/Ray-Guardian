@@ -252,7 +252,7 @@ import GuardianCore
     private func receiveFrame(_ image: UIImage) {
         let now = monotonic
         if liveMockPreview { preview = image }
-        let captureFrame = capturing && activeCapture.map { gate.accepts($0,now: now) } == true &&
+        let captureFrame = capturing && now <= captureStart+8 && activeCapture.map { gate.accepts($0,now: now) } == true &&
             candidates.count < 40 && now - captureStart - lastFrameAt >= 0.3
         let bufferFrame = armed && (continuousCamera || earlyCameraRequests > 0) && settings.consent.capture && settings.consent.cloud &&
             (recentPreviewFrames.last.map { now - $0.time >= 0.4 } ?? true)
@@ -294,7 +294,7 @@ import GuardianCore
         if voice.suppressInput { return }
         if source == .phone, settings.elevenLabsListening { monitorSpeech(samples) }
         if loudness.consume(samples,time: monotonic) { status = capturing ? "Loud audio during capture · evidence only" : "Loud audio detected locally · no capture triggered" }
-        guard arrivedAt >= captureStart,capturing,session?.consent.audio == true,settings.audio == source,let epoch = activeCapture,gate.accepts(epoch,now: monotonic) else { return }
+        guard arrivedAt >= captureStart,arrivedAt <= captureStart+8,capturing,session?.consent.audio == true,settings.audio == source,let epoch = activeCapture,gate.accepts(epoch,now: monotonic) else { return }
         pcm.append(contentsOf: samples.prefix(max(0,128000-pcm.count))); audioSeconds = Double(pcm.count)/16000
     }
     private func monitorSpeech(_ samples: [Int16]) {

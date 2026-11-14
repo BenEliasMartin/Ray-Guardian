@@ -109,6 +109,15 @@ final class GuardianCoreTests: XCTestCase {
         let nod = timeline(0,3) { self.pose($0,0) } + timeline(3,3.3) { self.pose($0,($0-3)/0.3*45,spin: 3) } + timeline(3.3,8) { self.pose($0,0) }
         XCTAssertTrue(nod.compactMap { nodding.detect($0) }.isEmpty)
     }
+    func testLateCaptureTimerDoesNotExtendMotionEvidence() throws {
+        var recorder = MotionRecorder()
+        for p in timeline(98,111,{ pose($0,0,g: $0 > 108 ? 10 : 1) }) { recorder.append(p) }
+        let summary = try XCTUnwrap(recorder.summary(triggerAt:100,endAt:111))
+        XCTAssertLessThanOrEqual(summary.coveredToMs,8000)
+        XCTAssertEqual(summary.peakImpactG,1)
+        XCTAssertLessThanOrEqual(summary.stillSecondsAtEnd,11)
+        XCTAssertNil(recorder.summary(triggerAt:.nan,endAt:111))
+    }
     func testMotionSummaryAndKeyframesCoverTheFall() throws {
         var recorder = MotionRecorder()
         for p in timeline(0,3,{ pose($0,0) }) + timeline(3,3.4,{ pose($0,($0-3)/0.4*85,spin: 6) }) + [pose(3.42,88,g: 2.6)] + timeline(3.45,7,{ pose($0,90) }) { recorder.append(p) }
