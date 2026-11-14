@@ -1,6 +1,7 @@
 import { createServer } from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
 import { ApiError, validateInput } from './nemotron.mjs';
+import { createSimulatedDispatch } from './simulated-dispatch.mjs';
 
 const MAX_BODY = 1100 * 1024;
 
@@ -34,6 +35,7 @@ export function createApp({ analyze, speak, clientToken, configured = true, spee
   let inFlight = 0;
   let windowStart = now();
   let requestsInWindow = 0;
+  const dispatch = createSimulatedDispatch();
   const server = createServer(async (req, res) => {
     const reply = (status, data) => {
       if (res.destroyed) return;
@@ -62,7 +64,9 @@ export function createApp({ analyze, speak, clientToken, configured = true, spee
         return reply(500, { error: 'internal_error', message: 'Speech could not be generated.' });
       }
     }
-    if (req.url !== '/v1/analyze' || req.method !== 'POST') return reply(404, { error: 'not_found' });
+    if (!['/v1/analyze', '/v1/simulated-dispatch'].includes(req.url) || req.method !== 'POST') {
+      return reply(404, { error: 'not_found' });
+    }
     if (!authorized(req.headers.authorization, clientToken)) return reply(401, { error: 'unauthorized' });
     if (req.headers.origin) return reply(403, { error: 'browser_origin_not_allowed' });
     if (!/^application\/json(?:;|$)/i.test(req.headers['content-type'] ?? '')) return reply(415, { error: 'json_required' });
@@ -71,8 +75,10 @@ export function createApp({ analyze, speak, clientToken, configured = true, spee
     let counted = false;
     try {
       if (Number(req.headers['content-length']) > MAX_BODY) throw new ApiError(413, 'body_too_large', 'The submitted context is too large.');
-      const input = validateInput(await readJson(req));
+      const body = await readJson(req);
       if (abort.signal.aborted) return;
+      if (req.url === '/v1/simulated-dispatch') return reply(200, dispatch(body));
+      const input = validateInput(body);
       if (now() - windowStart >= 60_000) { windowStart = now(); requestsInWindow = 0; }
       if (requestsInWindow >= 10) throw new ApiError(429, 'rate_limited', 'Limit reached. Wait a minute before retrying.');
       if (inFlight >= 2) throw new ApiError(503, 'busy', 'The AI server is busy. Try again shortly.');

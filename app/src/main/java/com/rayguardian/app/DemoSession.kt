@@ -3,7 +3,7 @@ package com.rayguardian.app
 /** A local-only rehearsal. No transition in this class sends an alert or accesses a sensor. */
 class DemoSession {
     enum class Phase { DISARMED, ARMED, CHECK_IN, ALERT, ACKNOWLEDGED, CANCELLED }
-    enum class Trigger { MANUAL, REPLAYED_CANDIDATE, HEART_RATE_ANOMALY }
+    enum class Trigger { MANUAL, REPLAYED_CANDIDATE, HEART_RATE_ANOMALY, LIVE_VISION, LOUD_SOUND }
 
     var phase: Phase = Phase.DISARMED
         private set

@@ -24,8 +24,8 @@ android {
         applicationId = "com.rayguardian.app"
         minSdk = 31
         targetSdk = 36
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 3
+        versionName = "0.3.0"
         manifestPlaceholders["mwdat_application_id"] = localProperties.getProperty("mwdat_application_id", "0")
         manifestPlaceholders["mwdat_client_token"] = localProperties.getProperty("mwdat_client_token", "0")
     }
@@ -55,6 +55,7 @@ dependencies {
     implementation("androidx.activity:activity-ktx:1.12.1")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.10.0")
     implementation("com.meta.wearable:mwdat-core:1.0.1")
+    implementation("com.meta.wearable:mwdat-camera:1.0.1")
     debugImplementation("com.meta.wearable:mwdat-mockdevice:1.0.1")
     testImplementation("junit:junit:4.13.2")
 }

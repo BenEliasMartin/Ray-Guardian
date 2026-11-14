@@ -1,0 +1,36 @@
+// !$*UTF8*$!
+{
+  archiveVersion = 1;
+  classes = {};
+  objectVersion = 56;
+  objects = {
+    000000000000000000000001 = {isa = PBXProject; buildConfigurationList = 00000000000000000000000A; compatibilityVersion = "Xcode 14.0"; developmentRegion = en; knownRegions = (en, Base); mainGroup = 000000000000000000000003; productRefGroup = 000000000000000000000004; packageReferences = (000000000000000000000010); targets = (000000000000000000000002); };
+    000000000000000000000002 = {isa = PBXNativeTarget; buildConfigurationList = 00000000000000000000000B; buildPhases = (000000000000000000000006, 000000000000000000000007); buildRules = (); dependencies = (); name = RayGuardian; packageProductDependencies = (000000000000000000000011, 000000000000000000000012); productName = RayGuardian; productReference = 000000000000000000000005; productType = "com.apple.product-type.application"; };
+    000000000000000000000003 = {isa = PBXGroup; children = (000000000000000000000008, 000000000000000000000004); sourceTree = "<group>"; };
+    000000000000000000000004 = {isa = PBXGroup; children = (000000000000000000000005); name = Products; sourceTree = "<group>"; };
+    000000000000000000000005 = {isa = PBXFileReference; explicitFileType = wrapper.application; path = RayGuardian.app; sourceTree = BUILT_PRODUCTS_DIR; };
+    000000000000000000000006 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (000000000000000000000020, 000000000000000000000021, 000000000000000000000022); runOnlyForDeploymentPostprocessing = 0; };
+    000000000000000000000007 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (000000000000000000000013, 000000000000000000000014); runOnlyForDeploymentPostprocessing = 0; };
+    000000000000000000000008 = {isa = PBXGroup; children = (000000000000000000000030, 000000000000000000000031, 000000000000000000000032, 000000000000000000000033, 000000000000000000000034); path = RayGuardian; sourceTree = "<group>"; };
+    00000000000000000000000A = {isa = XCConfigurationList; buildConfigurations = (00000000000000000000000C, 00000000000000000000000D); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+    00000000000000000000000B = {isa = XCConfigurationList; buildConfigurations = (00000000000000000000000E, 00000000000000000000000F); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+    00000000000000000000000C = {isa = XCBuildConfiguration; name = Debug; buildSettings = {SDKROOT = iphoneos; IPHONEOS_DEPLOYMENT_TARGET = 17.2; SWIFT_VERSION = 5.0; SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG; SWIFT_OPTIMIZATION_LEVEL = "-Onone"; }; };
+    00000000000000000000000D = {isa = XCBuildConfiguration; name = Release; buildSettings = {SDKROOT = iphoneos; IPHONEOS_DEPLOYMENT_TARGET = 17.2; SWIFT_VERSION = 5.0; SWIFT_COMPILATION_MODE = wholemodule; }; };
+    00000000000000000000000E = {isa = XCBuildConfiguration; name = Debug; baseConfigurationReference = 000000000000000000000034; buildSettings = {CODE_SIGN_STYLE = Automatic; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = RayGuardian/Info.plist; LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks"); TARGETED_DEVICE_FAMILY = 1; }; };
+    00000000000000000000000F = {isa = XCBuildConfiguration; name = Release; baseConfigurationReference = 000000000000000000000034; buildSettings = {CODE_SIGN_STYLE = Automatic; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = RayGuardian/Info.plist; LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks"); TARGETED_DEVICE_FAMILY = 1; }; };
+    000000000000000000000010 = {isa = XCRemoteSwiftPackageReference; repositoryURL = "https://github.com/facebook/meta-wearables-dat-ios"; requirement = {kind = exactVersion; version = 1.0.1; }; };
+    000000000000000000000011 = {isa = XCSwiftPackageProductDependency; package = 000000000000000000000010; productName = MWDATCore; };
+    000000000000000000000012 = {isa = XCSwiftPackageProductDependency; package = 000000000000000000000010; productName = MWDATCamera; };
+    000000000000000000000013 = {isa = PBXBuildFile; productRef = 000000000000000000000011; };
+    000000000000000000000014 = {isa = PBXBuildFile; productRef = 000000000000000000000012; };
+    000000000000000000000020 = {isa = PBXBuildFile; fileRef = 000000000000000000000030; };
+    000000000000000000000021 = {isa = PBXBuildFile; fileRef = 000000000000000000000031; };
+    000000000000000000000022 = {isa = PBXBuildFile; fileRef = 000000000000000000000032; };
+    000000000000000000000030 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RayGuardianApp.swift; sourceTree = "<group>"; };
+    000000000000000000000031 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveMonitor.swift; sourceTree = "<group>"; };
+    000000000000000000000032 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Backend.swift; sourceTree = "<group>"; };
+    000000000000000000000033 = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+    000000000000000000000034 = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Config.xcconfig; sourceTree = "<group>"; };
+  };
+  rootObject = 000000000000000000000001;
+}

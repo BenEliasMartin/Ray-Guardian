@@ -216,6 +216,12 @@ class MainActivity : ComponentActivity() {
             deviceCard.addView(button("Open Meta AI registration", false) { Wearables.startRegistration(this) })
         }
         if (mode != null && hasActiveDevice) {
+            if (mode == IntegrationMode.REAL) {
+                deviceCard.addView(button("Open live glasses monitor", true) {
+                    stopWearableSession()
+                    startActivity(Intent(this, LiveGlassesActivity::class.java))
+                })
+            }
             if (wearableSession == null) {
                 deviceCard.addView(button("Start device session", false) { startWearableSession() })
             } else {
@@ -305,6 +311,8 @@ class MainActivity : ComponentActivity() {
                     DemoSession.Trigger.MANUAL -> "Trigger: simulated SOS"
                     DemoSession.Trigger.REPLAYED_CANDIDATE -> "Trigger: replayed incident"
                     DemoSession.Trigger.HEART_RATE_ANOMALY -> "Trigger: smartwatch ${heartRateAnomalySummary ?: "heart-rate anomaly"}"
+                    DemoSession.Trigger.LIVE_VISION -> "Trigger: live glasses video"
+                    DemoSession.Trigger.LOUD_SOUND -> "Trigger: sustained loud sound"
                     null -> "Trigger unavailable"
                 }
                 sessionCard.addView(label(triggerText, 13, "#71817A").apply { setPadding(0, dp(10), 0, 0) })

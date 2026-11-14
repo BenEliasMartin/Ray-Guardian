@@ -16,3 +16,6 @@ validation/sources/*.bin
 validation/sources/*.html
 __pycache__/
 /voice-sample-*.mp3
+
+/ios/RayGuardian/Local.xcconfig
+**/xcuserdata/

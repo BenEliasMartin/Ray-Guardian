@@ -2,14 +2,14 @@ import { createServer } from 'node:http';
 import { createReadStream, existsSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { createSimulatedDispatch } from '../server/simulated-dispatch.mjs';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const localClip = path.join(root, '../captures/browser-pov.mp4');
 const clip = process.env.SIMULATOR_VIDEO ?? (existsSync(localClip) ? localClip : path.join(root, 'demo-pov.mp4'));
 const port = Number(process.env.SIMULATOR_PORT ?? 4173);
 const aiPort = Number(process.env.PORT ?? 8787);
-const receipts = new Map();
-const testLocation = 'Helsinki demo point · 60.1699, 24.9384';
+const dispatch = createSimulatedDispatch();
 const files = new Map([
   ['/', ['index.html', 'text/html; charset=utf-8']],
   ['/app.js', ['app.js', 'text/javascript; charset=utf-8']],
@@ -44,27 +44,8 @@ const server = createServer(async (req, res) => {
         let report;
         try { report = JSON.parse(body.toString('utf8')); }
         catch { return reply(res, 400, { message: 'Invalid incident report.' }); }
-        if (typeof report?.id !== 'string' ||
-            !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(report.id) ||
-            !['staged-collapse', 'ai-check-in', 'manual-sos'].includes(report.trigger) ||
-            (report.context != null && (typeof report.context !== 'string' || report.context.length > 1000))) {
-          return reply(res, 400, { message: 'Invalid incident report.' });
-        }
-        let receipt = receipts.get(report.id);
-        if (!receipt) {
-          receipt = {
-            callId: `SIM-${report.id.slice(0, 8).toUpperCase()}`,
-            status: 'simulated-accepted',
-            location: testLocation,
-            trigger: report.trigger,
-            receivedAt: new Date().toISOString(),
-          };
-          receipts.set(report.id, receipt);
-          if (receipts.size > 200) receipts.delete(receipts.keys().next().value);
-        }
-        if (report.context) receipt.context = report.context;
-        const { context, ...metadata } = receipt;
-        return reply(res, 200, { ...metadata, contextIncluded: Boolean(context) });
+        try { return reply(res, 200, dispatch(report)); }
+        catch (error) { return reply(res, error.status ?? 500, { message: error.message }); }
       }
       const controller = new AbortController();
       res.on('close', () => { if (!res.writableFinished) controller.abort(); });
