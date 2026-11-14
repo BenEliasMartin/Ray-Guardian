@@ -1,14 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { ApiError } from './nemotron.mjs';
 import { shouldCheckIn } from './detection.mjs';
-import { decodeBase64,inspectWAV,validateObservation,clearObservation,MAX_AUDIO_BYTES } from './media.mjs';
+import { validateObservation,clearObservation } from './media.mjs';
 import { VOICE_PROMPTS } from './elevenlabs.mjs';
 
 const MINUTE=60_000,SESSION_MS=30*MINUTE,RECORD_TTL=24*60*MINUTE;
-const SCENE_LIMIT=30, EVENT_LIMIT=12;
+const EVENT_LIMIT=12, EVENT_INTERVAL=10_000;
+const SIGNALS=['manual_sos','keyword_sos','keyword_distress','spoken_threat','motion','motion_phone','heart_rate','loud_voice','manual_check'];
 const INCIDENT_LIMIT=30, DEMO_CALL_LIMIT=3;
-const SCENE_INTERVAL=20_000, EVENT_INTERVAL=10_000;
-const SIGNALS=['manual_sos','keyword_sos','keyword_distress','spoken_threat','motion','motion_phone','heart_rate','loud_voice','scene_check'];
 const TERMINAL=new Set(['cancelled','acknowledged','closed']);
 const CONSENTS=['capture','cloud','audio','voice','demoCalls','location','backgroundEscalation'];
 const fail=(status,code,message)=>{throw new ApiError(status,code,message);};
@@ -17,7 +16,7 @@ export class GuardianService {
   constructor({store,detect,voice,calls,now=Date.now,checkInMs=15000,providerStatus={},mediaLibrary=null}) {
     this.store=store;this.detect=detect;this.voice=voice;this.calls=calls;this.now=now;this.checkInMs=checkInMs;
     this.providerStatus=providerStatus;this.mediaLibrary=mediaLibrary;
-    this.processing=new Map();this.speechProcessing=new Set();this.callTasks=new Map();this.audioCache=new Map();this.audioPending=new Map();this.closed=false;
+    this.processing=new Map();this.callTasks=new Map();this.audioCache=new Map();this.audioPending=new Map();this.closed=false;
     // A process restart after an ambiguous POST must NEVER automatically redial.
     for(const job of store.list('call_job'))if(job.state==='sending'){
       const incident=store.get('incident',job.id,job.owner);
@@ -37,16 +36,14 @@ export class GuardianService {
   saveIncident(value){return this.store.put('incident',{...value,updatedAt:this.now()},{owner:value.owner,expires:value.expiresAt,expectedRevision:value.revision??0});}
   createSession(owner,body={}){
     if(body.mode!==undefined&&body.mode!=='demo')fail(403,'demo_only','Only demonstration sessions are supported.');
+    if(body.automaticSceneChecks===true||body.speechMonitoring===true)fail(400,'event_trigger_required','Standby camera checks and cloud listening are disabled. Use local speech, motion, SOS, or a manual scene check.');
     const consent=Object.fromEntries(CONSENTS.map(key=>[key,body.consent?.[key]===true]));
-    consent.speechMonitoring=body.speechMonitoring===true;
+    consent.speechMonitoring=false;
     if(consent.audio&&!consent.cloud)fail(400,'invalid_consent','Cloud audio requires cloud consent.');
-    if(consent.speechMonitoring&&(!consent.audio||!consent.cloud))fail(400,'invalid_consent','Speech monitoring requires cloud and audio consent.');
     const source=['meta_mock','meta_glasses','phone','file_replay'].includes(body.source)?body.source:'meta_mock';
-    const enabledSignals=body.enabledSignals??['manual_sos','keyword_sos','keyword_distress','spoken_threat','motion','heart_rate'];
+    const enabledSignals=body.enabledSignals??['manual_sos','keyword_sos','keyword_distress','spoken_threat','motion','heart_rate','manual_check'];
     if(!Array.isArray(enabledSignals)||enabledSignals.some(s=>!SIGNALS.includes(s)))fail(400,'invalid_signals','Unknown trigger source.');
-    const allowedSignals=enabledSignals.filter(signal=>signal!=='scene_check'&&signal!=='motion_phone');
-    if(body.automaticSceneChecks===true&&consent.capture&&consent.cloud)allowedSignals.push('scene_check');
-    // A test iPhone standing in for the glasses IMU is only accepted for explicit mock sessions.
+    const allowedSignals=enabledSignals.filter(signal=>signal!=='motion_phone');
     if(body.phoneMotionTesting===true&&source==='meta_mock')allowedSignals.push('motion_phone');
     return this.saveSession({id:randomUUID(),owner,mode:'demo',source,consent,enabledSignals:[...new Set(allowedSignals)],
       armed:false,armedUntil:null,createdAt:this.now(),expiresAt:this.now()+RECORD_TTL,heartbeatAt:this.now(),
@@ -75,7 +72,7 @@ export class GuardianService {
     if(incident&&TERMINAL.has(incident.state))incident=null;
     if(intentional&&!incident){incident=this.newIncident(s,null,body.signal,true);s=this.requireSession(owner,id);}
     if(intentional&&incident?.state==='check_in')incident=this.queueCall({...incident,checkInDeadline:null});
-    if(['spoken_threat','keyword_distress'].includes(body.signal)&&!incident){
+    if(['spoken_threat','keyword_distress','motion_phone'].includes(body.signal)&&!incident){
       incident=this.newIncident(s,detection,body.signal,false);
       s=this.requireSession(owner,id);
     }
@@ -83,51 +80,24 @@ export class GuardianService {
     if(active&&(active.state==='processing'||(active.state==='capturing'&&this.now()<=active.uploadEndsAt))){
       return {accepted:true,reason:'window_already_active',session:s,incident};
     }
-    const sceneCheck=body.signal==='scene_check';
-    const budget=sceneCheck?'scene_capture':'capture';
+    const budget='capture';
     const recent=this.recentBudget(owner,budget);
-    const interval=sceneCheck?SCENE_INTERVAL:EVENT_INTERVAL;
-    const cooledDown=!recent.length||this.now()-recent.at(-1)>=interval;
+    const cooledDown=!recent.length||this.now()-recent.at(-1)>=EVENT_INTERVAL;
     const permitted=s.consent.capture&&s.consent.cloud;
-    const canCapture=permitted&&recent.length<(sceneCheck?SCENE_LIMIT:EVENT_LIMIT)&&cooledDown;
+    const canCapture=permitted&&recent.length<EVENT_LIMIT&&cooledDown;
     const window=canCapture?{id:randomUUID(),startedAt:this.now(),captureEndsAt:this.now()+8000,uploadEndsAt:this.now()+28000,
       signal:body.signal,state:'capturing',result:null}:null;
     if(window)this.reserveBudget(owner,budget);
     s=this.saveSession({...s,windows:window?[...recent,this.now()]:recent,
       activeWindow:window,incidentId:incident?.id??s.incidentId});
     const reason=window?'capture_allowed':!permitted?'capture_or_cloud_consent_missing':
-      recent.length>=(sceneCheck?SCENE_LIMIT:EVENT_LIMIT)?'capture_budget':'trigger_cooldown';
+      recent.length>=EVENT_LIMIT?'capture_budget':'trigger_cooldown';
     return {accepted:true,reason,
       session:s,incident,window,limits:{maxFrames:6,maxFrameBytes:131072,maxAudioMs:8000,audioAllowed:s.consent.audio}};
   }
   async monitorSpeech(owner,id,body,signal){
-    const session=this.requireSession(owner,id);
-    this.requireArmed(session);
-    if(!session.consent.speechMonitoring)fail(403,'speech_consent_required','Enable ElevenLabs listening while armed.');
-    if(this.speechProcessing.has(owner))fail(429,'speech_busy','A speech clip is already being assessed.');
-    const audio=decodeBase64(body?.base64,MAX_AUDIO_BYTES);
-    this.speechProcessing.add(owner);
-    try{
-      inspectWAV(audio);
-      const recent=this.recentBudget(owner,'speech_monitoring');
-      if(recent.length>=120)fail(429,'speech_budget','Speech monitoring is temporarily rate limited.');
-      this.reserveBudget(owner,'speech_monitoring');
-      const result=await this.voice.transcribe(audio,signal);
-      if(signal?.aborted)fail(499,'request_cancelled','Speech assessment cancelled.');
-      const current=this.requireSession(owner,id);
-      this.requireArmed(current);
-      const existing=current.incidentId?this.store.get('incident',current.incidentId,owner):null;
-      if(!result.text.trim()||(existing&&!TERMINAL.has(existing.state)))return {text:result.text};
-      const detection=await this.detect({frames:[],transcript:result.text,trigger:'speech_monitoring',source:current.source},signal);
-      if(signal?.aborted)fail(499,'request_cancelled','Speech assessment cancelled.');
-      this.requireArmed(this.requireSession(owner,id));
-      const threat=detection.label==='immediate_danger';
-      if(detection.wearerInvolved!==true||(!threat&&detection.label!=='distress_request')||!shouldCheckIn(detection)){
-        return {text:result.text,detection};
-      }
-      const trigger=this.trigger(owner,id,{signal:threat?'spoken_threat':'keyword_distress'},detection);
-      return {text:result.text,detection,trigger};
-    }finally{audio.fill(0);this.speechProcessing.delete(owner);}
+    this.requireSession(owner,id);
+    fail(403,'event_trigger_required','Standby cloud listening is disabled. Submit audio only inside an accepted event capture window.');
   }
   async observe(owner,id,body,disconnectSignal){
     let s=this.requireSession(owner,id);this.requireArmed(s);
@@ -159,7 +129,7 @@ export class GuardianService {
         let incident=s.incidentId?this.store.get('incident',s.incidentId,owner):null;
         if(incident&&TERMINAL.has(incident.state))incident=null;
         if(!incident&&shouldCheckIn(detection)){incident=this.newIncident(s,detection,window.signal,false);s=this.requireSession(owner,id);}
-        else if(incident&&detection.source!=='nemotron_unavailable'){incident=this.saveIncident({...incident,detection,detectedBy:detection.source});}
+        else if(incident&&detection.source!=='nemotron_unavailable'){incident=this.saveIncident({...incident,detection,detectedBy:incident.detectedBy??detection.source});}
         const result={detection,incident,audioTranscriptionSource:audioSource,framesAnalyzed:observation.frames.length,
           audioDurationMs:observation.audio?.durationMs??0,rawMediaRetained:false};
         s=this.requireSession(owner,id);
@@ -178,9 +148,12 @@ export class GuardianService {
   newIncident(session,detection,trigger,intentional){
     if(this.recentBudget(session.owner,'incident').length>=INCIDENT_LIMIT)fail(429,'incident_budget','Thirty demonstration incidents per ten minutes are allowed.');
     this.reserveBudget(session.owner,'incident');
+    // A real-glasses check-in allows bounded capture teardown, a spoken cue and
+    // the wearer's reply. Camera capture remains limited to eight seconds.
+    const responseMs=session.source==='meta_glasses'?Math.max(30000,this.checkInMs):this.checkInMs;
     const incident=this.saveIncident({id:randomUUID(),owner:session.owner,sessionId:session.id,mode:'demo',state:'check_in',
-      trigger,detection,detectedBy:detection?.source??null,createdAt:this.now(),updatedAt:this.now(),expiresAt:this.now()+RECORD_TTL,
-      checkInDeadline:intentional?this.now():this.now()+this.checkInMs,call:null,acknowledgedAt:null,cancelledAt:null,location:null,
+      trigger,detection,detectedBy:detection?.source??(['keyword_distress','spoken_threat'].includes(trigger)?'speech_trigger':trigger==='motion_phone'?'phone_motion':null),createdAt:this.now(),updatedAt:this.now(),expiresAt:this.now()+RECORD_TTL,
+      checkInDeadline:intentional?this.now():this.now()+responseMs,call:null,acknowledgedAt:null,cancelledAt:null,location:null,
       voiceConsent:session.consent.voice,demoCallConsent:session.consent.demoCalls});
     this.saveSession({...session,incidentId:incident.id});
     return intentional?this.queueCall(incident):incident;
@@ -238,7 +211,11 @@ export class GuardianService {
     return this.saveIncident({...i,location:{latitude:location.latitude,longitude:location.longitude,accuracyMeters:location.accuracyMeters,timestamp:location.timestamp}});
   }
   callScript(i){
-    const summary=(i.detection?.summary??'The wearer deliberately requested help.').slice(0,600);
+    const triggerContext=i.trigger==='keyword_distress'?'Speech recognized a request for help or a report of danger.':
+      i.trigger==='spoken_threat'?'Speech matched a possible threat.':
+      i.trigger==='motion_phone'?'The test iPhone reported free-fall followed by impact. A wearer fall is unconfirmed.':
+      ['manual_sos','keyword_sos'].includes(i.trigger)?'The wearer deliberately requested help.':'';
+    const summary=[triggerContext,i.detection?.summary].filter(Boolean).join(' ').slice(0,600);
     const location=i.location?`Reported coordinates: ${i.location.latitude.toFixed(4)}, ${i.location.longitude.toFixed(4)}. Accuracy ${Math.round(i.location.accuracyMeters)} meters.`:'No location was shared.';
     return `This is a Ray Guardian demonstration, not an emergency call. No police or ambulance have been dispatched. ${summary} ${location} Press one to acknowledge this demonstration, or two to repeat this message.`;
   }

@@ -31,6 +31,7 @@ import MWDATMockDevice
     var onDisplayCancel: ((String) -> Void)?
     private var session: DeviceSession?, camera: Camera?, motion: Motion?, speech: Speech?
     private var imageDecoder: StreamImageDecoder?
+    private var stoppingCamera: Camera?
     private let standbyTokens = ListenerTokenBag(), cameraTokens = ListenerTokenBag()
     private var motionSamplesReceived = 0
     private var motionTask: Task<Void,Never>?
@@ -41,9 +42,14 @@ import MWDATMockDevice
     private var displayedDeadline: Date?
     private var generation = UUID()
     private var cameraGeneration = UUID()
+    private var speechFailure: String?
+    private var speechSuppressed = false
+    private var speechResumeTask: Task<Void,Never>?
     private var selector: AutoDeviceSelector?
     #if DEBUG
     private var mock: (any MockGlasses)?
+    private var mockVideo: URL?
+    private var mockFeedConfigured = false
     #endif
 
     func register() async throws { try requireConfiguration(); try await Wearables.shared.startRegistration() }
@@ -70,8 +76,9 @@ import MWDATMockDevice
         MockDeviceKit.shared.permissions.set(.camera, .granted)
         MockDeviceKit.shared.permissions.set(.microphone, .granted)
         let glasses = try MockDeviceKit.shared.pairGlasses(model: .rayBanMeta)
-        if let video { glasses.services.camera.setCameraFeed(fileURL: video) }
-        else { glasses.services.camera.setCameraFeed(cameraFacing: .back) }
+        // Configure the camera feed only when an accepted event starts capture.
+        // Pairing/arming must not start the phone's mock camera source.
+        mockVideo = video; mockFeedConfigured = false
         glasses.services.speech.setTranscriptionSource(.injected)
         if let motionCSV { glasses.services.motion.setMotionFeed(fileURL: motionCSV) }
         glasses.powerOn(); glasses.unfold(); glasses.don(); mock = glasses
@@ -88,7 +95,7 @@ import MWDATMockDevice
         await MockDeviceKit.shared.disable()
         #endif
     }
-    func startStandby(useSpeech: Bool) async throws {
+    func startStandby(useSpeech: Bool, requireSpeech: Bool = false) async throws {
         try requireConfiguration()
         stop(); let token = generation
         let selector = AutoDeviceSelector(wearables: Wearables.shared); self.selector = selector
@@ -111,6 +118,7 @@ import MWDATMockDevice
             guard token == generation, ProcessInfo.processInfo.systemUptime < deadline else { stop(); throw DeviceError.message("Glasses session did not start.") }
             try await Task.sleep(for: .milliseconds(100))
         }
+        displayStatus = deviceSession.device?.supportsDisplay() == true ? "Off" : "No screen · audio check-ins"
         if let device = deviceSession.device {
             device.addDeviceStateListener { [weak self] state in Task { @MainActor in
                 guard let self, self.generation == token else { return }
@@ -138,26 +146,53 @@ import MWDATMockDevice
             } else { motionStatus = "Motion unavailable on this device" }
         } catch { motionStatus = "Motion unavailable: \(error.localizedDescription)" }
         if useSpeech {
-            guard try await Wearables.shared.checkPermissionStatus(.microphone) == .granted else { speechStatus = "Glasses microphone permission required"; return }
             do {
+                guard try await Wearables.shared.checkPermissionStatus(.microphone) == .granted else { throw DeviceError.message("Glasses microphone permission required.") }
                 if let attached = try deviceSession.addSpeech() {
                     speech = attached
+                    speechFailure = nil; speechSuppressed = false
                     attached.transcriptionPublisher.listen { [weak self] result in Task { @MainActor in guard self?.generation == token else { return }; self?.onTranscript?(result.text,result.isFinal,result.confidence) } }.store(in: standbyTokens)
                     attached.statePublisher.listen { [weak self] state in Task { @MainActor in guard self?.generation == token else { return }; self?.speechStatus = String(describing: state) } }.store(in: standbyTokens)
-                    attached.errorPublisher.listen { [weak self] error in Task { @MainActor in guard self?.generation == token else { return }; self?.speechStatus = error.localizedDescription } }.store(in: standbyTokens)
+                    attached.errorPublisher.listen { [weak self] error in Task { @MainActor in
+                        guard let self,self.generation == token else { return }
+                        self.speechFailure = error.localizedDescription; self.speechStatus = error.localizedDescription
+                        if requireSpeech,!self.speechSuppressed { self.onUnavailable?("Selected glasses speech failed: \(error.localizedDescription)") }
+                    } }.store(in: standbyTokens)
                     attached.start()
-                } else { speechStatus = "Speech unavailable; select phone local speech if needed" }
-            } catch { speechStatus = "Speech unavailable: \(error.localizedDescription)" }
+                    if requireSpeech {
+                        let speechDeadline = ProcessInfo.processInfo.systemUptime+5
+                        while attached.state != .started {
+                            try Task.checkCancellation()
+                            guard generation == token,session === deviceSession else { throw CancellationError() }
+                            guard speechFailure == nil,ProcessInfo.processInfo.systemUptime < speechDeadline else {
+                                throw DeviceError.message(speechFailure ?? "Glasses speech did not start.")
+                            }
+                            try await Task.sleep(for:.milliseconds(100))
+                        }
+                    }
+                } else { throw DeviceError.message("Speech unavailable on these glasses or this Meta developer configuration.") }
+            } catch {
+                speechStatus = "Speech unavailable: \(error.localizedDescription)"
+                if requireSpeech { throw DeviceError.message("\(speechStatus) Enable Meta Speech capability and microphone permission, or explicitly choose Phone local speech in Setup.") }
+            }
         }
     }
     func startCapture(includeGlassesAudio: Bool) async throws {
         try requireConfiguration()
         stopCapture(); let token = cameraGeneration
+        try await waitForCameraStopped()
         guard let session, session.state == .started else { throw DeviceError.message("No started glasses session.") }
         guard try await Wearables.shared.checkPermissionStatus(.camera) == .granted else { throw DeviceError.message("Glasses camera permission required.") }
         if includeGlassesAudio, try await Wearables.shared.checkPermissionStatus(.microphone) != .granted { throw DeviceError.message("Glasses microphone permission required.") }
         guard token == cameraGeneration, self.session === session, session.state == .started, !Task.isCancelled else { throw CancellationError() }
-        let config = StreamConfiguration(videoCodec: .hvc1, audioCodec: includeGlassesAudio ? .pcm(sampleRate: .rate16000, numberOfChannels: 1) : nil, resolution: .low, frameRate: Self.captureFrameRate)
+        #if DEBUG
+        if let mock,!mockFeedConfigured {
+            if let mockVideo { mock.services.camera.setCameraFeed(fileURL:mockVideo) }
+            else { mock.services.camera.setCameraFeed(cameraFacing:.back) }
+            mockFeedConfigured = true
+        }
+        #endif
+        let config = StreamConfiguration(videoCodec: .hvc1, audioCodec: includeGlassesAudio ? .pcm(sampleRate: .rate16000, numberOfChannels: 1) : nil, resolution: .low, frameRate: 7)
         guard let attached = try session.addCamera(config: config) else { throw DeviceError.message("Camera unavailable.") }
         camera = attached
         let decoder = StreamImageDecoder(); imageDecoder = decoder
@@ -174,10 +209,24 @@ import MWDATMockDevice
         attached.stream.statePublisher.listen { [weak self] state in Task { @MainActor in guard self?.cameraGeneration == token else { return }; self?.cameraStatus = String(describing: state) } }.store(in: cameraTokens)
         attached.stream.start(); cameraStatus = "Starting bounded stream"
     }
-    func stopCapture() { cameraGeneration = UUID(); cameraTokens.clear(); camera?.stop(); camera = nil; imageDecoder?.close(); imageDecoder = nil; cameraStatus = "Off" }
+    func stopCapture() {
+        cameraGeneration = UUID(); cameraTokens.clear()
+        if let camera { stoppingCamera = camera; camera.stop() }
+        camera = nil; imageDecoder?.close(); imageDecoder = nil; cameraStatus = "Off"
+    }
+    func waitForCameraStopped() async throws {
+        guard let camera = stoppingCamera else { return }
+        let deadline = ProcessInfo.processInfo.systemUptime+2
+        while camera.state != .stopped {
+            try Task.checkCancellation()
+            guard ProcessInfo.processInfo.systemUptime < deadline else { throw DeviceError.message("Glasses camera did not stop; spoken output is not confirmed.") }
+            try await Task.sleep(for:.milliseconds(50))
+        }
+        if stoppingCamera === camera { stoppingCamera = nil }
+    }
     func showCheckIn(id: String, startedAt: Date, deadline: Date) {
         guard displayedIncident != id || displayedDeadline != deadline, let session, session.state == .started,
-              session.device?.deviceType() == .metaRayBanDisplay else { return }
+              session.device?.supportsDisplay() == true else { return }
         displayedIncident = id
         displayedDeadline = deadline
         displayTask?.cancel()
@@ -274,6 +323,8 @@ import MWDATMockDevice
         standbyTokens.clear()
         motionTask?.cancel()
         motionTask = nil
+        speechResumeTask?.cancel()
+        speechResumeTask = nil
         speech?.stop()
         motion?.stop()
         session?.stop()
@@ -285,7 +336,24 @@ import MWDATMockDevice
         speechStatus = "Off"
         status = "Stopped"
     }
-    func setVoiceSuppressed(_ value: Bool) { if value { speech?.stop() } else { speech?.start() } }
+    func setVoiceSuppressed(_ value: Bool) {
+        guard speechSuppressed != value else { return }
+        speechSuppressed = value
+        speechResumeTask?.cancel()
+        if value { speech?.stop(); return }
+        guard let speech,session?.state == .started else { return }
+        let token = generation
+        speechResumeTask = Task { [weak self] in
+            let deadline = ProcessInfo.processInfo.systemUptime+2
+            while speech.state == .stopping || speech.state == .starting {
+                guard !Task.isCancelled,let self,self.generation == token,!self.speechSuppressed else { return }
+                guard ProcessInfo.processInfo.systemUptime < deadline else { self.onUnavailable?("Glasses speech did not resume after the spoken cue."); return }
+                try? await Task.sleep(for:.milliseconds(50))
+            }
+            guard !Task.isCancelled,let self,self.generation == token,!self.speechSuppressed,self.session?.state == .started else { return }
+            if speech.state == .stopped { speech.start() }
+        }
+    }
     func injectSpeech(_ text: String) {
         #if DEBUG
         mock?.services.speech.simulateTranscription(text: text, isFinal: true, confidence: 0.95)

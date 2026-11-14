@@ -48,12 +48,11 @@ public final class GuardianAPI: @unchecked Sendable {
 public struct Empty: Encodable, Sendable { public init() {} }
 public struct CreateSession: Encodable, Sendable {
     public let mode = "demo", consent: Consent, source: CaptureSource
-    public let automaticSceneChecks: Bool, speechMonitoring: Bool, phoneMotionTesting: Bool
-    public init(consent: Consent, source: CaptureSource, automaticSceneChecks: Bool = false, speechMonitoring: Bool = false, phoneMotionTesting: Bool = false) {
+    public let automaticSceneChecks = false, speechMonitoring = false
+    public let phoneMotionTesting: Bool
+    public init(consent: Consent, source: CaptureSource, phoneMotionTesting: Bool = false) {
         self.consent = consent
         self.source = source
-        self.automaticSceneChecks = automaticSceneChecks
-        self.speechMonitoring = speechMonitoring
         self.phoneMotionTesting = phoneMotionTesting
     }
 }

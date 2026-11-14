@@ -5,7 +5,7 @@ public struct Consent: Codable, Equatable, Sendable {
     public init() {}
 }
 public enum CaptureSource: String, Codable, CaseIterable, Sendable { case meta_mock, meta_glasses, phone, file_replay }
-public enum TriggerSignal: String, Codable, Sendable { case manual_sos, keyword_sos, keyword_distress, spoken_threat, motion, motion_phone, heart_rate, loud_voice, scene_check }
+public enum TriggerSignal: String, Codable, Sendable { case manual_sos, keyword_sos, keyword_distress, spoken_threat, motion, motion_phone, heart_rate, loud_voice, manual_check }
 public struct Detection: Codable, Equatable, Sendable {
     public let label: String, confidence: String, summary: String, observations: [String], uncertainties: [String], source: String
     public let wearerInvolved: Bool?

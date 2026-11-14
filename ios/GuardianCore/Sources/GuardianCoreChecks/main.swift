@@ -7,6 +7,24 @@ verify(KeywordDetector.intent("Guardian SOS",isFinal:true,confidence:-1) == .sos
 verify(KeywordDetector.intent("Guardian cancel",isFinal:false,confidence:0.9) == nil,"Partial ASR cannot trigger")
 verify(KeywordDetector.intent("Guardian SOS",isFinal:true,confidence:0.9,isPlayingVoice:true) == nil,"Voice echo suppressed")
 verify(KeywordDetector.intent("Loud concert",isFinal:true,confidence:0.9) == nil,"Everyday speech ignored")
+// The XCTest target and this Command Line Tools executable share the same corpus.
+struct SpeechExample: Decodable { let text: String, expected: String?; let isFinal: Bool?, confidence: Float?, isPlayingVoice: Bool? }
+let corpusURL = URL(fileURLWithPath:#filePath).deletingLastPathComponent().appendingPathComponent("../../Tests/Fixtures/speech-intents.json")
+for example in try JSONDecoder().decode([SpeechExample].self,from:Data(contentsOf:corpusURL)) {
+    let result = KeywordDetector.intent(example.text,isFinal:example.isFinal ?? true,confidence:example.confidence ?? 0.9,isPlayingVoice:example.isPlayingVoice ?? false)
+    verify(result.map { String(describing:$0) } == example.expected,"Speech regression: \(example.text)")
+}
+var phoneFall = FallCandidateDetector()
+verify(abs(MotionPoint.phoneAcceleration(time:0,x:0,y:0,z:-1).g-1)<0.00001,"Phone acceleration uses gravity-inclusive g")
+verify(!phoneFall.consume(.phoneAcceleration(time:1,x:0.1,y:0,z:0)),"Phone free-fall candidate")
+verify(phoneFall.consume(.phoneAcceleration(time:1.2,x:3,y:0,z:0)),"Phone impact after free-fall")
+verify(!phoneFall.consume(.phoneAcceleration(time:1.3,x:0.1,y:0,z:0)),"Phone trigger cooldown")
+verify(!phoneFall.consume(.phoneAcceleration(time:1.5,x:3,y:0,z:0)),"Phone cooldown suppresses duplicate impact")
+let requestData = try JSONEncoder().encode(CreateSession(consent:Consent(),source:.meta_mock,phoneMotionTesting:true))
+let requestJSON = try JSONSerialization.jsonObject(with:requestData) as! [String:Any]
+verify(requestJSON["phoneMotionTesting"] as? Bool == true,"Explicit phone motion session contract")
+verify(requestJSON["automaticSceneChecks"] as? Bool == false,"No periodic camera captures")
+verify(requestJSON["speechMonitoring"] as? Bool == false,"No standby cloud audio uploads")
 var detector = FallCandidateDetector()
 verify(!detector.consume(MotionPoint(time:1,x:0,y:0,z:30)),"Impact alone rejected")
 verify(!detector.consume(MotionPoint(time:1.2,x:0,y:0,z:1)),"Free fall is a candidate only")
@@ -19,6 +37,8 @@ verify(continuousMotion.consume(MotionPoint(time:1.066,x:0,y:0,z:30)),"30 Hz imp
 var gate = PrivacyGate(), consent = Consent(); gate.arm(consent:consent,now:0)
 verify(gate.beginCapture(now:1) == nil,"Default capture denied")
 consent.capture = true; consent.cloud = true; gate.arm(consent:consent,now:2)
+verify(gate.captureEndsAt == nil,"Arming alone does not start capture")
+verify(!gate.accepts(gate.epoch,now:2.5),"No evidence accepted before a capture trigger")
 let epoch = gate.beginCapture(now:3)!
 verify(gate.accepts(epoch,now:4),"Current capture accepted")
 verify(!gate.accepts(epoch,now:12),"Capture expires")
@@ -108,4 +128,14 @@ verify(haloClock.reading(at:90000)?.fraction == 1,"Backward clock drift cannot o
 verify(haloClock.reading(at:.nan) == nil,"Invalid clock is not rendered as a countdown")
 verify(QuietHalo.Countdown(startedAt:115000,deadline:100000) == nil,"Reversed deadline is rejected")
 verify(QuietHalo.Countdown(startedAt:0,deadline:.infinity) == nil,"Nonfinite deadline is rejected")
+let handsFreeCheckIn = HandsFreePrompt.text(state:"check_in",voiceCommands:true)!
+verify(handsFreeCheckIn.contains("Guardian cancel") && handsFreeCheckIn.contains("Guardian SOS"),"Screenless check-in explains both voice commands")
+verify(KeywordDetector.intent("Guardian cancel",isFinal:true,confidence:0.9) == .cancel,"Spoken cancellation works without display input")
+verify(KeywordDetector.intent("Guardian SOS",isFinal:true,confidence:0.9) == .sos,"Spoken SOS works without display input")
+verify(KeywordDetector.intent(handsFreeCheckIn,isFinal:true,confidence:0.9,isPlayingVoice:true) == nil,"Spoken instructions cannot cancel their own incident")
+verify(HandsFreePrompt.text(state:"check_in",voiceCommands:false)?.contains("phone") == true,"Manual-only mode does not promise voice commands")
+verify(HandsFreePrompt.text(state:"call_unknown",voiceCommands:true)?.contains("unknown") == true,"Unknown dispatch status is announced honestly")
+verify(HandsFreePrompt.text(state:"call_failed",voiceCommands:true)?.contains("No help is confirmed") == true,"Failure cue never claims help was sent")
+verify(HandsFreePrompt.text(state:"demo_call_active",voiceCommands:true) == nil,"Actual demo audio has its own transport")
+verify(HandsFreePrompt.text(state:"future_unknown_state",voiceCommands:true) == nil,"Unknown state does not invent a spoken confirmation")
 print("Passed \(checks) GuardianCore checks")

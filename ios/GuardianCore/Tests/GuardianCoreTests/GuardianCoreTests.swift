@@ -4,6 +4,15 @@ import XCTest
 import FoundationNetworking
 #endif
 final class GuardianCoreTests: XCTestCase {
+    func testScreenlessCheckInHasVoiceControlsAndSuppressesItsOwnInstructions() throws {
+        let prompt = try XCTUnwrap(HandsFreePrompt.text(state:"check_in",voiceCommands:true))
+        XCTAssertTrue(prompt.contains("Guardian cancel"))
+        XCTAssertTrue(prompt.contains("Guardian SOS"))
+        XCTAssertNil(KeywordDetector.intent(prompt,isFinal:true,confidence:0.9,isPlayingVoice:true))
+        XCTAssertTrue(try XCTUnwrap(HandsFreePrompt.text(state:"check_in",voiceCommands:false)).contains("phone"))
+        XCTAssertTrue(try XCTUnwrap(HandsFreePrompt.text(state:"call_unknown",voiceCommands:true)).contains("unknown"))
+        XCTAssertNil(HandsFreePrompt.text(state:"future_unknown_state",voiceCommands:true))
+    }
     func testQuietHaloUsesServerDeadlineAndDoesNotInventAlertSuccess() throws {
         let clock=try XCTUnwrap(QuietHalo.Countdown(startedAt:100000,deadline:115000))
         XCTAssertEqual(clock.reading(at:103001)?.seconds,12)
@@ -20,31 +29,35 @@ final class GuardianCoreTests: XCTestCase {
         XCTAssertEqual(QuietHalo.state(incidentState:"call_unknown")?.title,"Check demo status")
         XCTAssertEqual(QuietHalo.state(incidentState:"cancelled")?.kind,.confirmation)
     }
-    func testSpeechClipSurvivesOldWindowBoundaryAndAnInternalPause() {
-        var buffer = SpeechClipBuffer()
-        XCTAssertTrue(buffer.consume(Array(repeating: 0, count: 61_000)).isEmpty)
-        let first = Array(repeating: Int16(600), count: 4_600)
-        let pause = Array(repeating: Int16(0), count: 4_800)
-        let last = Array(repeating: Int16(-700), count: 7_200)
-        let utterance = first + pause + last
-        // Irregular audio callbacks should not affect where the clip starts or ends.
-        for start in stride(from: 0, to: utterance.count, by: 541) {
-            XCTAssertTrue(buffer.consume(Array(utterance[start..<min(start + 541, utterance.count)])).isEmpty)
+    func testSpeechRegressionCorpus() throws {
+        struct Example: Decodable { let text: String, expected: String?; let isFinal: Bool?, confidence: Float?, isPlayingVoice: Bool? }
+        let url = URL(fileURLWithPath:#filePath).deletingLastPathComponent().appendingPathComponent("../Fixtures/speech-intents.json")
+        for example in try JSONDecoder().decode([Example].self,from:Data(contentsOf:url)) {
+            let result = KeywordDetector.intent(example.text,isFinal:example.isFinal ?? true,confidence:example.confidence ?? 0.9,isPlayingVoice:example.isPlayingVoice ?? false)
+            XCTAssertEqual(result.map { String(describing:$0) },example.expected,example.text)
         }
-        let clips = buffer.consume(Array(repeating: 0, count: 12_000))
-        XCTAssertEqual(clips.count, 1)
-        XCTAssertEqual(clips.first?.filter { $0 != 0 }, first + last)
     }
-
-    func testSpeechClipLimitsLongRunsAndDoesNotResubmitTheOverlapAlone() {
-        var buffer = SpeechClipBuffer()
-        let initial = buffer.consume(Array(repeating: 900, count: 128_000))
-        XCTAssertEqual(initial.first?.count, 128_000)
-        XCTAssertTrue(buffer.consume(Array(repeating: 0, count: 16_000)).isEmpty)
-        XCTAssertTrue(buffer.consume([Int16.max] + Array(repeating: 0, count: 16_000)).isEmpty)
-        XCTAssertEqual(buffer.consume(Array(repeating: 900, count: 3_200) + Array(repeating: 0, count: 12_000)).count, 1)
+    func testPhoneMotionConvertsGravityUnitsAndKeepsItsOwnCooldown() {
+        var phone = FallCandidateDetector(), glasses = FallCandidateDetector()
+        let rest = MotionPoint.phoneAcceleration(time:1,x:0,y:0,z:-1)
+        XCTAssertEqual(rest.g,1,accuracy:0.00001)
+        XCTAssertFalse(phone.consume(rest))
+        XCTAssertFalse(phone.consume(.phoneAcceleration(time:1.1,x:0.1,y:0,z:0)))
+        XCTAssertTrue(phone.consume(.phoneAcceleration(time:1.3,x:3,y:0,z:0)))
+        XCTAssertFalse(phone.consume(.phoneAcceleration(time:1.4,x:0.1,y:0,z:0)))
+        XCTAssertFalse(phone.consume(.phoneAcceleration(time:1.6,x:3,y:0,z:0)))
+        XCTAssertFalse(glasses.consume(.phoneAcceleration(time:1.4,x:0.1,y:0,z:0)))
+        XCTAssertTrue(glasses.consume(.phoneAcceleration(time:1.6,x:3,y:0,z:0)))
     }
-
+    func testPhoneMotionOptInIsIncludedInSessionContract() throws {
+        let normal = try JSONSerialization.jsonObject(with:JSONEncoder().encode(CreateSession(consent:Consent(),source:.meta_mock))) as! [String:Any]
+        XCTAssertEqual(normal["phoneMotionTesting"] as? Bool,false)
+        XCTAssertEqual(normal["automaticSceneChecks"] as? Bool,false)
+        XCTAssertEqual(normal["speechMonitoring"] as? Bool,false)
+        let optedIn = try JSONSerialization.jsonObject(with:JSONEncoder().encode(CreateSession(consent:Consent(),source:.meta_mock,phoneMotionTesting:true))) as! [String:Any]
+        XCTAssertEqual(optedIn["phoneMotionTesting"] as? Bool,true)
+        XCTAssertEqual(TriggerSignal.motion_phone.rawValue,"motion_phone")
+    }
     func testKeywordsRequireFinalLocalRecognitionAndIgnorePlayback() {
         XCTAssertEqual(KeywordDetector.intent("Guardian, help me!",isFinal: true,confidence: 0.9),.distress)
         XCTAssertEqual(KeywordDetector.intent("Guardian SOS",isFinal: true,confidence: -1),.sos)

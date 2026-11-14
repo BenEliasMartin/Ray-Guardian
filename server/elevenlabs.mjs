@@ -2,7 +2,7 @@ import { ApiError } from './nemotron.mjs';
 import { httpsEndpoint, providerRequest } from './lib/transport.mjs';
 
 export const VOICE_PROMPTS = Object.freeze({
-  check_in: 'Ray Guardian noticed a possible incident. Are you okay? Use the cancel button if you are okay, or the SOS button to continue. This is a demonstration.',
+  check_in: 'Are you okay? Say Guardian cancel, or Guardian SOS. You can also use the companion controls. This is a demonstration.',
   cancelled: 'The demonstration incident has been cancelled. No emergency services have been contacted.',
   acknowledged: 'The demo operator acknowledged the demonstration. No real emergency responders have been dispatched.',
   demo_dispatch: 'This is the Ray Guardian demonstration dispatch line. This is not an emergency service. The demonstration operator is receiving your incident report.',

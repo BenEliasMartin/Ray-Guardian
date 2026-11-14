@@ -1,5 +1,27 @@
 import Foundation
 
+/// Fixed audio instructions never require a display on the glasses.
+public enum HandsFreePrompt {
+    public static func text(state: String, voiceCommands: Bool) -> String? {
+        switch state {
+        case "check_in": return voiceCommands
+            ? "Are you okay? Say Guardian cancel, or Guardian SOS. This is a demo."
+            : "Are you okay? Open Ray Guardian on your phone to cancel or request demo help."
+        case "cancelled": return "Demo cancelled. No emergency services have been contacted."
+        case "acknowledged": return "The demo operator acknowledged your report. No real responders have been dispatched."
+        case "call_queued": return "Preparing the demo alert."
+        case "call_ringing": return "The demo phone call is ringing."
+        case "call_in_progress": return "The demo phone call is connected."
+        case "call_completed": return "The demo phone call has finished."
+        case "call_failed": return "The demo call failed. No help is confirmed. Check your phone."
+        case "call_unknown": return "The demo call status is unknown. Check your phone."
+        case "needs_demo_call_consent": return "Demo escalation is paused. Check consent in Ray Guardian on your phone."
+        case "demo_call_limited": return "The demo call limit was reached. No new call has been placed."
+        default: return nil
+        }
+    }
+}
+
 public enum VoiceIntent: Equatable, Sendable { case sos, distress, cancel, threat }
 public enum KeywordDetector {
     public static func intent(_ text: String, isFinal: Bool, confidence: Float, isPlayingVoice: Bool = false) -> VoiceIntent? {
@@ -23,15 +45,26 @@ public enum KeywordDetector {
             let direct = words.joined(separator: " ")
             let firstPerson = "(?:i am|im|i m)"
             let reports = [
-                "\(firstPerson) (?:in (?:immediate )?danger(?! of\\b)|not safe|unsafe|being (?:attacked|followed|threatened)|trapped|hurt|injured|bleeding|choking)",
+                "\(firstPerson) (?:in (?:immediate )?danger(?! of\\b)|not safe|unsafe|under attack|being (?:attacked|followed|threatened)|trapped|hurt|injured|bleeding|choking)",
                 "i (?:cant|cannot|can not) (?:breathe|get up|move)",
-                "(?:ive|i have) fallen|i fell",
+                "i (?:dont|do not) feel safe|i fear for my life|my life is in danger",
+                "i need (?:an ambulance|the police|medical help)",
+                "(?:someone|somebody) is (?:attacking|following|threatening|hurting|choking) me",
+                "(?:ive|i have) been attacked",
+                "(?:ive|i have) fallen(?: down)?(?: and i (?:cant|cannot|can not) get up)?$|i fell(?: down| over)?$",
                 "(?:call (?:an ambulance|the police)|send help)"
             ]
             let directDistress = reports.contains {
                 direct.range(of: "^(?:guardian )?(?:please )?(?:\($0))(?: |$)",options: .regularExpression) != nil
             }
-            if (directDistress || words == ["help"] || cries.contains(where: { value.contains(" " + $0 + " ") })),
+            // Refusal pleas can be uttered by anyone nearby and need no wake word.
+            // Match whole pleas so ordinary "please don't forget ..." is excluded.
+            let refusal = "^(?:guardian )?(?:(?:no )+(?:please )?(?:dont|do not)(?: do that)?|please (?:dont|do not)(?: do that)?|(?:no )*(?:please )?(?:dont|do not) (?:hurt|touch|hit|kill|shoot|stab|grab|follow) me|(?:no )*(?:please )?(?:let me go|leave me alone|get off me|get away from me)|no (?:please )?stop|please stop(?: it)?|stop please)(?: (?:no|please|stop))*$"
+            let refusalPlea = direct.range(of:refusal,options:.regularExpression) != nil
+            let negatedHelp = direct.range(of: "\\b(?:dont|do not|no need to) (?:please )?help\\b",options: .regularExpression) != nil
+            let routineHelp = direct.range(of: "\\b(?:help me|need help|please help) with\\b",options: .regularExpression) != nil
+            let helpRequest = !negatedHelp && !routineHelp && (words == ["help"] || cries.contains(where: { value.contains(" " + $0 + " ") }))
+            if (directDistress || refusalPlea || helpRequest),
                isFinal || !value.contains(" guardian ") { return .distress }
         }
         return nil

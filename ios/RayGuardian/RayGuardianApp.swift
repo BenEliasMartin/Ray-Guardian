@@ -11,7 +11,6 @@ import MWDATCore
         if ProcessInfo.processInfo.arguments.contains("--guardian-ui-fixture") {
             model.settings.usesEphemeralUITestConfiguration = true
             model.settings.mockUsesReplay = true
-            model.settings.automaticSceneChecks = false
             model.settings.audio = .replay
             model.settings.keywords = .glasses
             model.settings.apiURL = ProcessInfo.processInfo.environment["GUARDIAN_UI_TEST_API"] ?? "http://127.0.0.1:8787"

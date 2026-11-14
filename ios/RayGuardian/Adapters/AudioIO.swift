@@ -3,6 +3,39 @@ import AVFoundation
 import Speech
 import GuardianCore
 
+/// Keep an explicitly selected phone microphone while allowing glasses output.
+/// DAT connection and the iPhone's Bluetooth audio route are separate connections.
+@MainActor enum GuardianAudioRoute {
+    static func configure(phoneMicrophone: Bool, requireBluetooth: Bool) throws {
+        let session = AVAudioSession.sharedInstance()
+        if phoneMicrophone {
+            var options: AVAudioSession.CategoryOptions = [.allowBluetoothA2DP]
+            if !requireBluetooth { options.insert(.defaultToSpeaker) }
+            try session.setCategory(.playAndRecord,mode:.default,options:options)
+        } else {
+            // Output-only cues must not take over the Bluetooth microphone from
+            // DAT speech or open a phone microphone while manual-only is armed.
+            try session.setCategory(.playback,mode:.spokenAudio)
+        }
+        try session.setActive(true)
+        if phoneMicrophone {
+            guard let microphone = session.availableInputs?.first(where: { $0.portType == .builtInMic }) else {
+                throw DeviceError.message("The selected phone microphone is unavailable.")
+            }
+            try session.setPreferredInput(microphone)
+        }
+        if requireBluetooth {
+            if phoneMicrophone { try session.overrideOutputAudioPort(.none) }
+            guard session.currentRoute.outputs.contains(where: { [.bluetoothA2DP,.bluetoothHFP,.bluetoothLE].contains($0.portType) }) else {
+                throw DeviceError.message("Select your Meta glasses as the iPhone audio output, then run Test glasses audio in Setup. DAT pairing alone does not select audio output.")
+            }
+        }
+    }
+    static var description: String {
+        AVAudioSession.sharedInstance().currentRoute.outputs.map(\.portName).joined(separator:", ")
+    }
+}
+
 /// Converts both DAT and phone buffers into the identical mono 16 kHz processing format.
 enum PCMConverter {
     static func samples(_ input: AVAudioPCMBuffer) -> [Int16] {
@@ -20,6 +53,9 @@ enum PCMConverter {
     private var engine: AVAudioEngine?, recognizer: SFSpeechRecognizer?, request: SFSpeechAudioBufferRecognitionRequest?, recognition: SFSpeechRecognitionTask?
     private var restart: Task<Void,Never>?, epoch = UUID(), wantsASR = false, suppressed = false
     private var recognitionID = UUID(), recognitionFailures = 0
+    private var endUtterance: Task<Void,Never>?
+    var captureEnabled = false
+    var requiresBluetoothOutput = false
     func requestPermissions(localSpeech: Bool) async throws {
         guard await AVAudioApplication.requestRecordPermission() else { throw DeviceError.message("Phone microphone permission denied.") }
         if localSpeech {
@@ -36,28 +72,43 @@ enum PCMConverter {
             self.recognizer = recognizer
         }
         guard token == epoch else { throw CancellationError() }; wantsASR = localASR
-        let audioSession = AVAudioSession.sharedInstance(); try audioSession.setCategory(.playAndRecord,mode: .voiceChat,options: [.defaultToSpeaker,.allowBluetooth]); try audioSession.setActive(true)
-        guard let microphone = audioSession.availableInputs?.first(where: { $0.portType == .builtInMic }) else { throw DeviceError.message("The selected phone microphone is unavailable.") }; try audioSession.setPreferredInput(microphone)
+        try GuardianAudioRoute.configure(phoneMicrophone:true,requireBluetooth:requiresBluetoothOutput)
         let engine = AVAudioEngine(); self.engine = engine
         if localASR { beginRecognition(token: token) }
         engine.inputNode.installTap(onBus: 0,bufferSize: 1024,format: nil) { [weak self] buffer,_ in
             let arrivedAt = ProcessInfo.processInfo.systemUptime
-            let pcm = PCMConverter.samples(buffer)
             guard let copy = AVAudioPCMBuffer(pcmFormat:buffer.format,frameCapacity:buffer.frameLength) else { return }
             copy.frameLength = buffer.frameLength
             let source = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating:buffer.audioBufferList)), destination = UnsafeMutableAudioBufferListPointer(copy.mutableAudioBufferList)
             for index in 0..<min(source.count,destination.count) { if let src = source[index].mData,let dst = destination[index].mData { memcpy(dst,src,Int(source[index].mDataByteSize)) } }
-            Task { @MainActor in guard let self, self.epoch == token,!self.suppressed else { return }; self.request?.append(copy); self.onPCM?(pcm,arrivedAt) }
+            Task { @MainActor in
+                guard let self,self.epoch == token,!self.suppressed else { return }
+                self.request?.append(copy)
+                // Standby feeds local ASR only. Convert/export PCM only for a
+                // permitted event window; no standby PCM ring buffer is retained.
+                if self.captureEnabled { self.onPCM?(PCMConverter.samples(copy),arrivedAt) }
+            }
         }
-        engine.prepare(); try engine.start(); status = localASR ? "Phone local speech + microphone active" : "Phone microphone active during capture"
+        engine.prepare(); try engine.start(); status = localASR ? "Phone local speech + microphone active" : "Phone microphone active · local speech off"
     }
     private func beginRecognition(token: UUID) {
         guard !suppressed else { return }; let id = UUID(); recognitionID = id
-        recognition?.cancel(); request?.endAudio()
-        let request = SFSpeechAudioBufferRecognitionRequest(); request.requiresOnDeviceRecognition = true; request.shouldReportPartialResults = true; request.taskHint = .confirmation; self.request = request
+        endUtterance?.cancel(); recognition?.cancel(); request?.endAudio()
+        let request = SFSpeechAudioBufferRecognitionRequest(); request.requiresOnDeviceRecognition = true; request.shouldReportPartialResults = true; request.taskHint = .dictation; self.request = request
         recognition = recognizer?.recognitionTask(with: request) { [weak self] result,error in Task { @MainActor in
             guard let self, self.epoch == token,self.recognitionID == id,!self.suppressed else { return }
             if let result { let confidence = result.bestTranscription.segments.last?.confidence ?? -1; self.onTranscript?(result.bestTranscription.formattedString,result.isFinal,confidence) }
+            // Finalize settled speech promptly, including final-only cancel/SOS
+            // commands, instead of waiting for the 50-second session rotation.
+            self.endUtterance?.cancel()
+            if let result,!result.isFinal {
+                self.endUtterance = Task { [weak self] in
+                    try? await Task.sleep(for: .seconds(1.2))
+                    guard !Task.isCancelled,let self,self.epoch == token,self.recognitionID == id,!self.suppressed else { return }
+                    let ending = self.request; self.request = nil; ending?.endAudio()
+                    self.scheduleRestart(token:token,seconds:2)
+                }
+            }
             if let error {
                 self.recognitionFailures += 1; self.status = "Local speech unavailable: \(error.localizedDescription)"
                 if self.recognitionFailures >= 3 { self.onFailure?(self.status); return }
@@ -71,22 +122,65 @@ enum PCMConverter {
     }
     func setSuppressed(_ value: Bool) {
         suppressed = value
-        if value { recognitionID = UUID(); restart?.cancel(); recognition?.cancel(); request?.endAudio(); request = nil }
+        if value { recognitionID = UUID(); endUtterance?.cancel(); restart?.cancel(); recognition?.cancel(); request?.endAudio(); request = nil }
         else if wantsASR,engine != nil { beginRecognition(token:epoch) }
     }
-    func stop() { epoch = UUID(); restart?.cancel(); restart = nil; recognition?.cancel(); recognition = nil; request?.endAudio(); request = nil; if let engine { engine.inputNode.removeTap(onBus: 0); engine.stop() }; engine = nil; recognizer = nil; wantsASR = false; status = "Off" }
+    func stop() { epoch = UUID(); captureEnabled = false; endUtterance?.cancel(); endUtterance = nil; restart?.cancel(); restart = nil; recognition?.cancel(); recognition = nil; request?.endAudio(); request = nil; if let engine { engine.inputNode.removeTap(onBus: 0); engine.stop() }; engine = nil; recognizer = nil; wantsASR = false; status = "Off" }
 }
-@MainActor final class VoicePlayer: NSObject, ObservableObject, AVAudioPlayerDelegate {
+@MainActor final class VoicePlayer: NSObject, ObservableObject, AVAudioPlayerDelegate, AVSpeechSynthesizerDelegate {
     @Published private(set) var playing = false
-    private var suppressedUntil = 0.0
-    var suppressInput: Bool { playing || ProcessInfo.processInfo.systemUptime < suppressedUntil }
+    @Published private(set) var inputSuppressed = false
+    @Published private(set) var status = "Voice idle"
+    var suppressInput: Bool { inputSuppressed }
+    var requiresBluetoothOutput = false
+    var usesPhoneMicrophone = false
     private var player: AVAudioPlayer?
-    func play(_ data: Data) throws {
-        stop(); let session = AVAudioSession.sharedInstance(); try session.setCategory(.playAndRecord,mode: .voiceChat,options: [.defaultToSpeaker,.allowBluetooth]); try session.setActive(true)
-        let player = try AVAudioPlayer(data: data); self.player = player; player.delegate = self; player.prepareToPlay()
-        guard player.play() else { throw DeviceError.message("Voice playback failed.") }; playing = true; suppressedUntil = .infinity
+    private lazy var synthesizer: AVSpeechSynthesizer = { let value = AVSpeechSynthesizer(); value.delegate = self; return value }()
+    private var utterance: AVSpeechUtterance?
+    private var resumeTask: Task<Void,Never>?
+    func prepareRoute() throws {
+        try GuardianAudioRoute.configure(phoneMicrophone:usesPhoneMicrophone,requireBluetooth:requiresBluetoothOutput)
+        status = "Audio output: \(GuardianAudioRoute.description)"
     }
-    func stop() { player?.stop(); player = nil; playing = false; suppressedUntil = ProcessInfo.processInfo.systemUptime+2 }
-    nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer,successfully flag: Bool) { Task { @MainActor in self.playing = false; self.player = nil; self.suppressedUntil = ProcessInfo.processInfo.systemUptime+2 } }
-    nonisolated func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer,error: Error?) { Task { @MainActor in self.playing = false; self.player = nil; self.suppressedUntil = ProcessInfo.processInfo.systemUptime+2 } }
+    func play(_ data: Data) throws {
+        stop(); try prepareRoute()
+        let player = try AVAudioPlayer(data: data); self.player = player; player.delegate = self; player.prepareToPlay()
+        beginOutput()
+        guard player.play() else { stop(); throw DeviceError.message("Voice playback failed.") }
+    }
+    /// A check-in must be audible even when cloud synthesis is slow or unavailable.
+    func speakLocally(_ text: String) throws {
+        stop(); try prepareRoute()
+        let utterance = AVSpeechUtterance(string:text)
+        utterance.voice = AVSpeechSynthesisVoice(language:"en-US")
+        self.utterance = utterance
+        beginOutput(); synthesizer.speak(utterance)
+    }
+    private func beginOutput() { resumeTask?.cancel(); inputSuppressed = true; playing = true }
+    private func finishedOutput() {
+        playing = false
+        resumeTask?.cancel()
+        resumeTask = Task { [weak self] in
+            try? await Task.sleep(for:.milliseconds(350))
+            guard !Task.isCancelled,let self,!self.playing else { return }
+            self.inputSuppressed = false
+        }
+    }
+    func stop() {
+        resumeTask?.cancel(); player?.stop(); player = nil; utterance = nil
+        synthesizer.stopSpeaking(at:.immediate)
+        finishedOutput()
+    }
+    nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer,successfully flag: Bool) {
+        Task { @MainActor in guard self.player === player else { return }; self.player = nil; self.finishedOutput() }
+    }
+    nonisolated func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer,error: Error?) {
+        Task { @MainActor in guard self.player === player else { return }; self.player = nil; self.status = "Voice playback failed"; self.finishedOutput() }
+    }
+    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer,didFinish utterance: AVSpeechUtterance) {
+        Task { @MainActor in guard self.utterance === utterance else { return }; self.utterance = nil; self.finishedOutput() }
+    }
+    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer,didCancel utterance: AVSpeechUtterance) {
+        Task { @MainActor in guard self.utterance === utterance else { return }; self.utterance = nil; self.finishedOutput() }
+    }
 }
