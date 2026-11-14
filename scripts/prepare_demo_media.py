@@ -37,7 +37,7 @@ def main():
         start = max(0, (row['duration_seconds']-8)/2)
         ident = 'replay-'+row['id']; video = ident+'.mp4'; audio = ident+'.wav'
         common = [ffmpeg,'-hide_banner','-loglevel','error','-y','-ss',str(start),'-i',str(raw),'-t','8']
-        subprocess.run(common+['-map','0:v:0','-an','-vf','scale=640:-2,fps=15','-c:v','libx265','-preset','fast','-crf','27','-x265-params','log-level=error:pools=2','-tag:v','hvc1','-pix_fmt','yuv420p','-movflags','+faststart',str(args.output/video)],check=True)
+        subprocess.run(common+['-map','0:v:0','-an','-vf','scale=640:-2,fps=15','-c:v','libx265','-preset','fast','-crf','27','-x265-params','log-level=error:pools=2:keyint=15:min-keyint=15:scenecut=0','-tag:v','hvc1','-pix_fmt','yuv420p','-movflags','+faststart',str(args.output/video)],check=True)
         probe = subprocess.run([ffmpeg,'-hide_banner','-i',str(raw)],capture_output=True,text=True)
         has_audio = 'Audio:' in probe.stderr
         if has_audio:

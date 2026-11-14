@@ -17,6 +17,7 @@
 		512C2BDF2E55E6580C73F8B2 /* MWDATMockDevice in Frameworks */ = {isa = PBXBuildFile; productRef = 5EA2CBE8FAD1D0893BBF6302 /* MWDATMockDevice */; };
 		5B7C40396A6FD28B9D1237CC /* GuardianCore in Frameworks */ = {isa = PBXBuildFile; productRef = EA2780B13C26944C10864460 /* GuardianCore */; };
 		6CEA0CDF2F5C7563A7395351 /* MWDATCamera in Frameworks */ = {isa = PBXBuildFile; productRef = FCC5CC594AEAF72559DCEAB5 /* MWDATCamera */; };
+		8DD0CE117EC31ECF4B362A13 /* StreamImageDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDA8E16351C735087A36BC2E /* StreamImageDecoder.swift */; };
 		A1DBAE0B5515210B26EF0366 /* AudioIO.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9919DC4493884B03A640942F /* AudioIO.swift */; };
 		A967AD3F9A93DBF9A99B2DF4 /* RayGuardianApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14E23221338668B14E283230 /* RayGuardianApp.swift */; };
 		B904C22A58CAA3EE6107B73B /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 9F8310980943FFD67729B9D5 /* PrivacyInfo.xcprivacy */; };
@@ -57,6 +58,7 @@
 		EDE3CD7026C5892AA2771CB3 /* ReplayMedia */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ReplayMedia; path = RayGuardian/Resources/ReplayMedia; sourceTree = SOURCE_ROOT; };
 		F45D1426A232E44EF40B2576 /* Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Debug.xcconfig; sourceTree = "<group>"; };
 		FD43046E6948D8E094CC79A0 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		FDA8E16351C735087A36BC2E /* StreamImageDecoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamImageDecoder.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -117,6 +119,7 @@
 				213B6A8BEDA9D601ABC657C1 /* GlassesAdapter.swift */,
 				91850367A3F52267F85F601C /* HeartRateMonitor.swift */,
 				00EBC70A765FEBC77AEB530B /* IncidentLocation.swift */,
+				FDA8E16351C735087A36BC2E /* StreamImageDecoder.swift */,
 			);
 			path = Adapters;
 			sourceTree = "<group>";
@@ -306,6 +309,7 @@
 				06866B9FC75A465DAD21395B /* IncidentLocation.swift in Sources */,
 				A967AD3F9A93DBF9A99B2DF4 /* RayGuardianApp.swift in Sources */,
 				C9426D6E0C9A607AC6D73D1C /* ReplayLibrary.swift in Sources */,
+				8DD0CE117EC31ECF4B362A13 /* StreamImageDecoder.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

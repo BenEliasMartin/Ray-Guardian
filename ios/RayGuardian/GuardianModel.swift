@@ -309,7 +309,7 @@ import GuardianCore
         } catch { if operation == epoch { self.error = error.localizedDescription } }
     }
     private func handleVoice() async {
-        guard isForeground,!capturing,!processing,let incident,incident.voiceConsent,let api else { return }
+        guard isForeground,!capturing,!processing,let incident,incident.voiceConsent,settings.consent.voice,let api else { return }
         let key = incident.id+":"+incident.state
         guard !spoken.contains(key) else { return }
         let prompt: String?

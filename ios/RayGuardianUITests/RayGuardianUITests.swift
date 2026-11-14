@@ -34,7 +34,9 @@ final class RayGuardianUITests: XCTestCase {
     }
     func testStopClearsActualMockCapture() {
         let app = launch(stopAfterFirstFrame:true); armAndInject(app)
-        XCTAssertTrue(app.staticTexts["guardian.lastCaptureFrames"].label.contains("1 SDK frames"))
+        let stoppedWithFrame = NSPredicate(format:"label CONTAINS %@", "1 SDK frames")
+        expectation(for:stoppedWithFrame,evaluatedWith:app.staticTexts["guardian.lastCaptureFrames"])
+        waitForExpectations(timeout:10)
         XCTAssertTrue(app.staticTexts["Your camera is off"].waitForExistence(timeout:5))
         XCTAssertFalse(app.staticTexts["guardian.frameCount"].exists)
         XCTAssertFalse(app.staticTexts["Assessment (test_fixture)"].exists)

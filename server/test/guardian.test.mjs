@@ -184,3 +184,7 @@ test('background continuation off needs a post-deadline foreground challenge bef
   assert.throws(()=>g.confirmEscalation('foreground-owner',waiting.id,'old-token'),{code:'confirmation_expired'});
   await g.disarm('foreground-owner',s.id);assert.throws(()=>g.confirmEscalation('foreground-owner',waiting.id,waiting.escalationToken),{code:'not_armed'});await g.sweep();assert.equal(placed(),0);
 });
+test('late location cannot be written after cancellation or disarming',async t=>{
+  const {g}=fixture(t);const s=g.createSession('location-owner',{consent:{location:true}});g.arm('location-owner',s.id);const tr=g.trigger('location-owner',s.id,{signal:'manual_sos'}),point={latitude:60,longitude:24,accuracyMeters:8,timestamp:100000};
+  assert.equal(g.location('location-owner',tr.incident.id,point).location.latitude,60);await g.cancel('location-owner',tr.incident.id);assert.throws(()=>g.location('location-owner',tr.incident.id,point),{code:'incident_closed'});
+});

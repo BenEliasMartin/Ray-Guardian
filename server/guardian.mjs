@@ -206,6 +206,8 @@ export class GuardianService {
   }
   location(owner,id,location){
     const i=this.requireIncident(owner,id),s=this.requireSession(owner,i.sessionId);
+    if(TERMINAL.has(i.state))fail(409,'incident_closed','Location cannot be added after an incident closes.');
+    this.requireArmed(s);
     if(!s.consent.location)fail(403,'location_consent_required','Location sharing is disabled.');
     if(!Number.isFinite(location?.latitude)||Math.abs(location.latitude)>90||!Number.isFinite(location.longitude)||Math.abs(location.longitude)>180||
       !Number.isFinite(location.accuracyMeters)||location.accuracyMeters<0||location.accuracyMeters>10000||!Number.isFinite(location.timestamp)||Math.abs(this.now()-location.timestamp)>120000)fail(400,'invalid_location','Send a fresh location with accuracy and timestamp.');
