@@ -53,7 +53,7 @@ For real glasses, select **Real glasses**, register through Meta AI, grant the p
 
 The optional Bluetooth heart-rate setup connects to standard Heart Rate Service sensors. Three fresh elevated measurements spanning at least eight seconds can request an assessment; exercise and high heart rate alone never establish an incident. The threshold is configurable.
 
-For hands-free visual assessment, enable **Automatically check the scene while armed** along with camera capture and cloud sharing. The iPhone requests its first check after a successful heartbeat and can request another after 65 seconds. Scene checks share the three-captures-per-ten-minutes budget with other signals. Nemotron can assess visible physical struggle and immediate threats to the wearer. Immediate danger requires high confidence and concrete observations before the server opens a check-in. Events between captures can be missed.
+For hands-free visual assessment, enable **Automatically check the scene while armed** along with camera capture and cloud sharing. The iPhone requests its first check after a successful heartbeat and can request another after 20 seconds when idle. Every rolling ten minutes allows up to 30 scene checks and 12 event captures, with separate budgets. Nemotron can assess visible physical struggle and immediate threats to the wearer. Immediate danger requires at least medium confidence and concrete observations before the server opens a check-in. Events between captures can be missed.
 
 ## Prepare real replay media
 
@@ -95,7 +95,7 @@ For deployment, `docker compose up --build -d` starts the API with encrypted per
 
 ## Privacy behavior
 
-The camera is off in armed standby. Selected local speech recognition and motion/heart-rate sensing can remain active while the app is foregrounded. Loudness alone does not trigger capture. A successful trigger permits at most six compressed frames and eight seconds of optional audio, with a 60-second capture cooldown and three bursts per ten minutes. Arming expires after thirty minutes.
+The camera is off in armed standby. Selected local speech recognition and motion/heart-rate sensing can remain active while the app is foregrounded. Loudness alone does not trigger capture. A successful trigger permits at most six compressed frames and eight seconds of optional audio, with a 20-second interval for scene checks and a 10-second interval for event captures. Arming expires after thirty minutes.
 
 Leaving the app, changing consent, device removal/disconnection, thermal/battery faults, or losing the backend heartbeat disarms capture. Epoch guards reject queued old callbacks. Cancellation aborts in-flight inference and prevents later results from recreating an incident. No pre-event video is retained. iOS background transitions do not provide continuous monitoring; optional background escalation only permits the server to continue an already-created demo incident.
 

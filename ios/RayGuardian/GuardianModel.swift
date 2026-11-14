@@ -89,7 +89,7 @@ import GuardianCore
                         await self.refreshIncident()
                         if sceneChecks, self.operation == token, self.isForeground, !self.capturing, !self.processing,
                            self.incident?.terminal != false, self.monotonic >= nextSceneCheck {
-                            nextSceneCheck = self.monotonic + 65
+                            nextSceneCheck = self.monotonic + 20
                             self.sendTrigger(.scene_check)
                         }
                     } catch { guard self.operation == token else { return }; self.error = "Backend heartbeat lost: \(error.localizedDescription)"; self.stop(); return }

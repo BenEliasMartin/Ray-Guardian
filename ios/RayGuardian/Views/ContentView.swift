@@ -28,6 +28,11 @@ struct MonitorView: View {
                 Button("Stop",role: .destructive) { model.stop() }.buttonStyle(.bordered)
             }
             Button { model.sendTrigger(.manual_sos) } label: { Label("SOS · Start demo escalation",systemImage: "sos").font(.headline).frame(maxWidth: .infinity).padding(.vertical,12) }.buttonStyle(.borderedProminent).tint(.red).disabled(!model.armed)
+            if model.armed && model.settings.automaticSceneChecks && model.settings.consent.capture && model.settings.consent.cloud {
+                Button("Check scene now", systemImage: "camera") { model.sendTrigger(.scene_check) }
+                    .buttonStyle(.bordered).disabled(model.capturing || model.processing)
+            }
+            if let incident = model.incident { IncidentView(model: model,incident: incident) }
             if model.capturing || model.processing {
                 GroupBox { VStack(alignment: .leading) { ProgressView(model.capturing ? "Bounded capture active" : "Nemotron processing"); Text("\(model.frameCount)/6 frames · \(model.audioSeconds,specifier: "%.1f") seconds of audio").font(.caption).accessibilityIdentifier("guardian.frameCount"); if let preview = model.preview { Image(uiImage: preview).resizable().scaledToFit().frame(maxHeight: 220).accessibilityLabel("Current in-memory wearer frame") } } }
             }
@@ -39,7 +44,6 @@ struct MonitorView: View {
                     ForEach(detection.uncertainties,id: \.self) { Label($0,systemImage: "questionmark.circle").font(.caption).foregroundStyle(.secondary) }
                 }.frame(maxWidth: .infinity,alignment: .leading) }
             }
-            if let incident = model.incident { IncidentView(model: model,incident: incident) }
             #if DEBUG
             Text("Last capture received \(model.debugLastCaptureFrames) SDK frames").font(.caption).accessibilityIdentifier("guardian.lastCaptureFrames")
             #endif
@@ -98,13 +102,13 @@ struct SettingsView: View {
                 Toggle("Allow bounded evidence sent to cloud AI",isOn: $settings.consent.cloud)
                 Toggle("Automatically check the scene while armed",isOn: $settings.automaticSceneChecks)
                     .disabled(!settings.consent.capture || !settings.consent.cloud)
-                Text("Scene checks take short camera samples without a voice or fall cue. The shared capture limit leaves gaps between checks.").font(.caption)
+                Text("Scene checks can run every 20 seconds when idle. Motion, voice, and other event cues have their own capture allowance.").font(.caption)
                 Toggle("Include audio in cloud transcription",isOn: $settings.consent.audio)
                 Toggle("Play real ElevenLabs voice",isOn: $settings.consent.voice)
                 Toggle("Allow demo escalation / test calls",isOn: $settings.consent.demoCalls)
                 Toggle("Share incident location",isOn: $settings.consent.location)
                 Toggle("Continue existing demo escalation after leaving app",isOn: $settings.consent.backgroundEscalation)
-                Text("Camera opens only for an accepted indicator: at most eight seconds, six images and three bursts per ten minutes. Changing these choices disarms the session. No raw media is saved by the API; providers process submitted evidence under your account settings. Encrypted incident metadata expires after 24 hours.").font(.caption)
+                Text("Each capture lasts up to eight seconds and sends up to six images. Per ten minutes, up to 30 scene checks and 12 event captures are allowed. Changing these choices disarms the session. Encrypted incident metadata expires after 24 hours.").font(.caption)
             }
             Section("Optional Bluetooth heart-rate trigger") {
                 Toggle("Use sustained high heart rate as an indicator",isOn:$settings.heartRateEnabled)
