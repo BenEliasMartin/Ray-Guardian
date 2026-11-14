@@ -2,7 +2,7 @@ import Combine
 import CoreMotion
 import GuardianCore
 
-/// Explicit Mock-mode test source that stands in for the glasses IMU, independent from replay/glasses sensor samples.
+/// Uses iPhone sensors for Phone mode and optionally stands in for glasses sensors during Mock testing.
 /// Like the glasses, it reports acceleration including gravity plus gyroscope rotation rate, so the same fall
 /// detector paths (free fall, rapid tilt, slump) and motion summary apply.
 @MainActor final class PhoneMotion: ObservableObject {
@@ -31,16 +31,16 @@ import GuardianCore
                 }
                 self?.deliver(point,error: error,token: token)
             }
-            status = "iPhone accelerometer + gyroscope · Mock test source · 60 Hz"
+            status = "iPhone accelerometer + gyroscope · 60 Hz"
         } else if manager.isAccelerometerAvailable {
             manager.accelerometerUpdateInterval = 1.0/60
             manager.startAccelerometerUpdates(to: queue) { [weak self] data,error in
                 let point = data.map { MotionPoint.phoneAcceleration(time: $0.timestamp,x: $0.acceleration.x,y: $0.acceleration.y,z: $0.acceleration.z) }
                 self?.deliver(point,error: error,token: token)
             }
-            status = "iPhone accelerometer only (no gyroscope) · Mock test source · 60 Hz"
+            status = "iPhone accelerometer only (no gyroscope) · 60 Hz"
         } else {
-            throw DeviceError.message("Phone motion sensors unavailable. Use the Mock glasses motion replay instead.")
+            throw DeviceError.message("iPhone motion sensors are unavailable.")
         }
     }
     nonisolated private func deliver(_ point: MotionPoint?,error: Error?,token: UUID) {

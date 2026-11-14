@@ -154,13 +154,65 @@ struct MonitorView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(GuardianPalette.background, for: .navigationBar, .tabBar)
             .toolbarBackground(.visible, for: .navigationBar, .tabBar)
+            .safeAreaInset(edge: .top, spacing: 0) {
+                if !model.armed, !model.starting {
+                    Picker("Monitoring device", selection: $settings.input) {
+                        Text("Glasses").tag(InputMode.real)
+                        Text("This iPhone").tag(InputMode.phone)
+                        if settings.input == .mock { Text("Mock glasses").tag(InputMode.mock) }
+                    }
+                    .pickerStyle(.segmented)
+                    .padding(.horizontal, 28)
+                    .padding(.bottom, 8)
+                }
+                if model.developerOptionsEnabled, settings.input == .real {
+                    VStack(spacing: 6) {
+                        if model.glassesRecordingStarting || model.glassesRecordingSaving {
+                            ProgressView(model.glassesRecordingSaving ? "Saving glasses video…" : "Starting glasses camera…")
+                        } else if model.glassesRecordingActive {
+                            Button("Stop recording", systemImage: "stop.circle.fill") { model.finishGlassesRecording() }
+                                .buttonStyle(.borderedProminent)
+                                .tint(.red)
+                        } else {
+                            HStack {
+                                Button("Record glasses", systemImage: "record.circle") {
+                                    Task { await model.startGlassesRecording() }
+                                }
+                                .disabled(model.starting)
+                                .buttonStyle(.bordered)
+                                .accessibilityIdentifier("guardian.recordGlasses")
+                                if let url = model.glassesRecordingURL {
+                                    ShareLink(item: url) { Label("Share video", systemImage: "square.and.arrow.up") }
+                                        .buttonStyle(.borderedProminent)
+                                }
+                            }
+                        }
+                    }
+                    .controlSize(.large)
+                    .padding(.bottom, 8)
+                    .frame(maxWidth: .infinity)
+                    .background(GuardianPalette.background)
+                }
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if model.demoDispatch == nil, model.developerOptionsEnabled || (settings.input == .phone && model.armed) {
+                    EmergencyControls(model: model)
+                        .padding(.horizontal, 28)
+                        .padding(.vertical, 8)
+                        .background(GuardianPalette.background)
+                }
+            }
             .toolbar {
-                if model.armed, model.continuousCamera || model.preview != nil {
-                    Button("Camera view", systemImage: "video") { showingGlassesView = true }
-                } else if !model.armed, !model.starting, settings.input == .real, model.handGesturesActive {
-                    Button("Practice gestures", systemImage: "hand.raised") {
-                        model.setGesturePractice(.fist)
-                        showingGlassesView = true
+                ToolbarItem(placement: .topBarTrailing) {
+                    if model.developerOptionsEnabled || settings.input == .phone {
+                        if model.armed, model.continuousCamera || model.preview != nil {
+                            Button("Camera view", systemImage: "video") { showingGlassesView = true }
+                        } else if !model.armed, !model.starting, settings.input == .real, model.handGesturesActive {
+                            Button("Practice gestures", systemImage: "hand.raised") {
+                                model.setGesturePractice(.fist)
+                                showingGlassesView = true
+                            }
+                        }
                     }
                 }
             }
@@ -177,13 +229,13 @@ struct MonitorView: View {
                     .foregroundStyle(GuardianPalette.ink)
                     .accessibilityAddTraits(.isHeader)
                 if model.starting {
-                    Text("Keep your glasses on.")
+                    Text(settings.input == .phone ? "Keep Ray Guardian open." : "Keep your glasses on.")
                 } else if model.armed, let until = model.session?.armedUntil {
                     Text("Armed until " + Date(timeIntervalSince1970: until / 1000).formatted(date: .omitted, time: .shortened))
                 } else if let incident = model.incident, incident.terminal {
                     Text(incident.displayState)
                 } else {
-                    Text("Put on your glasses to begin.")
+                    Text(settings.input == .phone ? "Keep this iPhone with you while monitoring." : "Put on your glasses to begin.")
                 }
             }
             .font(.subheadline)
@@ -200,18 +252,11 @@ struct MonitorView: View {
                         .buttonStyle(GuardianActionStyle())
                         .accessibilityIdentifier("guardian.arm")
                 }
-                if model.armed {
-                    if settings.consent.capture, settings.consent.cloud {
-                        Button("Check scene now") { model.sendTrigger(.manual_check) }
-                            .buttonStyle(GuardianActionStyle(prominent: false))
-                            .disabled(model.capturing || model.processing)
-                    }
-                    Button("Activate SOS") { model.sendTrigger(.manual_sos) }
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(GuardianPalette.attention)
-                        .padding(.horizontal, 12)
-                        .frame(minHeight: 44)
-                        .buttonStyle(.plain)
+                if model.armed, model.developerOptionsEnabled || settings.input == .phone,
+                   model.session?.consent.capture == true, settings.consent.cloud {
+                    Button("Check scene now") { model.sendTrigger(.manual_check) }
+                        .buttonStyle(GuardianActionStyle(prominent: false))
+                        .disabled(model.capturing || model.processing)
                 }
             }
 
@@ -271,17 +316,25 @@ struct GlassesPreview: View {
     var fillsSpace = false
     var showWholeFrame = false
 
+    private var cameraLabel: String {
+        if model.practiceGesture != nil { return "Glasses camera" }
+        if model.preview != nil, !model.continuousCamera, !model.capturing { return "Last captured frame" }
+        if model.settings.input == .phone { return "iPhone camera" }
+        return showsOverlay ? "Glasses preview" : "Camera only"
+    }
+
     private var displayState: (title: String, icon: String, color: Color) {
-        if let id = model.audibleAlertID, id == model.incident?.id {
-            return ("Alert active", "speaker.wave.2.fill", .orange)
+        if let dispatch = model.demoDispatch {
+            return (dispatch.title, "phone.fill", .orange)
         }
         switch model.incident?.state {
         case "check_in": return ("Are you okay?", "exclamationmark.triangle.fill", .orange)
         case "awaiting_foreground_confirmation": return ("Alert pending", "bell.badge", .orange)
-        case "needs_demo_call_consent": return ("Alert paused", "pause.circle", .orange)
+        case "needs_demo_call_consent": return ("Check-in ended", "bell", .orange)
         case "demo_call_limited": return ("Alert limit reached", "pause.circle", .orange)
-        case "call_queued", "call_ringing", "call_in_progress", "demo_call_active", "call_completed":
-            return ("Alert active", "phone.fill", .orange)
+        case "call_queued", "call_ringing": return ("Calling dispatch…", "phone.fill", .orange)
+        case "call_in_progress", "demo_call_active": return ("Call connected", "phone.fill", .orange)
+        case "call_completed": return ("Call ended", "phone.down.fill", .orange)
         case "call_failed", "call_unknown": return ("Check alert", "exclamationmark.circle", .orange)
         default: break
         }
@@ -316,7 +369,12 @@ struct GlassesPreview: View {
                         Label(state.title, systemImage: state.icon)
                             .font(.title3.bold())
                             .foregroundStyle(state.color)
-                        if let incident = model.incident, incident.state == "check_in", let deadline = incident.checkInDeadline {
+                        if let dispatch = model.demoDispatch {
+                            Text(dispatch.destination).font(.caption.weight(.semibold))
+                            if let coordinates = dispatch.coordinates {
+                                Text(coordinates.displayText).font(.subheadline.monospacedDigit())
+                            }
+                        } else if let incident = model.incident, incident.state == "check_in", let deadline = incident.checkInDeadline {
                             CheckInCountdown(deadline: deadline).font(.title.bold())
                             Text(model.handGesturesActive ? "Hold 🤙 or say “Guardian cancel”" : "Say “Guardian cancel”")
                                 .font(.subheadline)
@@ -342,9 +400,16 @@ struct GlassesPreview: View {
                 }
             }
             .overlay(alignment: .topLeading) {
-                Text(model.practiceGesture != nil ? "Glasses camera" : model.preview != nil && !model.continuousCamera && !model.capturing
-                     ? "Last captured frame"
-                     : (showsOverlay ? "Simulated glasses display" : "Camera only"))
+                if showsOverlay, let animation = model.incidentAnimation {
+                    IncidentAnimationView(presentation: animation)
+                        .id("\(animation.incidentID):\(animation.kind.rawValue)")
+                        .frame(width: min(210, geometry.size.width * 0.65))
+                        .padding(.horizontal, 14)
+                        .padding(.top, 56)
+                }
+            }
+            .overlay(alignment: .topLeading) {
+                Text(cameraLabel)
                     .font(.callout.bold())
                     .padding(.horizontal, 12).padding(.vertical, 8)
                     .background(.black.opacity(0.8), in: Capsule())
@@ -384,7 +449,7 @@ struct GlassesPresentation: View {
                            showWholeFrame: model.practiceGesture != nil)
             if model.incident?.terminal == false {
                 Button { model.cancelIncident() } label: {
-                    Text("I’m okay")
+                    Text(model.demoDispatch == nil ? "I’m okay" : "End call")
                 }.buttonStyle(GuardianActionStyle())
             } else if let gesture = model.practiceGesture {
                 Picker("Gesture", selection: Binding(
@@ -401,15 +466,26 @@ struct GlassesPresentation: View {
                 Text("Practice won’t send an alert.").font(.footnote).foregroundStyle(.secondary)
             } else if let failure = model.practiceError {
                 Text(failure).multilineTextAlignment(.center)
-            } else if model.armed && model.handGesturesActive {
-                Button("Practice gestures") { model.setGesturePractice(.fist) }
-                    .buttonStyle(GuardianActionStyle(prominent: false))
+            } else if model.developerOptionsEnabled {
+                EmergencyControls(model: model)
+                if model.armed && model.handGesturesActive {
+                    Button("Practice gestures") { model.setGesturePractice(.fist) }
+                        .buttonStyle(.bordered)
+                }
             }
         }
         .padding()
         .background(GuardianPalette.background.ignoresSafeArea())
         .foregroundStyle(GuardianPalette.ink)
         .controlSize(.large)
+        .alert("Guardian", isPresented: Binding(
+            get: { model.error != nil },
+            set: { if !$0 { model.error = nil } }
+        )) {
+            Button("OK") { model.error = nil }
+        } message: {
+            Text(model.error ?? "")
+        }
         .onDisappear { model.setGesturePractice(nil) }
     }
 
@@ -433,16 +509,80 @@ private extension Incident {
         switch state {
         case "check_in": return "Are you okay?"
         case "awaiting_foreground_confirmation": return "Alert pending"
-        case "needs_demo_call_consent": return "Alert active"
+        case "needs_demo_call_consent": return "Check-in ended"
         case "demo_call_limited": return "Alert limit reached"
-        case "call_queued", "call_ringing": return "Alert pending"
-        case "call_in_progress", "demo_call_active": return "Alert active"
-        case "call_completed": return "Alert ended"
+        case "call_queued", "call_ringing": return "Calling dispatch…"
+        case "call_in_progress", "demo_call_active": return "Call connected"
+        case "call_completed": return "Call ended"
         case "call_failed", "call_unknown": return "Alert status unavailable"
         case "cancelled": return "Check-in cancelled"
         case "acknowledged": return "Alert acknowledged"
         default: return "Incident closed"
         }
+    }
+}
+
+private struct DemoDispatchCard: View {
+    let dispatch: DemoDispatch
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Label(dispatch.destination, systemImage: "phone.fill")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(GuardianPalette.attention)
+            Text(dispatch.title)
+                .font(.system(.largeTitle, design: .serif).weight(.medium))
+                .accessibilityAddTraits(.isHeader)
+                .accessibilityIdentifier("guardian.activeIncident")
+            VStack(alignment: .leading, spacing: 6) {
+                Label("Incident location", systemImage: "location")
+                    .font(.subheadline.weight(.semibold))
+                if let coordinates = dispatch.coordinates {
+                    Text(coordinates.displayText).monospacedDigit().textSelection(.enabled)
+                    Text("Accuracy ±\(coordinates.accuracyMeters.formatted(.number.precision(.fractionLength(0)))) m")
+                        .font(.footnote).foregroundStyle(GuardianPalette.muted)
+                } else {
+                    Text(dispatch.phase == .calling || dispatch.phase == .connected ? "Checking for location…" : "Location unavailable")
+                        .foregroundStyle(GuardianPalette.muted)
+                }
+            }
+            Divider()
+            Text(dispatch.context).foregroundStyle(GuardianPalette.muted)
+        }
+        .multilineTextAlignment(.leading)
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(GuardianPalette.attentionWash, in: RoundedRectangle(cornerRadius: 24))
+    }
+}
+
+private struct EmergencyControls: View {
+    @ObservedObject var model: GuardianModel
+
+    var body: some View {
+        VStack(spacing: 8) {
+            Picker("Emergency responder", selection: $model.selectedResponder) {
+                ForEach(DemoDispatch.Service.allCases, id: \.self) { service in
+                    Text(service.rawValue).tag(service)
+                }
+            }
+            .pickerStyle(.segmented)
+            .accessibilityIdentifier("guardian.emergencyResponder")
+
+            Button {
+                Task { await model.triggerEmergency() }
+            } label: {
+                if model.manualEmergencyPending {
+                    ProgressView("Starting emergency…")
+                        .tint(.white)
+                } else {
+                    Label("Trigger emergency", systemImage: "bell.badge")
+                }
+            }
+            .buttonStyle(GuardianActionStyle())
+            .accessibilityIdentifier("guardian.triggerEmergency")
+        }
+        .disabled(model.starting || model.glassesRecordingStarting || model.manualEmergencyPending)
     }
 }
 
@@ -455,30 +595,34 @@ struct IncidentView: View {
         if let animation = model.incidentAnimation, animation.incidentID == incident.id, !incident.terminal {
             IncidentAnimationView(presentation:animation)
                 .id("\(animation.incidentID):\(animation.kind.rawValue)")
-        } else {
-            GuardianMark(symbol:"bell",attention:true)
+        } else if model.demoDispatch?.incidentID != incident.id {
+            GuardianMark(symbol: "bell", attention: true)
         }
     }
 
     var body: some View {
         VStack(spacing: 18) {
             if !textSize.isAccessibilitySize { visual }
-            Text(model.audibleAlertID == incident.id ? "Alert active" : incident.displayState)
-                .font(.system(.largeTitle, design: .serif).weight(.medium))
-                .accessibilityAddTraits(.isHeader)
-                .accessibilityIdentifier("guardian.activeIncident")
-            if incident.trigger == "keyword_distress" {
-                Text(incident.triggerDescription)
-                    .font(.subheadline)
-                    .foregroundStyle(GuardianPalette.muted)
+            if let dispatch = model.demoDispatch, dispatch.incidentID == incident.id {
+                DemoDispatchCard(dispatch: dispatch)
+            } else {
+                Text(incident.displayState)
+                    .font(.system(.largeTitle, design: .serif).weight(.medium))
+                    .accessibilityAddTraits(.isHeader)
+                    .accessibilityIdentifier("guardian.activeIncident")
+                if incident.trigger == "keyword_distress" {
+                    Text(incident.triggerDescription)
+                        .font(.subheadline)
+                        .foregroundStyle(GuardianPalette.muted)
+                }
             }
-            if let deadline = incident.checkInDeadline, incident.state == "check_in", model.audibleAlertID != incident.id {
+            if let deadline = incident.checkInDeadline, incident.state == "check_in", model.demoDispatch?.incidentID != incident.id {
                 CheckInCountdown(deadline: deadline)
                     .font(.title3.weight(.semibold))
                     .foregroundStyle(GuardianPalette.attention)
             }
             if !incident.terminal {
-                Button(incident.state == "check_in" && model.audibleAlertID != incident.id ? "I’m okay" : "Silence alert") {
+                Button(model.demoDispatch?.incidentID == incident.id ? "End call" : incident.state == "check_in" ? "I’m okay" : "Dismiss") {
                     model.cancelIncident()
                 }
                 .buttonStyle(GuardianActionStyle())
@@ -519,46 +663,60 @@ struct SettingsView: View {
                 if let error = model.error {
                     Section { IssueBanner(message: error) { model.error = nil } }
                 }
-                Section("Glasses") {
-                    Picker("Glasses pair", selection: Binding(
-                        get: { glasses.preferredGlassesID },
-                        set: { glasses.chooseGlasses($0) }
-                    )) {
-                        Text("Automatic").tag(nil as String?)
-                        ForEach(glasses.availableGlasses) { pair in
-                            Text(pair.hasDisplay ? "\(pair.name) · Display" : pair.name).tag(Optional(pair.id))
-                        }
-                        if let id = glasses.preferredGlassesID, !glasses.availableGlasses.contains(where: { $0.id == id }) {
-                            Text("Selected pair unavailable").tag(Optional(id))
-                        }
+                Section("Monitoring device") {
+                    Picker("Use", selection: $settings.input) {
+                        Text("Glasses").tag(InputMode.real)
+                        Text("This iPhone").tag(InputMode.phone)
+                        if settings.input == .mock { Text("Mock glasses").tag(InputMode.mock) }
                     }
-                    .disabled(changingConnection)
-                    Button("Check glasses connection", systemImage: "eyeglasses") {
-                        Task { await model.checkGlassesConnection() }
-                    }
-                    .disabled(changingConnection)
-                    if glasses.availableGlasses.contains(where: { $0.hasDisplay &&
-                        (glasses.preferredGlassesID == nil || glasses.preferredGlassesID == $0.id) }) {
-                        Button("Test glasses display", systemImage: "rectangle.inset.filled") {
-                            Task { await glasses.testDisplay() }
-                        }
-                        .disabled(changingConnection)
-                    }
-                    if glasses.checkingConnection {
-                        ProgressView(glasses.status)
-                        if glasses.bandStatus != "Off" {
-                            Text("Neural Band: \(glasses.bandStatus)").font(.footnote).foregroundStyle(.secondary)
-                        }
-                    } else if !glasses.permissionStatus.isEmpty {
-                        Text(glasses.permissionStatus).font(.footnote).foregroundStyle(.secondary)
-                    }
-                    if glasses.glassesAppUpdateRequired {
-                        Button("Update app on glasses") {
-                            Task { await perform { try await glasses.updateGlassesApp() } }
+                    .disabled(model.armed || model.starting)
+                }
+                if settings.input != .phone {
+                    Section("Glasses") {
+                        Picker("Glasses pair", selection: Binding(
+                            get: { glasses.preferredGlassesID },
+                            set: { glasses.chooseGlasses($0) }
+                        )) {
+                            Text("Automatic").tag(nil as String?)
+                            ForEach(glasses.availableGlasses) { pair in
+                                Text(pair.hasDisplay ? "\(pair.name) · Display" : pair.name).tag(Optional(pair.id))
+                            }
+                            if let id = glasses.preferredGlassesID, !glasses.availableGlasses.contains(where: { $0.id == id }) {
+                                Text("Selected pair unavailable").tag(Optional(id))
+                            }
                         }
                         .disabled(changingConnection)
+                        Button("Check glasses connection", systemImage: "eyeglasses") {
+                            Task { await model.checkGlassesConnection() }
+                        }
+                        .disabled(changingConnection)
+                        if model.developerOptionsEnabled, glasses.availableGlasses.contains(where: { $0.hasDisplay &&
+                            (glasses.preferredGlassesID == nil || glasses.preferredGlassesID == $0.id) }) {
+                            Button("Test glasses display", systemImage: "rectangle.inset.filled") {
+                                Task { await glasses.testDisplay() }
+                            }
+                            .disabled(changingConnection)
+                        }
+                        if glasses.checkingConnection {
+                            ProgressView(glasses.status)
+                            if model.developerOptionsEnabled, glasses.bandStatus != "Off" {
+                                Text("Neural Band: \(glasses.bandStatus)").font(.footnote).foregroundStyle(.secondary)
+                            }
+                        } else if !glasses.permissionStatus.isEmpty {
+                            Text(glasses.permissionStatus).font(.footnote).foregroundStyle(.secondary)
+                        }
+                        if glasses.glassesAppUpdateRequired {
+                            Button("Update app on glasses") {
+                                Task { await perform { try await glasses.updateGlassesApp() } }
+                            }
+                            .disabled(changingConnection)
+                        }
+                        NavigationLink("Pairing and permissions") { permissions }
                     }
-                    NavigationLink("Pairing and permissions") { permissions }
+                } else {
+                    Section {
+                        NavigationLink("iPhone permissions") { permissions }
+                    }
                 }
                 Section {
                     NavigationLink {
@@ -573,15 +731,23 @@ struct SettingsView: View {
                     }
                 }
                 Section {
-                    NavigationLink("Advanced settings") { advanced }
+                    Toggle("Developer options", isOn: Binding(
+                        get: { model.developerOptionsEnabled },
+                        set: { model.setDeveloperOptions($0) }
+                    ))
+                    if model.developerOptionsEnabled {
+                        NavigationLink("Advanced settings") { advanced }
+                    }
                 } footer: {
-                    if model.armed { Text("Changing a setting disarms Guardian.") }
+                    Text("Show demo recording and test controls.")
                 }
             }
             .scrollContentBackground(.hidden)
             .background(GuardianPalette.background.ignoresSafeArea())
             .navigationTitle("Settings")
-            .task { await glasses.observeGlasses() }
+            .task(id: settings.input) {
+                if settings.input != .phone { await glasses.observeGlasses() }
+            }
             .toolbarBackground(GuardianPalette.background, for: .navigationBar, .tabBar)
             .toolbarBackground(.visible, for: .navigationBar, .tabBar)
         }
@@ -590,15 +756,26 @@ struct SettingsView: View {
     private var monitoringPreferences: some View {
         Form {
             Section {
-                Toggle("Use glasses camera", isOn: $settings.consent.capture)
-                Toggle("Recognize hand gestures", isOn: $settings.handGestures)
-                    .disabled(!settings.consent.capture)
-                Picker("Local speech", selection: $settings.keywords) {
-                    ForEach(KeywordMode.allCases) { Text($0.rawValue).tag($0) }
+                Toggle(settings.input == .phone ? "Use iPhone camera for incidents" : "Use glasses camera", isOn: $settings.consent.capture)
+                if settings.input == .phone {
+                    Toggle("Listen for distress on this iPhone", isOn: Binding(
+                        get: { settings.keywords != .off },
+                        set: { settings.keywords = $0 ? .phone : .off }
+                    ))
+                } else {
+                    Toggle("Recognize hand gestures", isOn: $settings.handGestures)
+                        .disabled(!settings.consent.capture)
+                    Picker("Local speech", selection: $settings.keywords) {
+                        ForEach(KeywordMode.allCases) { Text($0.rawValue).tag($0) }
+                    }
+                    Toggle("Speak check-ins on glasses", isOn: $settings.speakWithoutDisplay)
                 }
-                Toggle("Speak check-ins on glasses", isOn: $settings.speakWithoutDisplay)
             } footer: {
-                Text("Hold a fist to start a check-in, or hold 🤙 with your thumb and pinky out to cancel. Hold either for about a second.")
+                if settings.input == .phone {
+                    Text("iPhone motion can prompt a check-in. Keep the phone with you and the app open while armed.")
+                } else {
+                    Text("Hold a fist to start a check-in, or hold 🤙 with your thumb and pinky out to cancel. Hold either for about a second.")
+                }
             }
         }
         .scrollContentBackground(.hidden)
@@ -639,25 +816,31 @@ struct SettingsView: View {
 
     private var permissions: some View {
         Form {
-            Section {
-                Button("Connect through Meta AI") { Task { await perform { try await glasses.register() } } }
-                Button("Allow glasses camera") { Task { await perform { try await glasses.grantCameraPermission() } } }
-                Button("Allow glasses microphone") { Task { await perform { try await glasses.grantMicrophonePermission() } } }
+            if settings.input == .phone {
+                Button("Allow iPhone camera") { Task { await model.requestPhoneCameraPermission() } }
+            } else {
+                Section {
+                    Button("Connect through Meta AI") { Task { await perform { try await glasses.register() } } }
+                    Button("Allow glasses camera") { Task { await perform { try await glasses.grantCameraPermission() } } }
+                    Button("Allow glasses microphone") { Task { await perform { try await glasses.grantMicrophonePermission() } } }
+                }
+                .disabled(changingConnection)
             }
-            .disabled(changingConnection)
             Section {
                 Button("Allow iPhone microphone and speech recognition") {
                     Task { await perform { try await model.phone.requestPermissions(localSpeech: true) } }
                 }
                 Button("Allow location") { model.locator.requestPermission() }
             }
-            if glasses.requestingPermission { ProgressView(glasses.permissionStatus) }
-            else if !glasses.permissionStatus.isEmpty { Text(glasses.permissionStatus).font(.footnote) }
+            if settings.input != .phone {
+                if glasses.requestingPermission { ProgressView(glasses.permissionStatus) }
+                else if !glasses.permissionStatus.isEmpty { Text(glasses.permissionStatus).font(.footnote) }
+            }
             if let error = model.error { IssueBanner(message: error) { model.error = nil } }
         }
         .scrollContentBackground(.hidden)
         .background(GuardianPalette.background.ignoresSafeArea())
-        .navigationTitle("Pairing and permissions")
+        .navigationTitle(settings.input == .phone ? "iPhone permissions" : "Pairing and permissions")
         .navigationBarTitleDisplayMode(.inline)
     }
 
@@ -934,7 +1117,8 @@ struct IncidentReviewView: View {
         .background(GuardianPalette.background.ignoresSafeArea())
         .navigationTitle("Incident")
         .navigationBarTitleDisplayMode(.inline)
-        .task(id: incident.id) {
+        .task(id: model.isRecordingEvidence(for: incident)) {
+            guard !model.isRecordingEvidence(for: incident) else { return }
             let result = await model.reviewEvidence(for: incident)
             guard !Task.isCancelled else { return }
             if case .clip(let url) = result {
@@ -955,6 +1139,15 @@ struct IncidentReviewView: View {
 
     @ViewBuilder
     private var media: some View {
+        if model.isRecordingEvidence(for: incident) {
+            ProgressView("Recording incident clip…")
+        } else {
+            savedMedia
+        }
+    }
+
+    @ViewBuilder
+    private var savedMedia: some View {
         switch evidence {
         case .clip:
             if let player {
@@ -971,6 +1164,7 @@ struct IncidentReviewView: View {
                 Image(uiImage: photo).resizable().scaledToFit()
                     .clipShape(RoundedRectangle(cornerRadius: 16))
                     .accessibilityLabel("Saved incident photo")
+                Text("Only a photo was captured").font(.caption).foregroundStyle(.secondary)
                 if verified { verificationBadge }
                 else { Label("Photo saved before verification was available", systemImage: "photo").font(.footnote) }
             } else {

@@ -3,7 +3,17 @@ import Foundation
 import Security
 import GuardianCore
 
-enum InputMode: String, CaseIterable, Identifiable { case mock = "Mock glasses", real = "Real glasses"; var id: String { rawValue } }
+enum InputMode: String, CaseIterable, Identifiable {
+    case mock = "Mock glasses", real = "Real glasses", phone = "This iPhone"
+    var id: String { rawValue }
+    var captureSource: CaptureSource {
+        switch self {
+        case .mock: return .meta_mock
+        case .real: return .meta_glasses
+        case .phone: return .phone
+        }
+    }
+}
 enum KeywordMode: String, CaseIterable, Identifiable { case glasses = "Glasses local speech", phone = "Phone local speech", off = "Manual and motion only"; var id: String { rawValue } }
 enum AudioMode: String, CaseIterable, Identifiable { case replay = "Replay WAV", glasses = "Glasses stream (experimental)", phone = "Phone microphone"; var id: String { rawValue } }
 enum Keychain {
@@ -27,7 +37,12 @@ enum Keychain {
     #endif
     @Published var apiURL: String
     @Published var clientToken: String
-    @Published var input: InputMode = .real { didSet { if input == .real && audio == .replay { audio = .phone } } }
+    @Published var input: InputMode = UserDefaults.standard.bool(forKey: "guardian.phoneMode") ? .phone : .real {
+        didSet {
+            if input != .mock { UserDefaults.standard.set(input == .phone, forKey: "guardian.phoneMode") }
+            if input != .mock, audio == .replay { audio = .phone }
+        }
+    }
     @Published var keywords: KeywordMode = .phone
     @Published var audio: AudioMode = .phone
     @Published var recordClipAudio = false

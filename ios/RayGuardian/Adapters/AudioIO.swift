@@ -5,10 +5,11 @@ import GuardianCore
 
 @MainActor private func activateGuardianAudio(phoneMicrophone: Bool) throws {
     let session = AVAudioSession.sharedInstance()
-    if phoneMicrophone {
-        try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetoothA2DP])
-    } else {
-        try session.setCategory(.playback, mode: .spokenAudio)
+    let category: AVAudioSession.Category = phoneMicrophone ? .playAndRecord : .playback
+    let mode: AVAudioSession.Mode = phoneMicrophone ? .default : .spokenAudio
+    let options: AVAudioSession.CategoryOptions = phoneMicrophone ? [.defaultToSpeaker, .allowBluetoothA2DP] : []
+    if session.category != category || session.mode != mode || session.categoryOptions != options {
+        try session.setCategory(category, mode: mode, options: options)
     }
     try session.setActive(true)
 }
@@ -127,10 +128,15 @@ enum PCMConverter {
     private var utterance: AVSpeechUtterance?
 
     func speakCheckIn() throws {
+        try speak("Are you okay? You can cancel the check-in.")
+    }
+
+    func speak(_ text: String) throws {
         stop()
         try activateGuardianAudio(phoneMicrophone: usesPhoneMicrophone)
         synthesizer.delegate = self
-        let message = AVSpeechUtterance(string: "Are you okay? You can cancel the check-in.")
+        synthesizer.usesApplicationAudioSession = true
+        let message = AVSpeechUtterance(string: text)
         message.voice = AVSpeechSynthesisVoice(language: "en-US")
         utterance = message
         playing = true
@@ -143,15 +149,48 @@ enum PCMConverter {
         let player = try AVAudioPlayer(data: data); self.player = player; player.delegate = self; player.prepareToPlay()
         guard player.play() else { throw DeviceError.message("Voice playback failed.") }; playing = true; suppressedUntil = .infinity
     }
-    func playAlertTone() throws {
+    static func alertToneSamples() -> [Int16] {
         let samples: [Int16] = (0..<9_600).map { index in
             let position = index % 4_800
             guard position < 2_720 else { return 0 }
             let fade = Double(min(160, position, 2_719 - position)) / 160
             return Int16(10_000 * fade * sin(2 * .pi * 880 * Double(position) / 16_000))
         }
-        try play(PCM16WAV.encode(samples))
+        return samples
     }
+
+    func playAlertTone() throws {
+        try play(PCM16WAV.encode(Self.alertToneSamples()))
+    }
+
+    func renderSpeech(_ text: String) async -> [Int16] {
+        let renderer = AVSpeechSynthesizer()
+        let utterance = AVSpeechUtterance(string: text)
+        utterance.voice = AVSpeechSynthesisVoice(language: "en-US")
+        let (stream, continuation) = AsyncStream<[Int16]>.makeStream()
+        renderer.write(utterance) { buffer in
+            guard let pcm = buffer as? AVAudioPCMBuffer else { return }
+            if pcm.frameLength == 0 {
+                continuation.finish()
+            } else {
+                continuation.yield(PCMConverter.samples(pcm))
+            }
+        }
+        let timeout = Task {
+            do { try await Task.sleep(for: .seconds(12)) } catch { return }
+            continuation.finish()
+        }
+        defer {
+            timeout.cancel()
+            renderer.stopSpeaking(at: .immediate)
+        }
+        var samples: [Int16] = []
+        for await chunk in stream {
+            samples.append(contentsOf: chunk)
+        }
+        return samples
+    }
+
     func stop() {
         player?.stop(); player = nil
         utterance = nil

@@ -61,7 +61,16 @@ import MWDATMockDevice
     private var displayTask: Task<Void,Never>?
     private var inputTask: Task<Void,Never>?
     private enum DisplayPage: Equatable {
-        case monitoring, controls, checkIn(String, Date), alert(String)
+        case monitoring, controls
+        case checkIn(String, Date, IncidentAnimation.Presentation?)
+        case alert(DemoDispatch, IncidentAnimation.Presentation?)
+
+        var animation: IncidentAnimation.Presentation? {
+            switch self {
+            case .checkIn(_, _, let animation), .alert(_, let animation): return animation
+            case .monitoring, .controls: return nil
+            }
+        }
     }
     private var displayPage: DisplayPage?
     private var displayRenderID = UUID()
@@ -541,7 +550,7 @@ import MWDATMockDevice
         try requireConfiguration()
         try await Wearables.shared.openDATGlassesAppUpdate()
     }
-    func startCapture(includeGlassesAudio: Bool, verifyFirstFrame: Bool = false) async throws {
+    func startCapture(includeGlassesAudio: Bool, verifyFirstFrame: Bool = false, allowVideoWithoutAudio: Bool = false) async throws {
         try requireConfiguration()
         stopCapture(); let token = cameraGeneration
         try await waitForCameraStopped()
@@ -549,9 +558,13 @@ import MWDATMockDevice
         guard try await Wearables.shared.checkPermissionStatus(.camera) == .granted else {
             throw DeviceError.message("Glasses connected. Allow camera access under Settings → Pairing and permissions.")
         }
-        if includeGlassesAudio, try await Wearables.shared.checkPermissionStatus(.microphone) != .granted { throw DeviceError.message("Glasses microphone permission required.") }
+        var audioEnabled = includeGlassesAudio
+        if includeGlassesAudio, try await Wearables.shared.checkPermissionStatus(.microphone) != .granted {
+            guard allowVideoWithoutAudio else { throw DeviceError.message("Glasses microphone permission required.") }
+            audioEnabled = false
+        }
         guard token == cameraGeneration, self.session === session, session.state == .started, !Task.isCancelled else { throw CancellationError() }
-        let config = StreamConfiguration(videoCodec: .hvc1, audioCodec: includeGlassesAudio ? .pcm(sampleRate: .rate16000, numberOfChannels: 1) : nil, resolution: .low, frameRate: Self.captureFrameRate)
+        let config = StreamConfiguration(videoCodec: .hvc1, audioCodec: audioEnabled ? .pcm(sampleRate: .rate16000, numberOfChannels: 1) : nil, resolution: .low, frameRate: Self.captureFrameRate)
         guard let attached = try session.addCamera(config: config) else { throw DeviceError.message("Camera unavailable.") }
         camera = attached
         waitingForCameraFrame = verifyFirstFrame
@@ -634,12 +647,12 @@ import MWDATMockDevice
         showDisplayPage(.monitoring)
     }
 
-    func showCheckIn(id: String, deadline: Date) {
-        showDisplayPage(.checkIn(id, deadline))
+    func showCheckIn(id: String, deadline: Date, animation: IncidentAnimation.Presentation?) {
+        showDisplayPage(.checkIn(id, deadline, animation))
     }
 
-    func showAudibleAlert(id: String) {
-        showDisplayPage(.alert(id))
+    func showDemoDispatch(_ dispatch: DemoDispatch, animation: IncidentAnimation.Presentation?) {
+        showDisplayPage(.alert(dispatch, animation))
     }
 
     private func showDisplayPage(_ page: DisplayPage) {
@@ -662,11 +675,26 @@ import MWDATMockDevice
                 try Task.checkCancellation()
                 guard self.displayRenderID == revision else { return }
                 guard screen.state == .started else { throw DeviceError.message("Display did not start.") }
-                let card = self.displayCard(for: page, revision: revision)
-                try await screen.send(card)
-                if self.displayRenderID == revision {
+                let animation = page.animation
+                let reduceMotion = UIAccessibility.isReduceMotionEnabled
+                // Send a short sequence of cards over DAT, then leave the last card in place.
+                let finalFrame = 3.0
+                let frames = [0.0, 0.6, 1.2, 1.8, 2.4, finalFrame]
+                for frame in animation != nil && !reduceMotion ? frames : [finalFrame] {
+                    try Task.checkCancellation()
+                    guard self.displayRenderID == revision else { return }
+                    let elapsed = animation?.elapsed(at: Date().timeIntervalSince1970) ?? IncidentAnimation.duration
+                    if frame > 0, frame < elapsed, frame < finalFrame { continue }
+                    let remaining = frame - elapsed
+                    if remaining > 0 { try await Task.sleep(for: .seconds(remaining)) }
+                    let sample = reduceMotion ? IncidentAnimation.duration : max(frame, elapsed)
+                    let art = animation.flatMap { IncidentDisplayArtwork.image(kind: $0.kind, elapsed: sample) }
+                    let card = self.displayCard(for: page, revision: revision, artwork: art)
+                    try await screen.send(card)
+                    guard self.displayRenderID == revision else { return }
                     self.sentDisplayID = revision
                     self.displayStatus = "Active"
+                    if sample >= finalFrame { break }
                 }
             } catch {
                 guard !Task.isCancelled, self.displayRenderID == revision else { return }
@@ -676,7 +704,7 @@ import MWDATMockDevice
         }
     }
 
-    private func displayCard(for page: DisplayPage, revision: UUID) -> FlexBox {
+    private func displayCard(for page: DisplayPage, revision: UUID, artwork: UIImage?) -> FlexBox {
         let title: String, detail: String, button: String
         switch page {
         case .monitoring:
@@ -685,13 +713,17 @@ import MWDATMockDevice
             let battery = session?.device?.batteryLevel.map { "Glasses battery \($0)%" } ?? "Pinch to return"
             (title, detail, button) = ("Guardian controls", battery, "Return")
         case .checkIn:
-            (title, detail, button) = ("Are you okay?", "Tone sounds if you don’t respond", "I’m okay")
-        case .alert:
-            (title, detail, button) = ("Alert active", "Audible alert", "Silence")
+            (title, detail, button) = ("Are you okay?", "Calling for help if you don’t respond", "I’m okay")
+        case .alert(let dispatch, _):
+            let subtitle = dispatch.coordinates.map { "\(dispatch.destination) · \($0.displayText)" } ?? dispatch.destination
+            (title, detail, button) = (dispatch.title, subtitle, "End call")
         }
         return FlexBox(direction: .column, spacing: 12) {
             MWDATDisplay.Text(title, style: .heading)
             MWDATDisplay.Text(detail)
+            if let artwork {
+                MWDATDisplay.Image(image: artwork, sizePreset: .fill, cornerRadius: .small).flexShrink(1)
+            }
             MWDATDisplay.Button(label: button, onClick: { [weak self] in
                 Task { @MainActor in
                     guard let self, self.displayRenderID == revision else { return }
@@ -708,7 +740,8 @@ import MWDATMockDevice
         switch displayPage {
         case .monitoring: showDisplayPage(.controls)
         case .controls: showDisplayPage(.monitoring)
-        case .checkIn(let id, _), .alert(let id): onDisplayCancel?(id)
+        case .checkIn(let id, _, _): onDisplayCancel?(id)
+        case .alert(let dispatch, _): onDisplayCancel?(dispatch.incidentID)
         case nil: break
         }
     }

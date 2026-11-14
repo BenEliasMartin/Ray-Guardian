@@ -27,9 +27,10 @@ public enum IncidentAnimation {
         default: return nil // Generic distress/SOS/fire remain a neutral check-in.
         }
     }
-    public static func update(previous: Presentation?, incident: Incident?, now: TimeInterval) -> Presentation? {
-        guard now.isFinite,let incident,!incident.terminal,
-              let kind = kind(trigger:incident.trigger,detectionLabel:incident.detection?.label) else { return nil }
+    public static func update(previous: Presentation?, incident: Incident?, now: TimeInterval,
+                              fallback: Kind? = nil, preferred: Kind? = nil) -> Presentation? {
+        guard now.isFinite, let incident, !incident.terminal,
+              let kind = preferred ?? kind(trigger: incident.trigger, detectionLabel: incident.detection?.label) ?? fallback else { return nil }
         if let previous,previous.incidentID == incident.id,previous.kind == kind { return previous }
         return Presentation(incidentID:incident.id,kind:kind,startedAt:now)
     }

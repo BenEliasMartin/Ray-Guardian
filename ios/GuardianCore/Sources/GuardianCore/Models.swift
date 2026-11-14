@@ -15,6 +15,7 @@ public struct Incident: Codable, Equatable, Identifiable, Sendable {
     public let id: String, sessionId: String, mode: String, state: String, trigger: String
     public let detection: Detection?, detectedBy: String?, call: CallStatus?
     public let escalationToken: String?
+    public let location: IncidentCoordinates?
     public let checkInDeadline: Double?, createdAt: Double, updatedAt: Double
     public let voiceConsent: Bool, demoCallConsent: Bool
     public var terminal: Bool { ["cancelled", "acknowledged", "closed"].contains(state) }
@@ -23,7 +24,7 @@ public struct Incident: Codable, Equatable, Identifiable, Sendable {
         case "keyword_distress": return "Speech recognized a request for help or a report of danger"
         case "gesture_distress": return "Wearer requested a check-in with a closed fist"
         case "spoken_threat": return "Speech matched a possible threat"
-        case "motion_phone": return "Test iPhone motion matched a fall pattern; wearer fall unconfirmed"
+        case "motion_phone": return "iPhone motion matched a possible fall"
         default: return detectedBy == "nemotron" ? "Evidence assessed by Nemotron" : "Wearer initiated SOS; awaiting optional Nemotron evidence"
         }
     }

@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import GuardianCore
 
 /// Selected concepts C1 (Night patrol) and M2 (Heartbeat ribbon), drawn natively.
@@ -152,6 +153,55 @@ struct IncidentArtwork: View {
             let radius = time >= 6 ? 6.0 : 6+sin(time*Double.pi)*1.5
             circle(x:Double(tip.x),y:Double(tip.y),radius:radius,color:Self.cream,in:context)
         }
+    }
+}
+
+@MainActor enum IncidentDisplayArtwork {
+    static func image(kind: IncidentAnimation.Kind, elapsed: TimeInterval) -> UIImage? {
+        let renderer = ImageRenderer(content: IncidentArtwork(kind: kind, elapsed: elapsed)
+            .frame(width: 256, height: 128)
+            .background(Color(red: 0.06, green: 0.11, blue: 0.13)))
+        return renderer.uiImage
+    }
+}
+
+@MainActor enum GlassesRecordingOverlay {
+    static func frame(_ image: UIImage, dispatch: DemoDispatch?, animation: IncidentAnimation.Presentation?,
+                      checkingIn: Bool, time: Double) -> IncidentFrame? {
+        let size = image.size
+        guard size.width > 0, size.height > 0 else { return nil }
+        let scale = min(1, 640 / max(size.width, size.height))
+        let target = CGSize(width: size.width * scale, height: size.height * scale)
+        let rect = CGRect(origin: .zero, size: target)
+        let title = dispatch?.title ?? (checkingIn ? "Are you okay?" : "Monitoring is on")
+        let detail = dispatch.map { $0.coordinates?.displayText ?? $0.destination } ?? "Ray Guardian"
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        let composed = UIGraphicsImageRenderer(size: target, format: format).image { _ in
+            image.draw(in: rect)
+            let width = target.width * 0.56
+            let textScale = width / 180
+            let titleFont = UIFont.systemFont(ofSize: 14 * textScale, weight: .semibold)
+            let detailFont = UIFont.monospacedSystemFont(ofSize: 10 * textScale, weight: .regular)
+            let artHeight = animation == nil ? 0 : width * 0.44
+            let panel = CGRect(x: target.width - width - 12, y: target.height * 0.12,
+                               width: width, height: 50 * textScale + artHeight)
+            UIColor(red: 0.03, green: 0.07, blue: 0.09, alpha: 0.88).setFill()
+            UIBezierPath(roundedRect: panel, cornerRadius: 8).fill()
+            let titleRect = panel.insetBy(dx: 8 * textScale, dy: 7 * textScale)
+            (title as NSString).draw(in: titleRect, withAttributes: [.font: titleFont, .foregroundColor: UIColor.white])
+            let detailRect = titleRect.offsetBy(dx: 0, dy: 23 * textScale)
+            (detail as NSString).draw(in: detailRect, withAttributes: [.font: detailFont, .foregroundColor: UIColor.white])
+            if let animation, let art = IncidentDisplayArtwork.image(
+                kind: animation.kind, elapsed: animation.elapsed(at: Date().timeIntervalSince1970)
+            ) {
+                art.draw(in: CGRect(x: panel.minX + width * 0.06, y: panel.maxY - artHeight - 3,
+                                    width: width * 0.88, height: artHeight))
+            }
+        }
+        guard let jpeg = composed.jpegData(compressionQuality: 0.72) else { return nil }
+        return IncidentFrame(time: time, jpeg: jpeg, sharpness: 0)
     }
 }
 

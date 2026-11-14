@@ -68,7 +68,7 @@
 		<string>_bonjour._tcp</string>
 	</array>
 	<key>NSCameraUsageDescription</key>
-	<string>Use the iPhone camera only when explicitly selected as a MockDeviceKit camera source.</string>
+	<string>Use the iPhone camera for incident capture when Phone mode and camera capture are enabled, or for Mock glasses testing.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Connect to the Guardian API on your local development network.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
@@ -76,7 +76,7 @@
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Process selected microphone input locally for triggers and upload only a consented short incident window.</string>
 	<key>NSMotionUsageDescription</key>
-	<string>Read glasses movement or explicitly enabled iPhone motion for Mock testing while monitoring is armed.</string>
+	<string>Use movement from your iPhone or glasses while monitoring is armed to detect possible falls.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Recognize Guardian wake and cancellation phrases on this iPhone using on-device speech recognition.</string>
 	<key>UIBackgroundModes</key>

@@ -7,16 +7,15 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		A700C1C200004C38B6B23101 /* IncidentAnimationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A700C1C200004C38B6B23102 /* IncidentAnimationView.swift */; };
-		1552C4B68374649BEC725744 /* QuietHaloView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 225636BD0F2157DB75D8E31D /* QuietHaloView.swift */; };
-		E801E6D28AA64A9D9D8200C1 /* IncidentEvidence.swift in Sources */ = {isa = PBXBuildFile; fileRef = E801E6D28AA64A9D9D8200C2 /* IncidentEvidence.swift */; };
 		06866B9FC75A465DAD21395B /* IncidentLocation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00EBC70A765FEBC77AEB530B /* IncidentLocation.swift */; };
 		0EFDE40216BBE27587E5884D /* Configuration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46B9B6DAB6A9CAC341F77FD4 /* Configuration.swift */; };
+		1552C4B68374649BEC725744 /* QuietHaloView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 225636BD0F2157DB75D8E31D /* QuietHaloView.swift */; };
 		1BC1CEECBE8ACCD57E266F4B /* RayGuardianUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71DB5A6D5B8ECB74FE6126A8 /* RayGuardianUITests.swift */; };
 		20837E3C0B269555CED7A0CE /* GuardianModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D28734A405CA466C5341C4D7 /* GuardianModel.swift */; };
 		30AB1463EE055A762D9F90A2 /* MWDATDisplay in Frameworks */ = {isa = PBXBuildFile; productRef = 30AB1463EE055A762D9F90A1 /* MWDATDisplay */; };
 		30AB1463EE055A762D9F90A4 /* MWDATInputs in Frameworks */ = {isa = PBXBuildFile; productRef = 30AB1463EE055A762D9F90A3 /* MWDATInputs */; };
 		312F02B13B124BAEEEDA1D30 /* PhoneMotion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 928B0EFDB0634DABCBA7E826 /* PhoneMotion.swift */; };
+		EE052B4EF26D4226A5DD1091 /* PhoneCamera.swift in Sources */ = {isa = PBXBuildFile; fileRef = E35660E87DEE4AD5AE67E77E /* PhoneCamera.swift */; };
 		38520740661C303B6C427F0D /* MWDATMotion in Frameworks */ = {isa = PBXBuildFile; productRef = 039B17C87BA077347BA649EC /* MWDATMotion */; };
 		424B180B34BF0105C19FFB34 /* HeartRateMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91850367A3F52267F85F601C /* HeartRateMonitor.swift */; };
 		42D9B1BC001D08968928F162 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3DF00DB6237907EACBAF966C /* ContentView.swift */; };
@@ -25,6 +24,7 @@
 		6CEA0CDF2F5C7563A7395351 /* MWDATCamera in Frameworks */ = {isa = PBXBuildFile; productRef = FCC5CC594AEAF72559DCEAB5 /* MWDATCamera */; };
 		8DD0CE117EC31ECF4B362A13 /* StreamImageDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDA8E16351C735087A36BC2E /* StreamImageDecoder.swift */; };
 		A1DBAE0B5515210B26EF0366 /* AudioIO.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9919DC4493884B03A640942F /* AudioIO.swift */; };
+		A700C1C200004C38B6B23101 /* IncidentAnimationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A700C1C200004C38B6B23102 /* IncidentAnimationView.swift */; };
 		A967AD3F9A93DBF9A99B2DF4 /* RayGuardianApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14E23221338668B14E283230 /* RayGuardianApp.swift */; };
 		B904C22A58CAA3EE6107B73B /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 9F8310980943FFD67729B9D5 /* PrivacyInfo.xcprivacy */; };
 		C0F253393B04E57DDD88B185 /* MWDATCore in Frameworks */ = {isa = PBXBuildFile; productRef = 2F01618883A2EDA43A1B1AA5 /* MWDATCore */; };
@@ -33,6 +33,7 @@
 		D8866D30AAD906C29ADB9437 /* ReplayMedia in Resources */ = {isa = PBXBuildFile; fileRef = EDE3CD7026C5892AA2771CB3 /* ReplayMedia */; };
 		DA9A3D6C42A1759CF343ADFD /* MWDATSpeech in Frameworks */ = {isa = PBXBuildFile; productRef = 4EAE40580AF6D31927A8813B /* MWDATSpeech */; };
 		DD03A6A346A12E67957F754C /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = FD43046E6948D8E094CC79A0 /* Assets.xcassets */; };
+		E801E6D28AA64A9D9D8200C1 /* IncidentEvidence.swift in Sources */ = {isa = PBXBuildFile; fileRef = E801E6D28AA64A9D9D8200C2 /* IncidentEvidence.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -46,13 +47,11 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		A700C1C200004C38B6B23102 /* IncidentAnimationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IncidentAnimationView.swift; sourceTree = "<group>"; };
-		225636BD0F2157DB75D8E31D /* QuietHaloView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuietHaloView.swift; sourceTree = "<group>"; };
-		E801E6D28AA64A9D9D8200C2 /* IncidentEvidence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IncidentEvidence.swift; sourceTree = "<group>"; };
 		00EBC70A765FEBC77AEB530B /* IncidentLocation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IncidentLocation.swift; sourceTree = "<group>"; };
 		14E23221338668B14E283230 /* RayGuardianApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RayGuardianApp.swift; sourceTree = "<group>"; };
 		15B607E4FE51DAD92A975A38 /* GuardianCore */ = {isa = PBXFileReference; lastKnownFileType = folder; path = GuardianCore; sourceTree = SOURCE_ROOT; };
 		213B6A8BEDA9D601ABC657C1 /* GlassesAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlassesAdapter.swift; sourceTree = "<group>"; };
+		225636BD0F2157DB75D8E31D /* QuietHaloView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuietHaloView.swift; sourceTree = "<group>"; };
 		3D220C2C42836B777980A1D4 /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Release.xcconfig; sourceTree = "<group>"; };
 		3DF00DB6237907EACBAF966C /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		46B9B6DAB6A9CAC341F77FD4 /* Configuration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Configuration.swift; sourceTree = "<group>"; };
@@ -61,10 +60,13 @@
 		8E6557896DE3E9CD9CB0B41B /* RayGuardian.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = RayGuardian.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		91850367A3F52267F85F601C /* HeartRateMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeartRateMonitor.swift; sourceTree = "<group>"; };
 		928B0EFDB0634DABCBA7E826 /* PhoneMotion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneMotion.swift; sourceTree = "<group>"; };
+		E35660E87DEE4AD5AE67E77E /* PhoneCamera.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneCamera.swift; sourceTree = "<group>"; };
 		9919DC4493884B03A640942F /* AudioIO.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioIO.swift; sourceTree = "<group>"; };
 		9F8310980943FFD67729B9D5 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		A700C1C200004C38B6B23102 /* IncidentAnimationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IncidentAnimationView.swift; sourceTree = "<group>"; };
 		D28734A405CA466C5341C4D7 /* GuardianModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GuardianModel.swift; sourceTree = "<group>"; };
 		E5780C13BBF12BE849793957 /* ReplayLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReplayLibrary.swift; sourceTree = "<group>"; };
+		E801E6D28AA64A9D9D8200C2 /* IncidentEvidence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IncidentEvidence.swift; sourceTree = "<group>"; };
 		EDE3CD7026C5892AA2771CB3 /* ReplayMedia */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ReplayMedia; path = RayGuardian/Resources/ReplayMedia; sourceTree = SOURCE_ROOT; };
 		F45D1426A232E44EF40B2576 /* Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Debug.xcconfig; sourceTree = "<group>"; };
 		FD43046E6948D8E094CC79A0 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -132,6 +134,7 @@
 				91850367A3F52267F85F601C /* HeartRateMonitor.swift */,
 				00EBC70A765FEBC77AEB530B /* IncidentLocation.swift */,
 				928B0EFDB0634DABCBA7E826 /* PhoneMotion.swift */,
+				E35660E87DEE4AD5AE67E77E /* PhoneCamera.swift */,
 				FDA8E16351C735087A36BC2E /* StreamImageDecoder.swift */,
 			);
 			path = Adapters;
@@ -328,6 +331,7 @@
 				424B180B34BF0105C19FFB34 /* HeartRateMonitor.swift in Sources */,
 				06866B9FC75A465DAD21395B /* IncidentLocation.swift in Sources */,
 				312F02B13B124BAEEEDA1D30 /* PhoneMotion.swift in Sources */,
+				EE052B4EF26D4226A5DD1091 /* PhoneCamera.swift in Sources */,
 				A967AD3F9A93DBF9A99B2DF4 /* RayGuardianApp.swift in Sources */,
 				C9426D6E0C9A607AC6D73D1C /* ReplayLibrary.swift in Sources */,
 				E801E6D28AA64A9D9D8200C1 /* IncidentEvidence.swift in Sources */,
@@ -492,6 +496,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = 2JPNVU63JU;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = "$(DERIVED_FILE_DIR)/GuardianInfo.plist";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -526,6 +531,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = 2JPNVU63JU;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = "$(DERIVED_FILE_DIR)/GuardianInfo.plist";
 				LD_RUNPATH_SEARCH_PATHS = (

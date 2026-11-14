@@ -58,8 +58,8 @@ public struct SpeechClipBuffer {
 }
 
 public enum PCM16WAV {
-    public static func encode(_ samples: [Int16]) -> Data {
-        let bounded = samples.prefix(128000)
+    public static func encode(_ samples: [Int16], maximumSamples: Int = 128_000) -> Data {
+        let bounded = samples.prefix(max(0, maximumSamples))
         var data = Data()
         func u16(_ value: UInt16) { var v = value.littleEndian; withUnsafeBytes(of: &v) { data.append(contentsOf: $0) } }
         func u32(_ value: UInt32) { var v = value.littleEndian; withUnsafeBytes(of: &v) { data.append(contentsOf: $0) } }

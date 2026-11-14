@@ -44,7 +44,7 @@ export class GuardianService {
     const enabledSignals=body.enabledSignals??['manual_sos','keyword_sos','keyword_distress','spoken_threat','motion','heart_rate','manual_check'];
     if(!Array.isArray(enabledSignals)||enabledSignals.some(s=>!SIGNALS.includes(s)))fail(400,'invalid_signals','Unknown trigger source.');
     const allowedSignals=enabledSignals.filter(signal=>!['motion_phone','gesture_distress'].includes(signal));
-    if(body.phoneMotionTesting===true&&source==='meta_mock')allowedSignals.push('motion_phone');
+    if(source==='phone'||(body.phoneMotionTesting===true&&source==='meta_mock'))allowedSignals.push('motion_phone');
     if(body.handGestures===true&&consent.capture&&['meta_glasses','meta_mock'].includes(source))allowedSignals.push('gesture_distress');
     return this.saveSession({id:randomUUID(),owner,mode:'demo',source,consent,enabledSignals:[...new Set(allowedSignals)],
       armed:false,armedUntil:null,createdAt:this.now(),expiresAt:this.now()+RECORD_TTL,heartbeatAt:this.now(),
@@ -73,8 +73,9 @@ export class GuardianService {
     if(incident&&TERMINAL.has(incident.state))incident=null;
     if(intentional&&!incident){incident=this.newIncident(s,null,body.signal,true);s=this.requireSession(owner,id);}
     if(intentional&&incident?.state==='check_in')incident=this.queueCall({...incident,checkInDeadline:null});
-    if(['spoken_threat','keyword_distress','motion_phone','gesture_distress'].includes(body.signal)&&!incident){
-      incident=this.newIncident(s,detection,body.signal,false);
+    const phoneMotion=s.source==='phone'&&body.signal==='motion';
+    if((['spoken_threat','keyword_distress','motion_phone','gesture_distress'].includes(body.signal)||phoneMotion)&&!incident){
+      incident=this.newIncident(s,detection,phoneMotion?'motion_phone':body.signal,false);
       s=this.requireSession(owner,id);
     }
     const active=s.activeWindow;
@@ -149,9 +150,9 @@ export class GuardianService {
   newIncident(session,detection,trigger,intentional){
     if(this.recentBudget(session.owner,'incident').length>=INCIDENT_LIMIT)fail(429,'incident_budget','Thirty demonstration incidents per ten minutes are allowed.');
     this.reserveBudget(session.owner,'incident');
-    // A real-glasses check-in allows bounded capture teardown, a spoken cue and
+    // A physical-device check-in allows bounded capture teardown, a spoken cue and
     // the wearer's reply. Camera capture remains limited to eight seconds.
-    const responseMs=session.source==='meta_glasses'?Math.max(30000,this.checkInMs):this.checkInMs;
+    const responseMs=['meta_glasses','phone'].includes(session.source)?Math.max(30000,this.checkInMs):this.checkInMs;
     const incident=this.saveIncident({id:randomUUID(),owner:session.owner,sessionId:session.id,mode:'demo',state:'check_in',
       trigger,detection,detectedBy:detection?.source??(['keyword_distress','spoken_threat'].includes(trigger)?'speech_trigger':trigger==='motion_phone'?'phone_motion':null),createdAt:this.now(),updatedAt:this.now(),expiresAt:this.now()+RECORD_TTL,
       checkInDeadline:intentional?this.now():this.now()+responseMs,call:null,acknowledgedAt:null,cancelledAt:null,location:null,
@@ -214,7 +215,7 @@ export class GuardianService {
   callScript(i){
     const triggerContext=i.trigger==='keyword_distress'?'Speech recognized a request for help or a report of danger.':
       i.trigger==='spoken_threat'?'Speech matched a possible threat.':
-      i.trigger==='motion_phone'?'The test iPhone reported free-fall followed by impact. A wearer fall is unconfirmed.':
+      i.trigger==='motion_phone'?'The iPhone detected motion consistent with a fall. A wearer fall is unconfirmed.':
       ['manual_sos','keyword_sos'].includes(i.trigger)?'The wearer deliberately requested help.':'';
     const summary=[triggerContext,i.detection?.summary].filter(Boolean).join(' ').slice(0,600);
     const location=i.location?`Reported coordinates: ${i.location.latitude.toFixed(4)}, ${i.location.longitude.toFixed(4)}. Accuracy ${Math.round(i.location.accuracyMeters)} meters.`:'No location was shared.';

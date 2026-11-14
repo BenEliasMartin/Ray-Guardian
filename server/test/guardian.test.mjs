@@ -370,12 +370,19 @@ test('late location cannot be written after cancellation or disarming',async t=>
   assert.equal(g.location('location-owner',tr.incident.id,point).location.latitude,60);await g.cancel('location-owner',tr.incident.id);assert.throws(()=>g.location('location-owner',tr.incident.id,point),{code:'incident_closed'});
 });
 
-test('phone motion test trigger is accepted only for opted-in mock sessions',async t=>{
+test('phone motion is accepted in Phone mode and opted-in Mock sessions',async t=>{
   const {g}=fixture(t);
   const consent={capture:true,cloud:true};
   const mock=g.createSession('phone-owner',{consent,source:'meta_mock',phoneMotionTesting:true});g.arm('phone-owner',mock.id);
   const reply=g.trigger('phone-owner',mock.id,{signal:'motion_phone'});
   assert.equal(reply.accepted,true);assert.equal(reply.window.signal,'motion_phone');
+  const phone=g.createSession('standalone-phone',{source:'phone'});
+  g.arm('standalone-phone',phone.id);
+  const checkIn=g.trigger('standalone-phone',phone.id,{signal:'motion_phone'});
+  assert.equal(checkIn.incident.state,'check_in');
+  assert.equal(checkIn.incident.detectedBy,'phone_motion');
+  assert.equal(checkIn.incident.checkInDeadline-checkIn.incident.createdAt,30_000);
+  assert.equal(checkIn.window,null);
   const off=g.createSession('phone-owner',{consent,source:'meta_mock'});g.arm('phone-owner',off.id);
   assert.equal(g.trigger('phone-owner',off.id,{signal:'motion_phone'}).reason,'source_disabled');
   const real=g.createSession('phone-owner',{consent,source:'meta_glasses',phoneMotionTesting:true});g.arm('phone-owner',real.id);

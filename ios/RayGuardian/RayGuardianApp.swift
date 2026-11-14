@@ -7,7 +7,9 @@ import GuardianCore
     init() {
         var setupError: String?
         do { try Wearables.configure() } catch WearablesError.alreadyConfigured { } catch { setupError = "Wearables configuration: \(error.localizedDescription). Check Meta and Apple settings in Local.xcconfig." }
-        let model = GuardianModel(); model.error = setupError; model.glasses.configurationError = setupError
+        let model = GuardianModel()
+        if model.settings.input != .phone { model.error = setupError }
+        model.glasses.configurationError = setupError
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("--guardian-ui-fixture") {
             model.settings.usesEphemeralUITestConfiguration = true
@@ -52,7 +54,8 @@ import GuardianCore
             }
             #endif
         }.onChange(of: scenePhase) { _,phase in
-            if phase != .inactive || !model.starting { model.sceneChanged(active: phase == .active) }
+            if phase == .inactive, model.starting { return }
+            model.sceneChanged(active: phase == .active)
         }
     } }
 }

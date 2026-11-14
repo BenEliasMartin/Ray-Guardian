@@ -12,21 +12,40 @@ struct IncidentFrame: Sendable {
 
 struct IncidentClipAudio: Sendable {
     static let sampleRate = 16_000
-    private static let maximumSamples = 8 * sampleRate
+    private let maximumSamples: Int
     let start: Double
     private(set) var samples: [Int16] = []
+
+    init(start: Double, duration: Int = 8) {
+        self.start = start
+        maximumSamples = duration * Self.sampleRate
+    }
 
     mutating func append(_ incoming: [Int16], endingAt end: Double) {
         let offset = Int(((end - start) * Double(Self.sampleRate)).rounded()) - incoming.count
         let destination = max(0, offset, samples.count)
         let skip = destination - offset
-        let count = min(incoming.count - skip, Self.maximumSamples - destination)
+        let count = min(incoming.count - skip, maximumSamples - destination)
         guard count > 0 else { return }
         if destination > samples.count {
             samples.append(contentsOf: repeatElement(0, count: destination - samples.count))
         }
         samples.append(contentsOf: incoming[skip..<(skip + count)])
     }
+    mutating func mix(_ incoming: IncidentClipAudio) {
+        let offset = Int(((incoming.start - start) * Double(Self.sampleRate)).rounded())
+        let from = max(0, -offset)
+        let to = min(incoming.samples.count, maximumSamples - offset)
+        guard from < to else { return }
+        if offset + to > samples.count {
+            samples.append(contentsOf: repeatElement(0, count: offset + to - samples.count))
+        }
+        for source in from..<to {
+            let target = offset + source
+            samples[target] = Int16(clamping: Int(samples[target]) + Int(incoming.samples[source]))
+        }
+    }
+
 }
 
 enum ReviewedEvidence: Sendable {
@@ -58,6 +77,7 @@ actor IncidentEvidence {
     private enum EvidenceError: Error { case signingKeyUnavailable, videoEncodingFailed }
 
     private static let retention: TimeInterval = 24 * 60 * 60
+    private static let minimumFrameSpan: TimeInterval = 0.1
     private let files = FileManager.default
     private let root: URL
     private let legacy: URL
@@ -80,7 +100,7 @@ actor IncidentEvidence {
 
         var kind = Kind.photo
         let video = mediaURL(.clip, in: staging)
-        if frames.count >= 3, let first = frames.first, let last = frames.last, last.time - first.time >= 0.5 {
+        if let first = frames.first, let last = frames.last, last.time - first.time >= Self.minimumFrameSpan {
             do {
                 try await encode(frames, at: video)
                 if let audio, !audio.samples.isEmpty, let first = frames.first {
@@ -114,6 +134,23 @@ actor IncidentEvidence {
         guard Date().timeIntervalSince(createdAt) < Self.retention,
               !files.fileExists(atPath: destination.path) else { return }
         try files.moveItem(at: staging, to: destination)
+    }
+
+    func exportGlassesVideo(_ frames: [IncidentFrame], audio: IncidentClipAudio?) async throws -> URL {
+        let folder = files.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        try files.createDirectory(at: folder, withIntermediateDirectories: false,
+                                  attributes: [.protectionKey: FileProtectionType.complete])
+        let video = folder.appending(path: "Ray Guardian Glasses POV.mp4")
+        do {
+            try await encode(frames, at: video, timeoutSeconds: 25)
+            if let audio, !audio.samples.isEmpty, let first = frames.first {
+                try await addAudio(audio, videoStart: first.time, to: video, requireAudio: true)
+            }
+            return video
+        } catch {
+            try? files.removeItem(at: folder)
+            throw error
+        }
     }
 
     func review(id: UUID, createdAt: Date) -> ReviewedEvidence {
@@ -205,7 +242,7 @@ actor IncidentEvidence {
         return key
     }
 
-    private func encode(_ frames: [IncidentFrame], at url: URL) async throws {
+    private func encode(_ frames: [IncidentFrame], at url: URL, timeoutSeconds: Int = 5) async throws {
         guard let first = frames.first, let image = decode(first.jpeg) else {
             throw EvidenceError.videoEncodingFailed
         }
@@ -227,7 +264,7 @@ actor IncidentEvidence {
         defer { if writer.status == .writing { writer.cancelWriting() } }
         writer.startSession(atSourceTime: .zero)
 
-        let deadline = ContinuousClock.now + .seconds(5)
+        let deadline = ContinuousClock.now + .seconds(timeoutSeconds)
         var last = CMTime.invalid
         var written = 0
         for frame in frames {
@@ -243,7 +280,7 @@ actor IncidentEvidence {
             last = time
             written += 1
         }
-        guard written >= 3, last.seconds >= 0.5 else { throw EvidenceError.videoEncodingFailed }
+        guard written >= 2, last.seconds >= Self.minimumFrameSpan else { throw EvidenceError.videoEncodingFailed }
         let end = last + CMTime(seconds: 0.18, preferredTimescale: 600)
         writer.endSession(atSourceTime: end)
         input.markAsFinished()
@@ -261,7 +298,7 @@ actor IncidentEvidence {
         }
     }
 
-    private func addAudio(_ audio: IncidentClipAudio, videoStart: Double, to video: URL) async throws {
+    private func addAudio(_ audio: IncidentClipAudio, videoStart: Double, to video: URL, requireAudio: Bool = false) async throws {
         let rate = Double(IncidentClipAudio.sampleRate)
         let offset = audio.start - videoStart
         let trim = max(0, Int((-offset * rate).rounded(.up)))
@@ -275,7 +312,8 @@ actor IncidentEvidence {
             try? files.removeItem(at: combined)
         }
         do {
-            try PCM16WAV.encode(Array(audio.samples.dropFirst(trim))).write(to: wav, options: .atomic)
+            let samples = Array(audio.samples.dropFirst(trim))
+            try PCM16WAV.encode(samples, maximumSamples: samples.count).write(to: wav, options: .atomic)
             let videoAsset = AVURLAsset(url: video)
             let audioAsset = AVURLAsset(url: wav)
             let composition = AVMutableComposition()
@@ -306,8 +344,8 @@ actor IncidentEvidence {
             guard try await !output.loadTracks(withMediaType: .audio).isEmpty else { throw EvidenceError.videoEncodingFailed }
             _ = try files.replaceItemAt(video, withItemAt: combined)
         } catch {
-            // Keep the original video if the microphone track could not be encoded.
             try Task.checkCancellation()
+            if requireAudio { throw error }
         }
     }
 

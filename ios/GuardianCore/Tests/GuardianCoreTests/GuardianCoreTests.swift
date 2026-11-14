@@ -32,6 +32,40 @@ final class GuardianCoreTests: XCTestCase {
         XCTAssertNil(IncidentAnimation.update(previous:first,incident:try incident("cancelled"),now:105))
         XCTAssertNil(IncidentAnimation.update(previous:first,incident:nil,now:105))
     }
+
+    func testSimulatedDispatchReadsCurrentCoordinatesAndNeverInventsThem() throws {
+        func incident(trigger: String, location: String = "null") throws -> Incident {
+            try JSONDecoder().decode(Incident.self, from: Data("""
+            {"id":"incident","sessionId":"session","mode":"demo","state":"check_in",
+             "trigger":"\(trigger)","createdAt":0,"updatedAt":0,"voiceConsent":false,
+             "demoCallConsent":false,"location":\(location)}
+            """.utf8))
+        }
+        let threat = try incident(trigger: "spoken_threat",
+                                  location: #"{"latitude":60.17083,"longitude":-24.93750,"accuracyMeters":12}"#)
+        let police = DemoDispatch(incident: threat)
+        XCTAssertEqual(police.service, .police)
+        XCTAssertEqual(police.title, "Calling police…")
+        XCTAssertTrue(police.spokenBriefing.hasPrefix("Police dispatch, this is Ray Guardian."))
+        let sos = try incident(trigger: "manual_sos")
+        let intro = try XCTUnwrap(IncidentAnimation.update(previous: nil, incident: sos, now: 100, fallback: .patrol))
+        XCTAssertEqual(intro.kind, .patrol)
+        XCTAssertEqual(IncidentAnimation.update(previous: intro, incident: sos, now: 103, fallback: .patrol), intro)
+        XCTAssertEqual(police.coordinates?.displayText, "60.17083°, -24.93750°")
+        XCTAssertTrue(police.spokenBriefing.contains("60 point 1 7 0 8 3 degrees north"))
+        XCTAssertTrue(police.spokenBriefing.contains("24 point 9 3 7 5 0 degrees west"))
+        let fall = DemoDispatch(incident: try incident(trigger: "motion_phone"))
+        XCTAssertEqual(fall.service, .ambulance)
+        XCTAssertTrue(fall.spokenBriefing.contains("A wearer fall is unconfirmed."))
+        XCTAssertTrue(fall.spokenBriefing.contains("Current location is unavailable."))
+        let requested = DemoDispatch(incident: threat, requestedService: .ambulance)
+        XCTAssertEqual(requested.title, "Calling ambulance…")
+        XCTAssertTrue(requested.spokenBriefing.hasPrefix("Ambulance dispatch, this is Ray Guardian."))
+        XCTAssertEqual(requested.coordinates, police.coordinates)
+        XCTAssertEqual(IncidentAnimation.update(previous: nil, incident: threat, now: 100,
+                                               preferred: requested.service.animation)?.kind, .pulse)
+    }
+
     func testScreenlessCheckInHasVoiceControlsAndSuppressesItsOwnInstructions() throws {
         let prompt = try XCTUnwrap(HandsFreePrompt.text(state:"check_in",voiceCommands:true))
         XCTAssertTrue(prompt.contains("Guardian cancel"))
@@ -262,6 +296,9 @@ final class GuardianCoreTests: XCTestCase {
     func testWAVRoundTripBoundsAndMalformedFiles() throws {
         let samples: [Int16] = (0..<3200).map { Int16($0-1600) }; XCTAssertEqual(try PCM16WAV.decode(PCM16WAV.encode(samples)),samples)
         XCTAssertEqual(try PCM16WAV.decode(PCM16WAV.encode(Array(repeating:1,count:140000))).count,128000)
+        let recording = Array(repeating: Int16(1), count: 160_000)
+        let wav = PCM16WAV.encode(recording, maximumSamples: recording.count)
+        XCTAssertEqual(wav.count, 44 + recording.count * MemoryLayout<Int16>.size)
         var bad = PCM16WAV.encode(samples); bad[22] = 2; XCTAssertThrowsError(try PCM16WAV.decode(bad)); XCTAssertThrowsError(try PCM16WAV.decode(Data("hello".utf8)))
         XCTAssertThrowsError(try PCM16WAV.decode(PCM16WAV.encode([1,2])))
     }
