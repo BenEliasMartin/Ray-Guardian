@@ -5,7 +5,8 @@ final class RayGuardianUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["--guardian-ui-fixture"]
         if stopAfterFirstFrame { app.launchArguments.append("--guardian-stop-after-first-frame") }
-        app.launchEnvironment["GUARDIAN_UI_TEST_API"] = "http://127.0.0.1:8787"
+        app.launchEnvironment["GUARDIAN_UI_TEST_API"] =
+            ProcessInfo.processInfo.environment["GUARDIAN_UI_TEST_API"] ?? "http://127.0.0.1:8787"
         app.launch()
         return app
     }
@@ -37,7 +38,7 @@ final class RayGuardianUITests: XCTestCase {
         }
         XCTAssertTrue(app.staticTexts["UI routing fixture: actual SDK frames received. No real provider classification was performed."].exists)
         XCTAssertTrue(app.staticTexts["guardian.evidence"].label.contains("test_fixture_stt"))
-        XCTAssertFalse(app.staticTexts["Demo incident"].exists)
+        XCTAssertFalse(app.staticTexts["guardian.activeIncident"].exists)
         tap("guardian.stop",in:app)
         XCTAssertTrue(app.staticTexts["Your camera is off"].waitForExistence(timeout:5))
     }
@@ -53,9 +54,27 @@ final class RayGuardianUITests: XCTestCase {
     }
     func testActualMockSpeechRequestsAndCancelsCheckIn() {
         let app = launch(); armAndInject(app,event:"guardian.injectDistress")
-        XCTAssertTrue(app.staticTexts["Demo incident"].waitForExistence(timeout:10))
+        XCTAssertTrue(app.staticTexts["guardian.activeIncident"].waitForExistence(timeout:10))
         app.tabBars.buttons["Mock glasses"].tap(); tap("guardian.injectCancel",in:app)
         app.tabBars.buttons["Guardian"].tap()
         XCTAssertTrue(app.staticTexts["Your camera is off"].waitForExistence(timeout:10))
+    }
+
+    func testCancelledCheckInKeepsAPlayableVerifiedClip() {
+        let app = launch()
+        armAndInject(app, event: "guardian.injectDistress")
+        XCTAssertTrue(app.staticTexts["guardian.activeIncident"].waitForExistence(timeout: 10))
+        let receivedVideo = NSPredicate(format: "label MATCHES %@", ".* ([4-9]|[1-9][0-9]+) SDK frames")
+        expectation(for: receivedVideo, evaluatedWith: app.staticTexts["guardian.lastCaptureFrames"])
+        waitForExpectations(timeout: 10)
+
+        tap("I’m okay", in: app)
+        XCTAssertTrue(app.staticTexts["Check-in cancelled"].waitForExistence(timeout: 10))
+        app.tabBars.buttons["Incidents"].tap()
+        let cancelled = app.staticTexts["Check-in cancelled"].firstMatch
+        XCTAssertTrue(cancelled.waitForExistence(timeout: 10))
+        cancelled.tap()
+        XCTAssertTrue(app.buttons["Cryptographically verified"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.staticTexts["Clip with audio · Saved on this iPhone"].exists)
     }
 }

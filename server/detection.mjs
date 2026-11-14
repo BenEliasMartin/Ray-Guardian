@@ -68,18 +68,26 @@ export function createDetector({ apiKey, baseURL=BASE_URL, model=MODEL, fetchImp
       note:'No source file names or scenario labels are provided. Assess the supplied evidence.' }) }];
     for (const frame of frames) content.push({ type:'image_url', image_url:{ url:frame.imageDataUrl } });
     const deadline = performance.now() + timeoutMs;
+    let uncertainty = 'Nemotron returned an unusable assessment.';
     for (let attempt = 0; attempt < 2; attempt++) {
       const remaining = Math.floor(deadline - performance.now());
       if (attempt > 0 && remaining <= 0) break;
-      const { bytes } = await providerRequest(fetchImpl, endpoint, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model, messages: [{ role: 'system', content: trigger === 'speech_monitoring' ? SPEECH_PROMPT : DETECTION_PROMPT }, { role: 'user', content }],
-          response_format: DETECTION_FORMAT,
-          max_tokens: 1400, temperature: 0, stream: false, chat_template_kwargs: { enable_thinking: false },
-        }),
-      }, { signal, timeoutMs: Math.max(1, remaining) });
+      let bytes;
+      try {
+        ({ bytes } = await providerRequest(fetchImpl, endpoint, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model, messages: [{ role: 'system', content: trigger === 'speech_monitoring' ? SPEECH_PROMPT : DETECTION_PROMPT }, { role: 'user', content }],
+            response_format: DETECTION_FORMAT,
+            max_tokens: 1400, temperature: 0, stream: false, chat_template_kwargs: { enable_thinking: false },
+          }),
+        }, { signal, timeoutMs: Math.max(1, remaining) }));
+      } catch (error) {
+        if (error.code !== 'provider_timeout') throw error;
+        uncertainty = 'Nemotron did not respond before the request timed out.';
+        break;
+      }
       try {
         const choice = JSON.parse(bytes.toString('utf8'))?.choices?.[0];
         if (choice?.finish_reason === 'stop' && !choice.message?.tool_calls?.length) {
@@ -92,7 +100,7 @@ export function createDetector({ apiKey, baseURL=BASE_URL, model=MODEL, fetchImp
     return {
       label: 'uncertain', confidence: 'low', wearerInvolved: null,
       summary: 'The AI could not complete this assessment. Check the scene again to retry.',
-      observations: [], uncertainties: ['Nemotron returned an unusable assessment.'],
+      observations: [], uncertainties: [uncertainty],
       source: 'nemotron_unavailable', model,
     };
   };

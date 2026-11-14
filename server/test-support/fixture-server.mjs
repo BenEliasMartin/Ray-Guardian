@@ -13,5 +13,5 @@ const guardian=new GuardianService({store,calls:createDemoCalls({transport:'play
   return {label:'ordinary_activity',confidence:'medium',summary:'UI routing fixture: actual SDK frames received. No real provider classification was performed.',observations:[`${frames.length} camera frames received.`],uncertainties:['Test fixture provider response.'],wearerInvolved:true,source:'test_fixture'};
 },providerStatus:{testFixture:{configured:true}}});
 const server=createGuardianHTTP({guardian,clientToken:'ui-test-only-client-token-never-production-12345'});
-server.listen(8787,'127.0.0.1',()=>console.log('UI TEST FIXTURE server ready; no live providers or calls.'));
+server.listen(Number(process.env.GUARDIAN_UI_TEST_PORT ?? 8787),'127.0.0.1',()=>console.log('UI TEST FIXTURE server ready; no live providers or calls.'));
 for(const signal of ['SIGINT','SIGTERM'])process.on(signal,async()=>{server.close();await guardian.close();store.close();});

@@ -2,6 +2,7 @@ import Combine
 import Foundation
 import UIKit
 import AVFoundation
+import CoreBluetooth
 import MWDATCore
 import MWDATCamera
 import MWDATDisplay
@@ -21,6 +22,17 @@ import MWDATMockDevice
     @Published var speechStatus = "Off"
     @Published var cameraStatus = "Off"
     @Published private(set) var displayStatus = "Off"
+    @Published private(set) var requestingPermission = false
+    @Published private(set) var permissionStatus = ""
+    @Published private(set) var glassesAppUpdateRequired = false
+    @Published private(set) var checkingConnection = false
+    struct GlassesChoice: Identifiable {
+        let id: String
+        let name: String
+        let hasDisplay: Bool
+    }
+    @Published private(set) var availableGlasses: [GlassesChoice] = []
+    @Published private(set) var preferredGlassesID = UserDefaults.standard.string(forKey: "preferredGlassesID")
     var configurationError: String?
     private func requireConfiguration() throws { if let configurationError { throw DeviceError.message(configurationError) } }
     var onFrame: ((UIImage) -> Void)?
@@ -30,25 +42,137 @@ import MWDATMockDevice
     var onUnavailable: ((String) -> Void)?
     var onDisplayCancel: ((String) -> Void)?
     private var session: DeviceSession?, camera: Camera?, motion: Motion?, speech: Speech?
+    private var closingSession: DeviceSession?
+    private var pauseTask: Task<Void, Never>?
+    private var linkLossTask: Task<Void, Never>?
+    private var waitingForCameraFrame = false
+    private var receivedCameraFrame = false
+    private var cameraStartupFailure: String?
     private var imageDecoder: StreamImageDecoder?
     private let standbyTokens = ListenerTokenBag(), cameraTokens = ListenerTokenBag()
+    private let inputTokens = ListenerTokenBag()
     private var motionTask: Task<Void,Never>?
     private var display: Display?
     private var displayTask: Task<Void,Never>?
     private var inputTask: Task<Void,Never>?
-    private var displayedIncident: String?
+    private enum DisplayPage: Equatable {
+        case monitoring, controls, checkIn(String, Date), alert(String)
+    }
+    private var displayPage: DisplayPage?
+    private var displayRenderID = UUID()
+    private var sentDisplayID: UUID?
+    private var lastDisplaySelect = -Double.infinity
+    @Published private(set) var bandStatus = "Off"
     private var generation = UUID()
     private var cameraGeneration = UUID()
-    private var selector: AutoDeviceSelector?
+    private var selector: (any DeviceSelector)?
+    private var waitingForSessionStart = false
+    private var sessionStartError: DeviceSessionError?
     #if DEBUG
     private var mock: (any MockGlasses)?
     #endif
 
-    func register() async throws { try requireConfiguration(); try await Wearables.shared.startRegistration() }
-    func requestPermissions() async throws {
+    func observeGlasses() async {
+        guard configurationError == nil else { return }
+        let wearables = Wearables.shared
+        func refresh() {
+            availableGlasses = wearables.devices.compactMap { id in
+                guard let device = wearables.deviceForIdentifier(id) else { return nil }
+                let hasDisplay = device.supportsDisplay() || device.deviceType() == .metaRayBanDisplay
+                return GlassesChoice(id: id, name: device.nameOrId(), hasDisplay: hasDisplay)
+            }
+        }
+        refresh()
+        for await _ in wearables.devicesStream() {
+            guard !Task.isCancelled else { break }
+            refresh()
+        }
+    }
+
+    func chooseGlasses(_ id: String?) {
+        preferredGlassesID = id
+        UserDefaults.standard.set(id, forKey: "preferredGlassesID")
+        permissionStatus = ""
+        glassesAppUpdateRequired = false
+    }
+
+    func register() async throws {
         try requireConfiguration()
-        guard try await Wearables.shared.requestPermission(.camera) == .granted else { throw DeviceError.message("Glasses camera permission denied.") }
-        guard try await Wearables.shared.requestPermission(.microphone) == .granted else { throw DeviceError.message("Glasses microphone permission denied.") }
+        await disableMockIfNeeded()
+        let wearables = Wearables.shared
+        guard wearables.registrationState != .registered else { return }
+        try await wearables.startRegistration()
+    }
+
+    func grantCameraPermission() async throws {
+        try await grantPermission(.camera, name: "Glasses camera")
+    }
+
+    func grantMicrophonePermission() async throws {
+        try await grantPermission(.microphone, name: "Glasses microphone")
+    }
+
+    private func grantPermission(_ permission: Permission, name: String) async throws {
+        try requireConfiguration()
+        guard !requestingPermission else { return }
+        requestingPermission = true
+        defer { requestingPermission = false }
+        await disableMockIfNeeded()
+        let wearables = Wearables.shared
+        guard wearables.registrationState == .registered else {
+            throw DeviceError.message("Finish registering Ray Guardian in Meta AI before granting glasses permissions.")
+        }
+        if CBCentralManager.authorization == .denied || CBCentralManager.authorization == .restricted {
+            throw DeviceError.message("Ray Guardian cannot use Bluetooth. Check Settings → Privacy & Security → Bluetooth on the iPhone.")
+        }
+        permissionStatus = "Checking the glasses connection…"
+        do {
+            let current = try await permissionStatusAfterConnection(permission, wearables: wearables)
+            if current != .granted {
+                permissionStatus = "Waiting for \(name.lowercased()) approval in Meta AI…"
+                guard try await wearables.requestPermission(permission) == .granted else {
+                    throw DeviceError.message("\(name) access was denied in Meta AI.")
+                }
+            }
+            permissionStatus = "\(name) access granted"
+        } catch PermissionError.requestTimeout {
+            permissionStatus = connectionSummary(wearables)
+            throw DeviceError.message("\(name) permission timed out in Meta AI. Wear the glasses, confirm they show as connected in Meta AI, then retry this permission from Ray Guardian. Approve it in Meta AI and let it return to Ray Guardian.")
+        } catch PermissionError.noDevice, PermissionError.noDeviceWithConnection, PermissionError.connectionError {
+            permissionStatus = connectionSummary(wearables)
+            throw DeviceError.message("\(name) permission could not reach the glasses through Meta’s developer connection. \(permissionStatus). In Meta AI, check Developer Mode for this pair and install any offered glasses or developer app update, then retry.")
+        } catch let error as PermissionError {
+            permissionStatus = connectionSummary(wearables)
+            throw DeviceError.message("\(name) permission: \(error.localizedDescription)")
+        } catch {
+            permissionStatus = connectionSummary(wearables)
+            throw error
+        }
+    }
+
+    private func permissionStatusAfterConnection(_ permission: Permission, wearables: any WearablesInterface) async throws -> PermissionStatus {
+        // Discovery and the developer link can finish shortly after returning from Meta AI.
+        let deadline = ContinuousClock.now + .seconds(10)
+        while true {
+            do { return try await wearables.checkPermissionStatus(permission) }
+            catch {
+                switch error {
+                case .noDevice, .noDeviceWithConnection, .connectionError:
+                    guard ContinuousClock.now < deadline else { throw error }
+                    permissionStatus = connectionSummary(wearables)
+                    try await Task.sleep(for: .milliseconds(750))
+                default: throw error
+                }
+            }
+        }
+    }
+
+    private func connectionSummary(_ wearables: any WearablesInterface) -> String {
+        let devices = wearables.devices.compactMap { wearables.deviceForIdentifier($0) }
+        if devices.isEmpty { return "No glasses visible to Ray Guardian" }
+        if devices.contains(where: { $0.linkState == .connected }) { return "Glasses visible and developer link connected" }
+        if devices.contains(where: { $0.linkState == .connecting }) { return "Glasses found, developer link connecting" }
+        return "Glasses found, developer link disconnected"
     }
     func prepareMock(video: URL?, motionCSV: URL? = nil) async throws {
         try requireConfiguration()
@@ -81,38 +205,244 @@ import MWDATMockDevice
     func useReal() async {
         guard configurationError == nil else { return }
         stop()
+        await disableMockIfNeeded()
+    }
+
+    func checkConnection() async {
+        guard !checkingConnection, !requestingPermission else { return }
+        checkingConnection = true
+        defer { checkingConnection = false }
+        do {
+            try requireConfiguration()
+            await useReal()
+            let session = try await connect()
+            let name = session.device?.nameOrId() ?? "Glasses"
+            let displayHint = hasDisplay ? " On-glasses check-ins are supported." : ""
+            status = "Checking the glasses camera…"
+            try await startCapture(includeGlassesAudio: false, verifyFirstFrame: true)
+            stop()
+            permissionStatus = "\(name) connected. Live video received.\(displayHint)"
+        } catch {
+            stop()
+            permissionStatus = error.localizedDescription
+        }
+    }
+
+    func testDisplay() async {
+        guard !checkingConnection, !requestingPermission else { return }
+        checkingConnection = true
+        defer { stop(); checkingConnection = false }
+        do {
+            try requireConfiguration()
+            await useReal()
+            _ = try await connect()
+            guard hasDisplay else {
+                throw DeviceError.message("The connected pair doesn’t have a display. Choose the Display pair in Settings.")
+            }
+            let token = generation
+            status = "Opening the glasses display…"
+            showMonitoring()
+            let deadline = ContinuousClock.now + .seconds(8)
+            while sentDisplayID == nil, displayPage != nil, ContinuousClock.now < deadline {
+                try await Task.sleep(for: .milliseconds(100))
+                guard generation == token else { throw CancellationError() }
+            }
+            guard sentDisplayID != nil else {
+                throw DeviceError.message("The glasses connected, but the display card didn’t open. \(displayStatus)")
+            }
+            status = "Pinch on the Neural Band to try the controls."
+            permissionStatus = "Display test card sent."
+            try await Task.sleep(for: .seconds(15))
+            if generation == token, let display { try? await display.clearDisplay() }
+        } catch {
+            permissionStatus = error is CancellationError ? "Display test stopped." : error.localizedDescription
+        }
+    }
+
+    func startPracticeCamera() async throws {
+        guard !checkingConnection, !requestingPermission else {
+            throw DeviceError.message("Wait for the glasses check to finish before practicing.")
+        }
+        await useReal()
+        _ = try await connect()
+        try await startCapture(includeGlassesAudio: false, verifyFirstFrame: true)
+    }
+
+    private func disableMockIfNeeded() async {
         #if DEBUG
         if let mock { await MockDeviceKit.shared.unpairDevice(mock); self.mock = nil }
-        await MockDeviceKit.shared.disable()
+        if MockDeviceKit.shared.isEnabled { await MockDeviceKit.shared.disable() }
         #endif
     }
     func startStandby(useSpeech: Bool) async throws {
+        guard !checkingConnection, !requestingPermission else {
+            throw DeviceError.message("Wait for the glasses check to finish, then arm again.")
+        }
+        let deviceSession = try await connect()
+        try await startStandbyCapabilities(deviceSession, useSpeech: useSpeech)
+    }
+
+    private func connect() async throws -> DeviceSession {
         try requireConfiguration()
+        glassesAppUpdateRequired = false
+        let wearables = Wearables.shared
+        #if DEBUG
+        if !MockDeviceKit.shared.isEnabled && wearables.registrationState != .registered {
+            throw DeviceError.message("Connect Ray Guardian through Meta AI under Settings → Pairing and permissions.")
+        }
+        #else
+        guard wearables.registrationState == .registered else {
+            throw DeviceError.message("Connect Ray Guardian through Meta AI under Settings → Pairing and permissions.")
+        }
+        #endif
+        if CBCentralManager.authorization == .denied || CBCentralManager.authorization == .restricted {
+            throw DeviceError.message("Allow Ray Guardian to use Bluetooth in iPhone Settings.")
+        }
+        for attempt in 0..<3 {
+            do {
+                return try await startSession(wearables)
+            } catch let error as DeviceSessionError {
+                if error == .datAppOnTheGlassesUpdateRequired { glassesAppUpdateRequired = true }
+                guard attempt < 2, shouldRetrySessionStart(error) else {
+                    throw DeviceError.message(sessionErrorMessage(error))
+                }
+                stop()
+                let token = generation
+                status = "Reconnecting to glasses…"
+                try await Task.sleep(for: .seconds(attempt + 2))
+                guard token == generation else { throw CancellationError() }
+            }
+        }
+        throw DeviceError.message("Couldn’t connect to the glasses.")
+    }
+
+    private func startSession(_ wearables: any WearablesInterface) async throws -> DeviceSession {
         stop(); let token = generation
-        let selector = AutoDeviceSelector(wearables: Wearables.shared); self.selector = selector
-        let deadline = ProcessInfo.processInfo.systemUptime+15
-        while selector.activeDevice == nil {
+        if let closingSession {
+            let deadline = ContinuousClock.now + .seconds(4)
+            while closingSession.state != .stopped, ContinuousClock.now < deadline {
+                try await Task.sleep(for: .milliseconds(100))
+                guard token == generation else { throw CancellationError() }
+            }
+            if closingSession.state == .stopped { self.closingSession = nil }
+        }
+        #if DEBUG
+        let preferred = MockDeviceKit.shared.isEnabled ? nil : preferredGlassesID
+        #else
+        let preferred = preferredGlassesID
+        #endif
+        let selector: any DeviceSelector
+        if let preferred {
+            selector = SpecificDeviceSelector(device: preferred)
+        } else {
+            selector = AutoDeviceSelector(wearables: wearables)
+        }
+        self.selector = selector
+        status = "Looking for glasses…"
+        let discoveryDeadline = ContinuousClock.now + .seconds(15)
+        while selector.activeDevice == nil || preferred.map({ !wearables.devices.contains($0) }) == true {
             try Task.checkCancellation()
-            guard token == generation, ProcessInfo.processInfo.systemUptime < deadline else { throw DeviceError.message("No eligible glasses. Check pairing, power, hinges and wear state.") }
+            guard token == generation else { throw CancellationError() }
+            guard ContinuousClock.now < discoveryDeadline else {
+                if preferred != nil {
+                    throw DeviceError.message("The selected pair is unavailable. Put it on and check its connection in Meta AI, or choose another pair in Ray Guardian Settings.")
+                }
+                throw DeviceError.message(connectionRecoveryMessage(wearables))
+            }
             try await Task.sleep(for: .milliseconds(100))
         }
         guard token == generation else { throw CancellationError() }
-        let deviceSession = try Wearables.shared.createSession(deviceSelector: selector); session = deviceSession
-        deviceSession.errorPublisher.listen { [weak self] error in Task { @MainActor in guard self?.generation == token else { return }; self?.onUnavailable?(error.localizedDescription) } }.store(in: standbyTokens)
-        deviceSession.statePublisher.listen { [weak self] state in Task { @MainActor in
-            guard let self, self.generation == token else { return }; self.status = "Glasses session: \(state.description)"
-            if state == .paused || state == .stopped { self.onUnavailable?("Glasses session \(state.description)") }
+        let deviceSession = try wearables.createSession(deviceSelector: selector); session = deviceSession
+        waitingForSessionStart = true
+        status = "Starting glasses session…"
+        deviceSession.errorPublisher.listen { [weak self] error in Task { @MainActor in
+            guard let self, self.generation == token else { return }
+            if error == .datAppOnTheGlassesUpdateRequired { self.glassesAppUpdateRequired = true }
+            if self.waitingForSessionStart {
+                if self.sessionStartError == nil || error == .datAppOnTheGlassesUpdateRequired { self.sessionStartError = error }
+            } else {
+                self.reportConnectionFailure(self.sessionErrorMessage(error))
+            }
         } }.store(in: standbyTokens)
-        try deviceSession.start()
-        while deviceSession.state != .started {
+        deviceSession.statePublisher.listen { [weak self, weak deviceSession] state in Task { @MainActor in
+            guard let self, let deviceSession, self.generation == token else { return }
+            guard state == deviceSession.state else { return }
+            self.status = "Glasses session: \(state.description)"
+            guard !self.waitingForSessionStart else { return }
+            self.pauseTask?.cancel()
+            if state == .stopped {
+                self.reportConnectionFailure("The glasses ended the connection. Keep them on and retry.")
+            } else if state == .paused {
+                self.pauseTask = Task { [weak self, weak deviceSession] in
+                    do { try await Task.sleep(for: .seconds(4)) } catch { return }
+                    guard let self, self.generation == token, deviceSession?.state == .paused else { return }
+                    self.reportConnectionFailure("The glasses connection paused. Keep the glasses on and retry.")
+                }
+            }
+        } }.store(in: standbyTokens)
+        do { try deviceSession.start() }
+        catch {
+            if error == .datAppOnTheGlassesUpdateRequired { glassesAppUpdateRequired = true }
+            throw error
+        }
+        let startupDeadline = ContinuousClock.now + .seconds(25)
+        while true {
             try Task.checkCancellation()
-            guard token == generation, ProcessInfo.processInfo.systemUptime < deadline else { stop(); throw DeviceError.message("Glasses session did not start.") }
+            guard token == generation else { throw CancellationError() }
+            if deviceSession.state == .stopped {
+                // Meta may publish the reason just after the stopped event.
+                try await Task.sleep(for: .milliseconds(500))
+                guard token == generation else { throw CancellationError() }
+                if let sessionStartError { throw sessionStartError }
+                throw DeviceSessionError.unexpectedError(description: "Device unavailable")
+            }
+            if let sessionStartError, deviceSession.state != .stopping {
+                throw sessionStartError
+            }
+            if deviceSession.state == .started { break }
+            guard ContinuousClock.now < startupDeadline else {
+                if let sessionStartError { throw sessionStartError }
+                throw DeviceError.message(connectionRecoveryMessage(wearables))
+            }
             try await Task.sleep(for: .milliseconds(100))
         }
+        waitingForSessionStart = false
+        return deviceSession
+    }
+
+    private func shouldRetrySessionStart(_ error: DeviceSessionError) -> Bool {
+        switch error {
+        case .noEligibleDevice, .sessionAlreadyExists, .dwaUnavailable: return true
+        case .unexpectedError(let description):
+            return description.localizedCaseInsensitiveContains("device unavailable")
+        default: return false
+        }
+    }
+
+    private func startStandbyCapabilities(_ deviceSession: DeviceSession, useSpeech: Bool) async throws {
+        let token = generation
         if let device = deviceSession.device {
             device.addDeviceStateListener { [weak self] state in Task { @MainActor in
                 guard let self, self.generation == token else { return }
-                if state.donState == .doffed || state.hingeState == .closed || state.linkState == .disconnected || [ThermalLevel.severe,.critical,.emergency,.shutdown].contains(state.thermalLevel) || (state.batteryLevel.map { $0 <= 5 } ?? false) { self.onUnavailable?("Glasses unavailable, removed, low battery or too warm.") }
+                if state.donState == .doffed || state.hingeState == .closed {
+                    self.onUnavailable?("Put on your glasses to resume monitoring.")
+                } else if [ThermalLevel.severe,.critical,.emergency,.shutdown].contains(state.thermalLevel) {
+                    self.onUnavailable?("Let the glasses cool before arming again.")
+                } else if (state.batteryLevel.map { $0 <= 5 } ?? false) {
+                    self.onUnavailable?("Charge your glasses before arming again.")
+                } else if state.linkState == .disconnected, device.linkState == .disconnected {
+                    guard self.linkLossTask == nil else { return }
+                    self.linkLossTask = Task { [weak self, weak device] in
+                        do { try await Task.sleep(for: .seconds(4)) } catch { return }
+                        guard let self, self.generation == token else { return }
+                        self.linkLossTask = nil
+                        guard device?.linkState == .disconnected else { return }
+                        self.reportConnectionFailure("The glasses disconnected. Switch them off and on, put them on, and check the connection in Settings.")
+                    }
+                } else if state.linkState != .disconnected {
+                    self.linkLossTask?.cancel()
+                    self.linkLossTask = nil
+                }
             } }.store(in: standbyTokens)
         }
         do {
@@ -146,93 +476,256 @@ import MWDATMockDevice
             } catch { speechStatus = "Speech unavailable: \(error.localizedDescription)" }
         }
     }
-    func startCapture(includeGlassesAudio: Bool) async throws {
+    private func sessionErrorMessage(_ error: DeviceSessionError) -> String {
+        if error == .datAppOnTheGlassesUpdateRequired {
+            return "The glasses app needs an update. In Ray Guardian Settings, tap Update app on glasses."
+        }
+        if shouldRetrySessionStart(error) {
+            return connectionRecoveryMessage(Wearables.shared)
+        }
+        return "Glasses session: \(error.localizedDescription)"
+    }
+
+    private func connectionRecoveryMessage(_ wearables: any WearablesInterface) -> String {
+        let detected = wearables.devices.compactMap { wearables.deviceForIdentifier($0) }
+        if let selected = selector?.activeDevice.flatMap({ wearables.deviceForIdentifier($0) }) ??
+            detected.first(where: { $0.linkState == .connected }) {
+            if selected.hingeState == .closed || selected.donState == .doffed {
+                return "The glasses are connected and report that they aren’t being worn. Put them on and retry."
+            }
+            if selected.linkState == .connected {
+                return "The glasses are connected, but Meta couldn’t start the Ray Guardian session. With the glasses on, check that Developer Mode is enabled for this pair in Meta AI, then retry."
+            }
+        }
+        let summary = connectionSummary(wearables)
+        return "\(summary). Switch the glasses off and on, put them on, and check that Meta AI shows them connected."
+    }
+
+    private func reportConnectionFailure(_ message: String) {
+        if waitingForCameraFrame {
+            if cameraStartupFailure == nil { cameraStartupFailure = message }
+        } else {
+            onUnavailable?(message)
+        }
+    }
+
+    func updateGlassesApp() async throws {
+        try requireConfiguration()
+        try await Wearables.shared.openDATGlassesAppUpdate()
+    }
+    func startCapture(includeGlassesAudio: Bool, verifyFirstFrame: Bool = false) async throws {
         try requireConfiguration()
         stopCapture(); let token = cameraGeneration
         guard let session, session.state == .started else { throw DeviceError.message("No started glasses session.") }
-        guard try await Wearables.shared.checkPermissionStatus(.camera) == .granted else { throw DeviceError.message("Glasses camera permission required.") }
+        guard try await Wearables.shared.checkPermissionStatus(.camera) == .granted else {
+            throw DeviceError.message("Glasses connected. Allow camera access under Settings → Pairing and permissions.")
+        }
         if includeGlassesAudio, try await Wearables.shared.checkPermissionStatus(.microphone) != .granted { throw DeviceError.message("Glasses microphone permission required.") }
         guard token == cameraGeneration, self.session === session, session.state == .started, !Task.isCancelled else { throw CancellationError() }
         let config = StreamConfiguration(videoCodec: .hvc1, audioCodec: includeGlassesAudio ? .pcm(sampleRate: .rate16000, numberOfChannels: 1) : nil, resolution: .low, frameRate: Self.captureFrameRate)
         guard let attached = try session.addCamera(config: config) else { throw DeviceError.message("Camera unavailable.") }
         camera = attached
+        waitingForCameraFrame = verifyFirstFrame
         let decoder = StreamImageDecoder(); imageDecoder = decoder
         attached.stream.videoFramePublisher.listen { [weak self] frame in
             guard let image = decoder.decode(frame.sampleBuffer) else { return }
-            Task { @MainActor in guard let self, self.cameraGeneration == token else { return }; self.onFrame?(image) }
+            Task { @MainActor in
+                guard let self, self.cameraGeneration == token else { return }
+                self.receivedCameraFrame = true
+                self.onFrame?(image)
+            }
         }.store(in: cameraTokens)
         attached.stream.audioFramePublisher.listen { [weak self] frame in
             let arrivedAt = ProcessInfo.processInfo.systemUptime
             let pcm = PCMConverter.samples(frame.pcmBuffer)
             Task { @MainActor in guard self?.cameraGeneration == token else { return }; self?.onPCM?(pcm,arrivedAt) }
         }.store(in: cameraTokens)
-        attached.stream.errorPublisher.listen { [weak self] error in Task { @MainActor in guard self?.cameraGeneration == token else { return }; self?.onUnavailable?("Camera: \(error.localizedDescription)") } }.store(in: cameraTokens)
+        attached.stream.errorPublisher.listen { [weak self] error in Task { @MainActor in
+            guard let self, self.cameraGeneration == token else { return }
+            self.reportConnectionFailure(self.cameraErrorMessage(error))
+        } }.store(in: cameraTokens)
         attached.stream.statePublisher.listen { [weak self] state in Task { @MainActor in guard self?.cameraGeneration == token else { return }; self?.cameraStatus = String(describing: state) } }.store(in: cameraTokens)
         attached.stream.start(); cameraStatus = "Starting bounded stream"
-    }
-    func stopCapture() { cameraGeneration = UUID(); cameraTokens.clear(); camera?.stop(); camera = nil; imageDecoder?.close(); imageDecoder = nil; cameraStatus = "Off" }
-    func showCheckIn(id: String, deadline: Date) {
-        guard displayedIncident != id, let session, session.state == .started,
-              session.device?.deviceType() == .metaRayBanDisplay else { return }
-        displayedIncident = id
-        displayTask?.cancel()
-        displayTask = Task { [weak self] in
-            guard let self else { return }
-            do {
-                let display = try self.display ?? session.addDisplay()
-                self.display = display
-                if display.state == .stopped { display.start() }
-                while display.state != .started && Date() < deadline {
-                    try await Task.sleep(for: .milliseconds(100))
-                }
+        if verifyFirstFrame {
+            defer { if cameraGeneration == token { waitingForCameraFrame = false } }
+            let deadline = ContinuousClock.now + .seconds(18)
+            while true {
                 try Task.checkCancellation()
-                guard Date() < deadline, self.displayedIncident == id else { return }
-                let content = FlexBox(direction: .column, spacing: 12) {
-                    MWDATDisplay.Text("Are you okay?", style: .heading)
-                    MWDATDisplay.Button(label: "I’m okay", onClick: { [weak self] in
-                        Task { @MainActor in
-                            guard let self, self.displayedIncident == id, Date() < deadline else { return }
-                            self.onDisplayCancel?(id)
-                        }
-                    }).actionRole(.primary)
-                }.padding(24).background(.card)
-                try await display.send(content)
-                guard !Task.isCancelled, self.displayedIncident == id else { return }
-                self.displayStatus = "Check-in on glasses"
-                if let inputs = try session.addInputs(configuration: InputsConfiguration(sources: [.neuralBand], consumeBack: false)) {
-                    self.inputTask = Task { [weak self] in
-                        for await event in inputs.events {
-                            guard !Task.isCancelled, let self, self.displayedIncident == id, Date() < deadline else { break }
-                            if case .select(source: .neuralBand, timestampMs: _) = event {
-                                self.onDisplayCancel?(id)
-                            }
-                        }
-                    }
+                guard cameraGeneration == token else { throw CancellationError() }
+                if let cameraStartupFailure { throw DeviceError.message(cameraStartupFailure) }
+                if receivedCameraFrame { break }
+                guard ContinuousClock.now < deadline else {
+                    throw DeviceError.message("The glasses session opened, but no live video arrived. Keep the glasses on and retry the camera check.")
                 }
-            } catch {
-                guard !Task.isCancelled, self.displayedIncident == id else { return }
-                self.displayStatus = "Glasses check-in or gesture unavailable: \(error.localizedDescription)"
+                try await Task.sleep(for: .milliseconds(100))
             }
         }
     }
 
-    func clearCheckIn() {
-        guard displayedIncident != nil else { return }
-        displayedIncident = nil
-        displayTask?.cancel()
-        inputTask?.cancel()
-        inputTask = nil
-        if let session { try? session.removeInputs() }
-        displayTask = Task { [display] in
-            guard !Task.isCancelled, let display, display.state == .started else { return }
-            try? await display.clearDisplay()
+    private func cameraErrorMessage(_ error: StreamError) -> String {
+        switch error {
+        case .deviceNotFound, .deviceNotConnected, .timeout:
+            return "The glasses camera lost its connection. Switch the glasses off and on, put them on, and retry."
+        case .permissionDenied:
+            return "Allow glasses camera access under Settings → Pairing and permissions."
+        default:
+            return "Glasses camera: \(error.localizedDescription)"
         }
-        displayStatus = "Off"
+    }
+
+    func stopCapture() {
+        cameraGeneration = UUID()
+        waitingForCameraFrame = false
+        receivedCameraFrame = false
+        cameraStartupFailure = nil
+        cameraTokens.clear()
+        camera?.stop()
+        camera = nil
+        imageDecoder?.close()
+        imageDecoder = nil
+        cameraStatus = "Off"
+    }
+    var hasDisplay: Bool {
+        guard let device = session?.device else { return false }
+        return device.supportsDisplay() || device.deviceType() == .metaRayBanDisplay
+    }
+
+    func showMonitoring() {
+        if displayPage == .controls { return }
+        showDisplayPage(.monitoring)
+    }
+
+    func showCheckIn(id: String, deadline: Date) {
+        showDisplayPage(.checkIn(id, deadline))
+    }
+
+    func showAudibleAlert(id: String) {
+        showDisplayPage(.alert(id))
+    }
+
+    private func showDisplayPage(_ page: DisplayPage) {
+        guard page != displayPage, let session, session.state == .started, hasDisplay else { return }
+        displayPage = page
+        let revision = UUID()
+        displayRenderID = revision
+        displayTask?.cancel()
+        displayTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let screen = try self.display ?? session.addDisplay()
+                self.display = screen
+                self.startBandInput(session)
+                if screen.state == .stopped { screen.start() }
+                let limit = ContinuousClock.now + .seconds(5)
+                while screen.state != .started, ContinuousClock.now < limit {
+                    try await Task.sleep(for: .milliseconds(100))
+                }
+                try Task.checkCancellation()
+                guard self.displayRenderID == revision else { return }
+                guard screen.state == .started else { throw DeviceError.message("Display did not start.") }
+                let card = self.displayCard(for: page, revision: revision)
+                try await screen.send(card)
+                if self.displayRenderID == revision {
+                    self.sentDisplayID = revision
+                    self.displayStatus = "Active"
+                }
+            } catch {
+                guard !Task.isCancelled, self.displayRenderID == revision else { return }
+                self.displayPage = nil
+                self.displayStatus = "Display unavailable: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    private func displayCard(for page: DisplayPage, revision: UUID) -> FlexBox {
+        let title: String, detail: String, button: String
+        switch page {
+        case .monitoring:
+            (title, detail, button) = ("Ray Guardian", checkingConnection ? "Display and band test" : "Monitoring is on", "Controls")
+        case .controls:
+            let battery = session?.device?.batteryLevel.map { "Glasses battery \($0)%" } ?? "Pinch to return"
+            (title, detail, button) = ("Guardian controls", battery, "Return")
+        case .checkIn:
+            (title, detail, button) = ("Are you okay?", "Tone sounds if you don’t respond", "I’m okay")
+        case .alert:
+            (title, detail, button) = ("Alert active", "Audible alert", "Silence")
+        }
+        return FlexBox(direction: .column, spacing: 12) {
+            MWDATDisplay.Text(title, style: .heading)
+            MWDATDisplay.Text(detail)
+            MWDATDisplay.Button(label: button, onClick: { [weak self] in
+                Task { @MainActor in
+                    guard let self, self.displayRenderID == revision else { return }
+                    self.selectDisplayPage()
+                }
+            }).actionRole(.primary)
+        }.padding(24).background(.card)
+    }
+
+    private func selectDisplayPage() {
+        let now = ProcessInfo.processInfo.systemUptime
+        guard sentDisplayID == displayRenderID, now - lastDisplaySelect > 0.4 else { return }
+        lastDisplaySelect = now
+        switch displayPage {
+        case .monitoring: showDisplayPage(.controls)
+        case .controls: showDisplayPage(.monitoring)
+        case .checkIn(let id, _), .alert(let id): onDisplayCancel?(id)
+        case nil: break
+        }
+    }
+
+    private func startBandInput(_ session: DeviceSession) {
+        guard inputTask == nil else { return }
+        do {
+            guard let inputs = try session.addInputs(configuration: InputsConfiguration(
+                sources: [.neuralBand], consumeBack: false
+            )) else {
+                bandStatus = "Unavailable"
+                return
+            }
+            let token = generation
+            bandStatus = "Waiting for a pinch"
+            inputs.errorPublisher.listen { [weak self] error in
+                Task { @MainActor in
+                    guard let self, self.generation == token else { return }
+                    self.bandStatus = "Unavailable: \(error.localizedDescription)"
+                }
+            }.store(in: inputTokens)
+            inputTask = Task { [weak self] in
+                for await event in inputs.events {
+                    guard let self, !Task.isCancelled, self.generation == token else { break }
+                    switch event {
+                    case .select(source: .neuralBand, timestampMs: _):
+                        self.bandStatus = "Pinch received"
+                        self.selectDisplayPage()
+                    default: break
+                    }
+                }
+            }
+        } catch {
+            // Display buttons remain usable if raw Neural Band events are unavailable.
+            bandStatus = "Unavailable"
+        }
     }
 
     func stop() {
         generation = UUID()
-        clearCheckIn()
+        waitingForSessionStart = false
+        sessionStartError = nil
+        pauseTask?.cancel()
+        pauseTask = nil
+        linkLossTask?.cancel()
+        linkLossTask = nil
+        displayPage = nil
+        displayRenderID = UUID()
+        sentDisplayID = nil
+        lastDisplaySelect = -Double.infinity
+        inputTask?.cancel()
+        inputTask = nil
+        inputTokens.clear()
+        if let session { try? session.removeInputs() }
+        bandStatus = "Off"
+        displayStatus = "Off"
         displayTask?.cancel()
         displayTask = nil
         display?.stop()
@@ -243,7 +736,12 @@ import MWDATMockDevice
         motionTask = nil
         speech?.stop()
         motion?.stop()
-        session?.stop()
+        if let session {
+            if session.state != .stopped {
+                session.stop()
+                if session.state != .stopped { closingSession = session }
+            }
+        }
         speech = nil
         motion = nil
         session = nil

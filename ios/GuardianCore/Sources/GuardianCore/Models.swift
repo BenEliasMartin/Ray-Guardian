@@ -5,7 +5,7 @@ public struct Consent: Codable, Equatable, Sendable {
     public init() {}
 }
 public enum CaptureSource: String, Codable, CaseIterable, Sendable { case meta_mock, meta_glasses, phone, file_replay }
-public enum TriggerSignal: String, Codable, Sendable { case manual_sos, keyword_sos, keyword_distress, spoken_threat, motion, motion_phone, heart_rate, loud_voice, scene_check }
+public enum TriggerSignal: String, Codable, Sendable { case manual_sos, keyword_sos, keyword_distress, gesture_distress, spoken_threat, motion, motion_phone, heart_rate, loud_voice, scene_check }
 public struct Detection: Codable, Equatable, Sendable {
     public let label: String, confidence: String, summary: String, observations: [String], uncertainties: [String], source: String
     public let wearerInvolved: Bool?
@@ -21,6 +21,7 @@ public struct Incident: Codable, Equatable, Identifiable, Sendable {
     public var triggerDescription: String {
         switch trigger {
         case "keyword_distress": return "Speech recognized a request for help or a report of danger"
+        case "gesture_distress": return "Closed fist detected in the glasses camera"
         case "spoken_threat": return "Speech matched a possible threat"
         case "motion_phone": return "Test iPhone motion matched a fall pattern; wearer fall unconfirmed"
         default: return detectedBy == "nemotron" ? "Evidence assessed by Nemotron" : "Wearer initiated SOS; awaiting optional Nemotron evidence"

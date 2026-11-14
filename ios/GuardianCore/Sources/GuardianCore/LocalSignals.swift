@@ -2,10 +2,23 @@ import Foundation
 
 public enum VoiceIntent: Equatable, Sendable { case sos, distress, cancel, threat }
 public enum KeywordDetector {
+    private static func words(in text: String) -> [String] {
+        let normalized = text.lowercased().replacingOccurrences(of: "'", with: "").replacingOccurrences(of: "’", with: "")
+        return normalized.unicodeScalars.map { CharacterSet.alphanumerics.contains($0) ? String($0) : " " }.joined().split(separator: " ").map(String.init)
+    }
+
+    /// The phone recognizer can emit a complete command before marking the transcript final.
+    public static func isCancelCommand(_ text: String, isFinal: Bool, confidence: Float) -> Bool {
+        guard confidence < 0 || confidence >= 0.55 || (!isFinal && confidence == 0) else { return false }
+        let tokens = words(in: text)
+        return tokens.suffix(2) == ["guardian", "cancel"]
+            || tokens.suffix(4) == ["guardian", "i", "am", "okay"]
+            || tokens.suffix(3) == ["guardian", "im", "okay"]
+    }
+
     public static func intent(_ text: String, isFinal: Bool, confidence: Float, isPlayingVoice: Bool = false) -> VoiceIntent? {
         guard !isPlayingVoice else { return nil }
-        let normalized = text.lowercased().replacingOccurrences(of: "'", with: "").replacingOccurrences(of: "’", with: "")
-        let words = normalized.unicodeScalars.map { CharacterSet.alphanumerics.contains($0) ? String($0) : " " }.joined().split(separator: " ").map(String.init)
+        let words = words(in: text)
         let value = " " + words.joined(separator: " ") + " "
         if isFinal, confidence < 0 || confidence >= 0.55 {
             if value.contains(" guardian cancel ") || value.contains(" guardian i am okay ") { return .cancel }
@@ -61,8 +74,9 @@ public struct PrivacyGate: Sendable {
         armedUntil = now + min(max(0, duration), Self.maximumArmedDuration)
     }
     public mutating func invalidate() { epoch = UUID(); armedUntil = nil; captureEndsAt = nil }
-    public mutating func beginCapture(now: Double) -> UUID? {
-        guard consent.capture, consent.cloud, let until = armedUntil, now < until, captureEndsAt == nil else { return nil }
+    public mutating func beginCapture(now: Double, localOnly: Bool = false) -> UUID? {
+        guard consent.capture, localOnly || consent.cloud, let until = armedUntil,
+              now < until, captureEndsAt == nil else { return nil }
         captureEndsAt = now+8; return epoch
     }
     public func accepts(_ token: UUID, now: Double) -> Bool { token == epoch && armedUntil.map { now < $0 } == true && captureEndsAt.map { now <= $0 } == true }

@@ -34,6 +34,16 @@ test('Nemotron retries malformed output and returns an inconclusive result if bo
   assert.equal(result.label, 'uncertain');
   assert.equal(shouldCheckIn(result), false);
 });
+test('Nemotron timeout is inconclusive and does not open a check-in', async () => {
+  const detect = createDetector({
+    apiKey: 'test',
+    fetchImpl: async () => { throw new DOMException('Provider timed out', 'TimeoutError'); },
+  });
+  const result = await detect({frames: [{offsetMs: 0, imageDataUrl: png}]});
+  assert.equal(result.source, 'nemotron_unavailable');
+  assert.match(result.uncertainties[0], /timed out/);
+  assert.equal(shouldCheckIn(result), false);
+});
 function wav(ms=1000){const b=Buffer.alloc(44+ms*32);b.write('RIFF');b.writeUInt32LE(b.length-8,4);b.write('WAVEfmt ',8);b.writeUInt32LE(16,16);b.writeUInt16LE(1,20);b.writeUInt16LE(1,22);b.writeUInt32LE(16000,24);b.writeUInt32LE(32000,28);b.writeUInt16LE(2,32);b.writeUInt16LE(16,34);b.write('data',36);b.writeUInt32LE(b.length-44,40);return b;}
 function fixture(t,overrides={}){
   let time=100000,placed=0;
@@ -214,6 +224,21 @@ test('a valid late callback supplies an unknown call SID and honors prior cancel
 test('local ASR text cannot be uploaded without separate audio sharing consent',async t=>{
   const {g}=fixture(t);const s=g.createSession('text-owner',{consent:{capture:true,cloud:true,audio:false}});g.arm('text-owner',s.id);const trigger=g.trigger('text-owner',s.id,{signal:'keyword_distress'});
   await assert.rejects(g.observe('text-owner',s.id,{windowId:trigger.window.id,frames:[{offsetMs:0,imageDataUrl:png}],transcript:'A locally recognized phrase.'}),{code:'audio_consent_required'});
+});
+test('opted-in glasses gesture checks in before AI or capture and can be cancelled',async t=>{
+  const {g}=fixture(t,{detect:async()=>{throw new Error('provider unavailable');}});
+  const make=(source,handGestures=true,capture=true)=>g.arm('gesture-owner',g.createSession('gesture-owner',{source,handGestures,consent:{capture},enabledSignals:['gesture_distress']}).id);
+  for(const s of [make('phone'),make('meta_glasses',false),make('meta_glasses',true,false)]){
+    assert.equal(g.trigger('gesture-owner',s.id,{signal:'gesture_distress'}).reason,'source_disabled');
+  }
+  const s=make('meta_glasses');
+  const reply=g.trigger('gesture-owner',s.id,{signal:'gesture_distress'});
+  assert.equal(reply.incident.state,'check_in');
+  assert.equal(reply.incident.trigger,'gesture_distress');
+  assert.equal(reply.window,null);
+  assert.equal(g.trigger('gesture-owner',s.id,{signal:'gesture_distress'}).incident.id,reply.incident.id);
+  await g.disarm('gesture-owner',s.id);
+  assert.equal(g.requireIncident('gesture-owner',reply.incident.id).state,'cancelled');
 });
 test('capture and demo call budgets survive disarm, new sessions and history deletion',async t=>{
   const {g,advance}=fixture(t);

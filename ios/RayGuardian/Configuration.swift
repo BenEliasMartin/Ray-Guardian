@@ -27,22 +27,41 @@ enum Keychain {
     #endif
     @Published var apiURL: String
     @Published var clientToken: String
-    @Published var input: InputMode = .mock { didSet { if input == .real && audio == .replay { audio = .glasses } } }
+    @Published var input: InputMode = .real { didSet { if input == .real && audio == .replay { audio = .phone } } }
     @Published var keywords: KeywordMode = .phone
     @Published var audio: AudioMode = .phone
+    @Published var recordClipAudio = false
     @Published var consent = Consent()
     @Published var automaticSceneChecks = true
-    /// Keeps the camera on while armed so that up to three seconds before a trigger are available. Off by default.
+    /// Keeps the preview live while armed and buffers up to three seconds for approved cloud captures.
     @Published var preTriggerFrames = false
+    @Published var handGestures = false
     @Published var phoneMotionTesting = false
     @Published var elevenLabsListening = false
+    @Published var speakWithoutDisplay = true
     @Published var heartRateEnabled = false
     @Published var heartRateThreshold = 160
     init() {
         apiURL = Keychain.read("apiURL") ?? (Bundle.main.object(forInfoDictionaryKey: "GuardianAPIURL") as? String ?? "http://127.0.0.1:8787")
         clientToken = Keychain.read("clientToken") ?? (Bundle.main.object(forInfoDictionaryKey: "GuardianClientToken") as? String ?? "")
-        #if !DEBUG
-        input = .real; audio = .glasses; keywords = .glasses
+        #if DEBUG
+        keywords = .off
+        preTriggerFrames = true
+        handGestures = true
+        phoneMotionTesting = true
+        elevenLabsListening = true
+        recordClipAudio = true
+        var testingConsent = Consent()
+        testingConsent.capture = true
+        testingConsent.cloud = true
+        testingConsent.audio = true
+        testingConsent.voice = true
+        testingConsent.location = true
+        consent = testingConsent
+        heartRateEnabled = true
+        #else
+        audio = .glasses
+        keywords = .glasses
         #endif
     }
     func save() throws {

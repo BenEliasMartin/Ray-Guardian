@@ -1,9 +1,95 @@
 import XCTest
 @testable import GuardianCore
+#if canImport(Vision)
+import Vision
+#endif
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
 final class GuardianCoreTests: XCTestCase {
+    #if canImport(Vision)
+    func testShakaAcceptsEitherHandAndRejectsOtherPoses() {
+        typealias Joint = VNHumanHandPoseObservation.JointName
+        let shaka: [Joint: CGPoint] = [
+            .wrist: CGPoint(x: 0, y: 0),
+            .indexMCP: CGPoint(x: -0.3, y: 1), .indexTip: CGPoint(x: -0.3, y: 0.8),
+            .middleMCP: CGPoint(x: 0, y: 1), .middleTip: CGPoint(x: 0, y: 0.75),
+            .ringMCP: CGPoint(x: 0.25, y: 0.9), .ringTip: CGPoint(x: 0.2, y: 0.7),
+            .littleMCP: CGPoint(x: 0.45, y: 0.7), .littlePIP: CGPoint(x: 0.75, y: 0.7),
+            .littleDIP: CGPoint(x: 0.95, y: 0.7), .littleTip: CGPoint(x: 1.13, y: 0.7),
+            .thumbMP: CGPoint(x: -0.45, y: 0.4), .thumbIP: CGPoint(x: -0.75, y: 0.45),
+            .thumbTip: CGPoint(x: -1.05, y: 0.5)
+        ]
+        func matches(_ points: [Joint: CGPoint]) -> Bool {
+            CameraHandPose.matches(.shaka) { joint, _ in points[joint] }
+        }
+        XCTAssertTrue(matches(shaka))
+        XCTAssertTrue(matches(shaka.mapValues { CGPoint(x: -$0.x, y: $0.y) }))
+        XCTAssertTrue(matches(shaka.mapValues { CGPoint(x: -$0.y, y: $0.x) }))
+
+        var bentPinky = shaka
+        bentPinky[.littleTip] = CGPoint(x: 0.86, y: 0.64)
+        bentPinky.removeValue(forKey: .littleDIP)
+        bentPinky.removeValue(forKey: .ringTip)
+        XCTAssertTrue(matches(bentPinky))
+
+        var angledShaka = shaka
+        angledShaka[.littleTip] = CGPoint(x: 0.73, y: 0.67)
+        XCTAssertTrue(matches(angledShaka))
+
+        var horns = shaka
+        horns[.indexTip] = CGPoint(x: -0.5, y: 1.9)
+        XCTAssertFalse(matches(horns))
+
+        var thumbsUp = shaka
+        thumbsUp[.littleTip] = CGPoint(x: 0.4, y: 0.65)
+        XCTAssertFalse(matches(thumbsUp))
+
+        var peace = thumbsUp
+        peace[.indexTip] = CGPoint(x: -0.55, y: 1.9)
+        peace[.middleTip] = CGPoint(x: 0.15, y: 2)
+        peace[.thumbTip] = CGPoint(x: -0.1, y: 0.7)
+        XCTAssertFalse(matches(peace))
+
+        var fist = thumbsUp
+        fist[.thumbTip] = CGPoint(x: -0.1, y: 0.7)
+        XCTAssertFalse(matches(fist))
+        XCTAssertTrue(CameraHandPose.matches(.fist) { joint, _ in fist[joint] })
+        XCTAssertFalse(CameraHandPose.matches(.fist) { joint, _ in shaka[joint] })
+    }
+    #endif
+
+    func testGestureRequiresSustainedLiveFramesAndFiresOncePerHold() {
+        var hold = HandGestureHold()
+        XCTAssertFalse(hold.consume(matches: true, at: 0))
+        XCTAssertFalse(hold.consume(matches: true, at: 0.3))
+        XCTAssertFalse(hold.consume(matches: true, at: 1.1), "A dropped feed cannot complete a hold")
+        XCTAssertFalse(hold.consume(matches: true, at: 1.4))
+        XCTAssertFalse(hold.consume(matches: false, at: 1.7))
+        XCTAssertFalse(hold.consume(matches: true, at: 2))
+        XCTAssertFalse(hold.consume(matches: true, at: 2.3))
+        XCTAssertFalse(hold.consume(matches: true, at: 2.6))
+        XCTAssertTrue(hold.consume(matches: true, at: 2.9))
+        XCTAssertFalse(hold.consume(matches: true, at: 3.2))
+    }
+
+    func testCancelHoldToleratesOneMissButRejectsAnInterruptedHold() {
+        var hold = HandGestureHold()
+        XCTAssertFalse(hold.consume(matches: true, at: 0, allowingOneMiss: true))
+        XCTAssertFalse(hold.consume(matches: true, at: 0.28, allowingOneMiss: true))
+        XCTAssertFalse(hold.consume(matches: false, at: 0.56, allowingOneMiss: true))
+        XCTAssertTrue(hold.isHolding)
+        XCTAssertTrue(hold.consume(matches: true, at: 0.9, allowingOneMiss: true))
+        XCTAssertFalse(hold.consume(matches: true, at: 1.18, allowingOneMiss: true))
+
+        hold = HandGestureHold()
+        XCTAssertFalse(hold.consume(matches: true, at: 0, allowingOneMiss: true))
+        XCTAssertFalse(hold.consume(matches: false, at: 0.28, allowingOneMiss: true))
+        XCTAssertFalse(hold.consume(matches: false, at: 0.56, allowingOneMiss: true))
+        XCTAssertFalse(hold.isHolding)
+        XCTAssertFalse(hold.consume(matches: true, at: 0.9, allowingOneMiss: true))
+    }
+
     func testSpeechClipSurvivesOldWindowBoundaryAndAnInternalPause() {
         var buffer = SpeechClipBuffer()
         XCTAssertTrue(buffer.consume(Array(repeating: 0, count: 61_000)).isEmpty)
@@ -27,6 +113,14 @@ final class GuardianCoreTests: XCTestCase {
         XCTAssertTrue(buffer.consume(Array(repeating: 0, count: 16_000)).isEmpty)
         XCTAssertTrue(buffer.consume([Int16.max] + Array(repeating: 0, count: 16_000)).isEmpty)
         XCTAssertEqual(buffer.consume(Array(repeating: 900, count: 3_200) + Array(repeating: 0, count: 12_000)).count, 1)
+    }
+
+    func testVoiceCancelRecognizesCompletedCommandBeforeFinalTranscript() {
+        XCTAssertTrue(KeywordDetector.isCancelCommand("I need help. Guardian, cancel.", isFinal: false, confidence: 0))
+        XCTAssertTrue(KeywordDetector.isCancelCommand("Guardian, I’m okay.", isFinal: true, confidence: 0.9))
+        XCTAssertFalse(KeywordDetector.isCancelCommand("Tap I'm okay on your phone to cancel.", isFinal: true, confidence: 0.9))
+        XCTAssertFalse(KeywordDetector.isCancelCommand("Guardian", isFinal: false, confidence: 0))
+        XCTAssertFalse(KeywordDetector.isCancelCommand("Guardian cancel", isFinal: true, confidence: 0.1))
     }
 
     func testKeywordsRequireFinalLocalRecognitionAndIgnorePlayback() {
@@ -74,6 +168,18 @@ final class GuardianCoreTests: XCTestCase {
         let token = gate.beginCapture(now:4)!; XCTAssertTrue(gate.accepts(token,now:5)); XCTAssertFalse(gate.accepts(token,now:13)); XCTAssertNil(gate.beginCapture(now:6)); gate.invalidate(); XCTAssertFalse(gate.accepts(token,now:6)); XCTAssertNil(gate.beginCapture(now:7))
     }
     func testGateExpiresWithoutRenewal() { var g = PrivacyGate(), c = Consent(); c.capture = true; c.cloud = true; g.arm(consent:c,now:0); XCTAssertNotNil(g.beginCapture(now:1799)); g.endCapture(); XCTAssertNil(g.beginCapture(now:1800)); g.arm(consent:c,now:0,duration:900); XCTAssertNil(g.beginCapture(now:900)) }
+    func testLocalIncidentRecordingRequiresCameraConsentButNotCloudConsent() {
+        var gate = PrivacyGate(), consent = Consent()
+        gate.arm(consent: consent, now: 0)
+        XCTAssertNil(gate.beginCapture(now: 1, localOnly: true))
+        consent.capture = true
+        gate.arm(consent: consent, now: 2)
+        XCTAssertNil(gate.beginCapture(now: 3))
+        let token = gate.beginCapture(now: 3, localOnly: true)
+        XCTAssertNotNil(token)
+        if let token { XCTAssertTrue(gate.accepts(token, now: 4)) }
+        XCTAssertNil(gate.beginCapture(now: 4, localOnly: true))
+    }
     func testWAVRoundTripBoundsAndMalformedFiles() throws {
         let samples: [Int16] = (0..<3200).map { Int16($0-1600) }; XCTAssertEqual(try PCM16WAV.decode(PCM16WAV.encode(samples)),samples)
         XCTAssertEqual(try PCM16WAV.decode(PCM16WAV.encode(Array(repeating:1,count:140000))).count,128000)

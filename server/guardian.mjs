@@ -8,7 +8,7 @@ const MINUTE=60_000,SESSION_MS=30*MINUTE,RECORD_TTL=24*60*MINUTE;
 const SCENE_LIMIT=30, EVENT_LIMIT=12;
 const INCIDENT_LIMIT=30, DEMO_CALL_LIMIT=3;
 const SCENE_INTERVAL=20_000, EVENT_INTERVAL=10_000;
-const SIGNALS=['manual_sos','keyword_sos','keyword_distress','spoken_threat','motion','motion_phone','heart_rate','loud_voice','scene_check'];
+const SIGNALS=['manual_sos','keyword_sos','keyword_distress','gesture_distress','spoken_threat','motion','motion_phone','heart_rate','loud_voice','scene_check'];
 const TERMINAL=new Set(['cancelled','acknowledged','closed']);
 const CONSENTS=['capture','cloud','audio','voice','demoCalls','location','backgroundEscalation'];
 const fail=(status,code,message)=>{throw new ApiError(status,code,message);};
@@ -44,10 +44,11 @@ export class GuardianService {
     const source=['meta_mock','meta_glasses','phone','file_replay'].includes(body.source)?body.source:'meta_mock';
     const enabledSignals=body.enabledSignals??['manual_sos','keyword_sos','keyword_distress','spoken_threat','motion','heart_rate'];
     if(!Array.isArray(enabledSignals)||enabledSignals.some(s=>!SIGNALS.includes(s)))fail(400,'invalid_signals','Unknown trigger source.');
-    const allowedSignals=enabledSignals.filter(signal=>signal!=='scene_check'&&signal!=='motion_phone');
+    const allowedSignals=enabledSignals.filter(signal=>!['scene_check','motion_phone','gesture_distress'].includes(signal));
     if(body.automaticSceneChecks===true&&consent.capture&&consent.cloud)allowedSignals.push('scene_check');
     // A test iPhone standing in for the glasses IMU is only accepted for explicit mock sessions.
     if(body.phoneMotionTesting===true&&source==='meta_mock')allowedSignals.push('motion_phone');
+    if(body.handGestures===true&&consent.capture&&['meta_glasses','meta_mock'].includes(source))allowedSignals.push('gesture_distress');
     return this.saveSession({id:randomUUID(),owner,mode:'demo',source,consent,enabledSignals:[...new Set(allowedSignals)],
       armed:false,armedUntil:null,createdAt:this.now(),expiresAt:this.now()+RECORD_TTL,heartbeatAt:this.now(),
       windows:[],activeWindow:null,lastAutomaticAt:null,incidentId:null});
@@ -75,7 +76,7 @@ export class GuardianService {
     if(incident&&TERMINAL.has(incident.state))incident=null;
     if(intentional&&!incident){incident=this.newIncident(s,null,body.signal,true);s=this.requireSession(owner,id);}
     if(intentional&&incident?.state==='check_in')incident=this.queueCall({...incident,checkInDeadline:null});
-    if(['spoken_threat','keyword_distress'].includes(body.signal)&&!incident){
+    if(['spoken_threat','keyword_distress','gesture_distress'].includes(body.signal)&&!incident){
       incident=this.newIncident(s,detection,body.signal,false);
       s=this.requireSession(owner,id);
     }
