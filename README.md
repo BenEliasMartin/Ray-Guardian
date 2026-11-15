@@ -45,13 +45,13 @@ With live preview and camera gestures off, the glasses camera stays off while wa
 | --- | --- | --- |
 | [NVIDIA Nemotron](#nvidia-nemotron) | Read the scene from a short sequence of frames, motion, and speech | Web demo → **Test it out yourself** |
 | [ElevenLabs](#elevenlabs) | Transcribe what happened and speak the response | iPhone check-in and simulated dispatch |
-| [OpenAI Codex](#openai-codex) | Build a browser demo, create pitch assets, and test both models on the same cases | Demo Studio and the benchmark |
+| [OpenAI Codex](#openai-codex) | Drive work through Goal mode, test the app with browser and computer use, and run the model comparison | Demo Studio and the benchmark |
 
 ### NVIDIA Nemotron
 
-A single frame can show someone on the floor without telling us whether they fell. We chose **Nemotron 3.5 Super VL on Verda** to assess up to six frames in chronological order, alongside the trigger, available motion measurements, and any incident transcript. It returns a structured assessment with observations and uncertainty. Guardian applies its own check-in rules to that result, so an ambiguous scene can stay uncertain and an urgent local cue can prompt the wearer immediately.
+We chose **Nemotron 3.5 Super VL on Verda** for a specific job. An incident can look ordinary in one frame, and a motion spike can happen during everyday activity. Nemotron can assess up to six chronological frames alongside the trigger, motion measurements, and the ElevenLabs transcript in one request. A text-only model could assess the transcript, while the vision-language model can also use changes in viewpoint to inform its assessment. Guardian applies its own check-in rules to the model’s structured result. [Assessment and check-in rules](server/detection.mjs)
 
-[Assessment and check-in rules](server/detection.mjs) · [Nemotron client](server/nemotron.mjs) · [Model comparison](validation/nemotron-astra-benchmark.md)
+**What stood out** was the combination of response time, selectable reasoning, and deployment options. Our Verda endpoint gave us a fast path with reasoning disabled and an experimental reasoning mode we could evaluate on ambiguous inputs. Compared with GPT-6 Astra through Codex CLI, reasoning-enabled Nemotron matched the speech score with a lower observed response time and caught more staged falls in our small visual screening. NVIDIA also publishes the model weights, giving us a path to serve it on our own GPU infrastructure if needed. [Benchmark](#benchmarks) · [NVIDIA model documentation](https://catalog.ngc.nvidia.com/orgs/nim/nvidia/models/nemotron-3.5-super-vl-120b-a12b/-?_lr=1)
 
 ### ElevenLabs
 
@@ -61,13 +61,15 @@ We used **Scribe v2** to transcribe short, consented incident audio so Nemotron 
 
 ### OpenAI Codex
 
-We used Codex as a build and test partner. It helped build and ship **Demo Studio** so judges could try Guardian without pairing glasses, verify playback and cancellation in the browser, and prepare countdown and heartbeat motion assets for the pitch. We also ran **GPT-6 Astra through Codex CLI** on the same labeled cases as Nemotron to give our model choice a measured comparison.
+We used Codex across the SwiftUI companion, the Meta glasses integration, and the hosted demo. It helped us iterate on the incident flow from detection to check-in, cancellation, and simulated dispatch, and create the countdown and heartbeat animations for the pitch. [Alert animations](ios/RayGuardian/Views/IncidentAnimationView.swift)
 
-[Demo Studio](demo-studio/README.md) · [Browser tests](demo-studio/test/) · [Alert animations](ios/RayGuardian/Views/IncidentAnimationView.swift) · [Case-level results](validation/nemotron-astra-results.json)
+- **Goal mode.** One teammate used Goal mode for work that spanned multiple steps, setting the outcome up front so Codex could carry the task through implementation and checks.
+- **Browser and computer use.** We used computer use to work through setup and browser use to test the hosted demo as a judge would. We checked that it opened on Moments, played the scene, accepted a cancellation during the countdown, and returned a live Nemotron assessment from our own input. [Demo Studio](demo-studio/README.md) · [Browser tests](demo-studio/test/)
+- **Codex CLI.** We ran GPT-6 Astra on the same labeled inputs as Nemotron and saved the prompts and case-level decisions so the comparison could be inspected. [Case-level results](validation/nemotron-astra-results.json)
 
 ## Benchmarks
 
-On 16 synthetic speech cues, reasoning-enabled Nemotron and GPT-6 Astra each got **16/16**. Median response time was **315 ms** for Nemotron on Verda and **3.09 s** for Astra through Codex CLI. These are timings for the tested interfaces with a transcript already available. The reasoning mode was experimental; Guardian’s scene detector uses reasoning disabled. [Model results, visual tests, and methodology](validation/nemotron-astra-benchmark.md)
+On 16 synthetic speech cues, reasoning-enabled Nemotron and GPT-6 Astra each got **16/16**. Median response time was **315 ms** for Nemotron on Verda and **3.09 s** for Astra through Codex CLI, measured with the transcript already available. In the six-clip visual screening, reasoning-enabled Nemotron caught **3/3 staged falls** and flagged **2/3 ordinary movements**. Astra caught **0/3 staged falls** and abstained on four clips. Reasoning mode was experimental. Guardian’s scene detector uses reasoning disabled. [Model results and methodology](validation/nemotron-astra-benchmark.md)
 
 A separate harness test compared Guardian’s own decision path with direct requests to the same Nemotron endpoint. Local speech cue matching was faster once text was available. In the six-clip visual test, the harness produced fewer false alarms and caught fewer falls. [Harness results and reproduction steps](validation/harness-benchmark.md)
 
