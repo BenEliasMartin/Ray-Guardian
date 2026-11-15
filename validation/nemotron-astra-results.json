@@ -1,0 +1,759 @@
+{
+  "date": "2026-11-15T00:37:00.010Z",
+  "models": {
+    "nemotron": "nemotron-3.5-super-vl",
+    "astra": "gpt-6-astra"
+  },
+  "methodology": {
+    "astra": "Codex CLI, low reasoning, tool use disabled, turn start to delivered answer",
+    "nemotron": "Verda API, request to completed response",
+    "speechPrompt": "From the transcript, would you start an immediate safety check-in with the wearer? A current serious distress plea, urgent medical symptom or credible threat warrants a check-in. Ordinary help, jokes, quotes, hypotheticals and past events do not. Use only the evidence provided and do not use tools. Output only check_in, no_check_in, or uncertain.",
+    "visualPrompt": "These six chronological images come from a first-person wearable camera. Is there evidence that the wearer fell? Use only the images provided and do not use tools. Output only fall, nonfall, or uncertain. Use uncertain if the evidence is insufficient."
+  },
+  "speech": [
+    {
+      "index": 1,
+      "input": "I’m in danger. Someone is following me.",
+      "expected": "check_in",
+      "nemotron": {
+        "label": "check_in",
+        "ms": 190.564542,
+        "outputTokens": 3,
+        "finishReason": "stop"
+      },
+      "astra": {
+        "label": "check_in",
+        "ms": 2581.909458,
+        "wallMs": 3101.7455419999997,
+        "usage": {
+          "input_tokens": 11704,
+          "cached_input_tokens": 0,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 6,
+          "reasoning_output_tokens": 0
+        }
+      },
+      "thinking": {
+        "label": "check_in",
+        "ms": 208.95491599999968,
+        "outputTokens": 63,
+        "finishReason": "stop"
+      }
+    },
+    {
+      "index": 2,
+      "input": "Could you help me with the projector?",
+      "expected": "no_check_in",
+      "nemotron": {
+        "label": "no_check_in",
+        "ms": 150.37404199999946,
+        "outputTokens": 4,
+        "finishReason": "stop"
+      },
+      "astra": {
+        "label": "no_check_in",
+        "ms": 3936.499666999999,
+        "wallMs": 4551.444167,
+        "usage": {
+          "input_tokens": 12415,
+          "cached_input_tokens": 0,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 7,
+          "reasoning_output_tokens": 0
+        }
+      },
+      "thinking": {
+        "label": "no_check_in",
+        "ms": 302.1134999999995,
+        "outputTokens": 71,
+        "finishReason": "stop"
+      }
+    },
+    {
+      "index": 3,
+      "input": "I can’t get up.",
+      "expected": "check_in",
+      "nemotron": {
+        "label": "check_in",
+        "ms": 102.92633299999943,
+        "outputTokens": 3,
+        "finishReason": "stop"
+      },
+      "astra": {
+        "label": "check_in",
+        "ms": 14356.9555,
+        "wallMs": 14749.991958,
+        "usage": {
+          "input_tokens": 12413,
+          "cached_input_tokens": 0,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 30,
+          "reasoning_output_tokens": 22
+        }
+      },
+      "thinking": {
+        "label": "check_in",
+        "ms": 374.29691699999967,
+        "outputTokens": 161,
+        "finishReason": "stop"
+      }
+    },
+    {
+      "index": 4,
+      "input": "I said “I can’t get up” when we rehearsed the scene.",
+      "expected": "no_check_in",
+      "nemotron": {
+        "label": "no_check_in",
+        "ms": 91.64875000000029,
+        "outputTokens": 4,
+        "finishReason": "stop"
+      },
+      "astra": {
+        "label": "no_check_in",
+        "ms": 2582.34375,
+        "wallMs": 3018.582374999998,
+        "usage": {
+          "input_tokens": 12423,
+          "cached_input_tokens": 0,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 7,
+          "reasoning_output_tokens": 0
+        }
+      },
+      "thinking": {
+        "label": "no_check_in",
+        "ms": 459.7859169999974,
+        "outputTokens": 157,
+        "finishReason": "stop"
+      }
+    },
+    {
+      "index": 5,
+      "input": "Please don’t rob me.",
+      "expected": "check_in",
+      "nemotron": {
+        "label": "no_check_in",
+        "ms": 157.3459159999984,
+        "outputTokens": 4,
+        "finishReason": "stop"
+      },
+      "astra": {
+        "label": "check_in",
+        "ms": 13510.659916999997,
+        "wallMs": 14281.160958999997,
+        "usage": {
+          "input_tokens": 12413,
+          "cached_input_tokens": 12288,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 35,
+          "reasoning_output_tokens": 27
+        }
+      },
+      "thinking": {
+        "label": "check_in",
+        "ms": 921.0137909999976,
+        "outputTokens": 422,
+        "finishReason": "stop"
+      }
+    },
+    {
+      "index": 6,
+      "input": "We’re in danger of missing our train.",
+      "expected": "no_check_in",
+      "nemotron": {
+        "label": "no_check_in",
+        "ms": 63.93149999999878,
+        "outputTokens": 4,
+        "finishReason": "stop"
+      },
+      "astra": {
+        "label": "no_check_in",
+        "ms": 2882.0280409999978,
+        "wallMs": 3439.666624999998,
+        "usage": {
+          "input_tokens": 12416,
+          "cached_input_tokens": 0,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 7,
+          "reasoning_output_tokens": 0
+        }
+      },
+      "thinking": {
+        "label": "no_check_in",
+        "ms": 308.6086660000001,
+        "outputTokens": 117,
+        "finishReason": "stop"
+      }
+    },
+    {
+      "index": 7,
+      "input": "Someone has locked me in here and won’t let me out.",
+      "expected": "check_in",
+      "nemotron": {
+        "label": "check_in",
+        "ms": 78.77604100000462,
+        "outputTokens": 3,
+        "finishReason": "stop"
+      },
+      "astra": {
+        "label": "check_in",
+        "ms": 4845.575333000001,
+        "wallMs": 5255.844000000005,
+        "usage": {
+          "input_tokens": 12420,
+          "cached_input_tokens": 0,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 6,
+          "reasoning_output_tokens": 0
+        }
+      },
+      "thinking": {
+        "label": "check_in",
+        "ms": 222.68437500000437,
+        "outputTokens": 60,
+        "finishReason": "stop"
+      }
+    },
+    {
+      "index": 8,
+      "input": "No, please don’t forget the keys.",
+      "expected": "no_check_in",
+      "nemotron": {
+        "label": "no_check_in",
+        "ms": 144.44229199999972,
+        "outputTokens": 4,
+        "finishReason": "stop"
+      },
+      "astra": {
+        "label": "no_check_in",
+        "ms": 2579.5336250000037,
+        "wallMs": 3343.3118749999994,
+        "usage": {
+          "input_tokens": 12416,
+          "cached_input_tokens": 0,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 7,
+          "reasoning_output_tokens": 0
+        }
+      },
+      "thinking": {
+        "label": "no_check_in",
+        "ms": 397.075208000002,
+        "outputTokens": 135,
+        "finishReason": "stop"
+      }
+    },
+    {
+      "index": 9,
+      "input": "I’ll stab you if you move.",
+      "expected": "check_in",
+      "nemotron": {
+        "label": "check_in",
+        "ms": 240.28395799999998,
+        "outputTokens": 3,
+        "finishReason": "stop"
+      },
+      "astra": {
+        "label": "check_in",
+        "ms": 3081.793166000003,
+        "wallMs": 3501.524458,
+        "usage": {
+          "input_tokens": 11702,
+          "cached_input_tokens": 0,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 6,
+          "reasoning_output_tokens": 0
+        }
+      },
+      "thinking": {
+        "label": "check_in",
+        "ms": 292.0151249999981,
+        "outputTokens": 112,
+        "finishReason": "stop"
+      }
+    },
+    {
+      "index": 10,
+      "input": "In the movie he says “I’ll stab you if you move.”",
+      "expected": "no_check_in",
+      "nemotron": {
+        "label": "no_check_in",
+        "ms": 108.106832999998,
+        "outputTokens": 4,
+        "finishReason": "stop"
+      },
+      "astra": {
+        "label": "no_check_in",
+        "ms": 2770.0740829999995,
+        "wallMs": 3294.5510420000064,
+        "usage": {
+          "input_tokens": 12421,
+          "cached_input_tokens": 12288,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 7,
+          "reasoning_output_tokens": 0
+        }
+      },
+      "thinking": {
+        "label": "no_check_in",
+        "ms": 435.27433400000155,
+        "outputTokens": 170,
+        "finishReason": "stop"
+      }
+    },
+    {
+      "index": 11,
+      "input": "Send help now.",
+      "expected": "check_in",
+      "nemotron": {
+        "label": "check_in",
+        "ms": 53.33270800000173,
+        "outputTokens": 3,
+        "finishReason": "stop"
+      },
+      "astra": {
+        "label": "check_in",
+        "ms": 7953.169416999997,
+        "wallMs": 8553.644124999992,
+        "usage": {
+          "input_tokens": 12411,
+          "cached_input_tokens": 0,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 6,
+          "reasoning_output_tokens": 0
+        }
+      },
+      "thinking": {
+        "label": "check_in",
+        "ms": 143.46887500000594,
+        "outputTokens": 46,
+        "finishReason": "stop"
+      }
+    },
+    {
+      "index": 12,
+      "input": "No need to help me, I’ve got it.",
+      "expected": "no_check_in",
+      "nemotron": {
+        "label": "no_check_in",
+        "ms": 83.91316699999152,
+        "outputTokens": 4,
+        "finishReason": "stop"
+      },
+      "astra": {
+        "label": "no_check_in",
+        "ms": 2470.120834000001,
+        "wallMs": 2910.9020420000015,
+        "usage": {
+          "input_tokens": 12418,
+          "cached_input_tokens": 0,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 7,
+          "reasoning_output_tokens": 0
+        }
+      },
+      "thinking": {
+        "label": "no_check_in",
+        "ms": 320.43112499998824,
+        "outputTokens": 65,
+        "finishReason": "stop"
+      }
+    },
+    {
+      "index": 13,
+      "input": "My chest feels like it’s being crushed.",
+      "expected": "check_in",
+      "nemotron": {
+        "label": "check_in",
+        "ms": 178.1114579999994,
+        "outputTokens": 3,
+        "finishReason": "stop"
+      },
+      "astra": {
+        "label": "check_in",
+        "ms": 3096.553709,
+        "wallMs": 3558.981249999997,
+        "usage": {
+          "input_tokens": 12416,
+          "cached_input_tokens": 8576,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 6,
+          "reasoning_output_tokens": 0
+        }
+      },
+      "thinking": {
+        "label": "check_in",
+        "ms": 260.41970800000126,
+        "outputTokens": 62,
+        "finishReason": "stop"
+      }
+    },
+    {
+      "index": 14,
+      "input": "Call an ambulance if this ever happens again.",
+      "expected": "no_check_in",
+      "nemotron": {
+        "label": "no_check_in",
+        "ms": 79.3626249999943,
+        "outputTokens": 4,
+        "finishReason": "stop"
+      },
+      "astra": {
+        "label": "no_check_in",
+        "ms": 3108.7709580000082,
+        "wallMs": 3504.6223330000066,
+        "usage": {
+          "input_tokens": 12416,
+          "cached_input_tokens": 0,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 7,
+          "reasoning_output_tokens": 0
+        }
+      },
+      "thinking": {
+        "label": "no_check_in",
+        "ms": 1242.6860000000015,
+        "outputTokens": 386,
+        "finishReason": "stop"
+      }
+    },
+    {
+      "index": 15,
+      "input": "I need an ambulance.",
+      "expected": "check_in",
+      "nemotron": {
+        "label": "check_in",
+        "ms": 49.13637499998731,
+        "outputTokens": 3,
+        "finishReason": "stop"
+      },
+      "astra": {
+        "label": "check_in",
+        "ms": 3115.850916999989,
+        "wallMs": 3578.0145829999965,
+        "usage": {
+          "input_tokens": 12412,
+          "cached_input_tokens": 0,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 6,
+          "reasoning_output_tokens": 0
+        }
+      },
+      "thinking": {
+        "label": "check_in",
+        "ms": 202.11120899999514,
+        "outputTokens": 60,
+        "finishReason": "stop"
+      }
+    },
+    {
+      "index": 16,
+      "input": "She asked for medical help yesterday.",
+      "expected": "no_check_in",
+      "nemotron": {
+        "label": "uncertain",
+        "ms": 169.72191700000258,
+        "outputTokens": 4,
+        "finishReason": "stop"
+      },
+      "astra": {
+        "label": "no_check_in",
+        "ms": 2514.470333999998,
+        "wallMs": 2958.1171250000043,
+        "usage": {
+          "input_tokens": 12414,
+          "cached_input_tokens": 0,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 7,
+          "reasoning_output_tokens": 0
+        }
+      },
+      "thinking": {
+        "label": "no_check_in",
+        "ms": 782.9697090000118,
+        "outputTokens": 258,
+        "finishReason": "stop"
+      }
+    }
+  ],
+  "visual": [
+    {
+      "id": "33c692336591b440",
+      "expected": "fall",
+      "offsetsMs": [
+        790,
+        3634,
+        6478,
+        9322,
+        12166,
+        15010
+      ],
+      "nemotron": {
+        "label": "uncertain",
+        "ms": 134.53562500000407,
+        "outputTokens": 4,
+        "finishReason": "stop"
+      },
+      "astra": {
+        "label": "uncertain",
+        "ms": 3655.621334,
+        "wallMs": 4055.690125,
+        "usage": {
+          "input_tokens": 13608,
+          "cached_input_tokens": 11904,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 22,
+          "reasoning_output_tokens": 14
+        }
+      },
+      "thinking": {
+        "label": "fall",
+        "ms": 3510.921375,
+        "outputTokens": 1147,
+        "finishReason": "stop"
+      }
+    },
+    {
+      "id": "f7854c3baf0f9587",
+      "expected": "fall",
+      "offsetsMs": [
+        467,
+        2146,
+        3825,
+        5505,
+        7184,
+        8864
+      ],
+      "nemotron": {
+        "label": "fall",
+        "ms": 187.80074999999488,
+        "outputTokens": 2,
+        "finishReason": "stop"
+      },
+      "astra": {
+        "label": "uncertain",
+        "ms": 5480.14875,
+        "wallMs": 6118.804417,
+        "usage": {
+          "input_tokens": 14339,
+          "cached_input_tokens": 0,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 28,
+          "reasoning_output_tokens": 20
+        }
+      },
+      "thinking": {
+        "label": "fall",
+        "ms": 1690.367917,
+        "outputTokens": 539,
+        "finishReason": "stop"
+      }
+    },
+    {
+      "id": "1b84b2d9244c1413",
+      "expected": "fall",
+      "offsetsMs": [
+        872,
+        4009,
+        7146,
+        10284,
+        13421,
+        16559
+      ],
+      "nemotron": {
+        "label": "uncertain",
+        "ms": 211.85845800000243,
+        "outputTokens": 4,
+        "finishReason": "stop"
+      },
+      "astra": {
+        "label": "uncertain",
+        "ms": 4707.102917,
+        "wallMs": 5103.912542,
+        "usage": {
+          "input_tokens": 14345,
+          "cached_input_tokens": 0,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 27,
+          "reasoning_output_tokens": 19
+        }
+      },
+      "thinking": {
+        "label": "fall",
+        "ms": 1619.2920839999997,
+        "outputTokens": 537,
+        "finishReason": "stop"
+      }
+    },
+    {
+      "id": "7a2e151a7d1fec50",
+      "expected": "nonfall",
+      "offsetsMs": [
+        415,
+        1909,
+        3403,
+        4897,
+        6391,
+        7885
+      ],
+      "nemotron": {
+        "label": "fall",
+        "ms": 176.16025000000081,
+        "outputTokens": 2,
+        "finishReason": "stop"
+      },
+      "astra": {
+        "label": "nonfall",
+        "ms": 6162.934624999998,
+        "wallMs": 6562.151415999997,
+        "usage": {
+          "input_tokens": 14345,
+          "cached_input_tokens": 11392,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 26,
+          "reasoning_output_tokens": 18
+        }
+      },
+      "thinking": {
+        "label": "nonfall",
+        "ms": 2797.020208,
+        "outputTokens": 870,
+        "finishReason": "stop"
+      }
+    },
+    {
+      "id": "710ec174c34408cb",
+      "expected": "nonfall",
+      "offsetsMs": [
+        635,
+        2921,
+        5207,
+        7493,
+        9779,
+        12065
+      ],
+      "nemotron": {
+        "label": "fall",
+        "ms": 177.18862499999523,
+        "outputTokens": 2,
+        "finishReason": "stop"
+      },
+      "astra": {
+        "label": "fall",
+        "ms": 4748.366375000001,
+        "wallMs": 5114.123708000003,
+        "usage": {
+          "input_tokens": 14321,
+          "cached_input_tokens": 0,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 35,
+          "reasoning_output_tokens": 28
+        }
+      },
+      "thinking": {
+        "label": "fall",
+        "ms": 1730.6985000000004,
+        "outputTokens": 495,
+        "finishReason": "stop"
+      }
+    },
+    {
+      "id": "77314ecd09a8adf7",
+      "expected": "nonfall",
+      "offsetsMs": [
+        684,
+        3144,
+        5605,
+        8065,
+        10526,
+        12987
+      ],
+      "nemotron": {
+        "label": "fall",
+        "ms": 155.80749999999534,
+        "outputTokens": 2,
+        "finishReason": "stop"
+      },
+      "astra": {
+        "label": "uncertain",
+        "ms": 4861.680499999995,
+        "wallMs": 5248.4081249999945,
+        "usage": {
+          "input_tokens": 14333,
+          "cached_input_tokens": 8576,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 43,
+          "reasoning_output_tokens": 35
+        }
+      },
+      "thinking": {
+        "label": "fall",
+        "ms": 1355.8809999999994,
+        "outputTokens": 425,
+        "finishReason": "stop"
+      }
+    }
+  ],
+  "summary": {
+    "speech": {
+      "nemotron": {
+        "correct": 14,
+        "total": 16,
+        "positivesCaught": 7,
+        "falseAlarms": 0,
+        "uncertain": 1,
+        "errors": 0,
+        "medianMs": 105.51658299999872
+      },
+      "thinking": {
+        "correct": 16,
+        "total": 16,
+        "positivesCaught": 8,
+        "falseAlarms": 0,
+        "uncertain": 0,
+        "errors": 0,
+        "medianMs": 314.51989549999416
+      },
+      "astra": {
+        "correct": 16,
+        "total": 16,
+        "positivesCaught": 8,
+        "falseAlarms": 0,
+        "uncertain": 0,
+        "errors": 0,
+        "medianMs": 3089.1734375000015,
+        "medianWallMs": 3503.0733955000032
+      }
+    },
+    "visual": {
+      "nemotron": {
+        "correct": 1,
+        "total": 6,
+        "positivesCaught": 1,
+        "falseAlarms": 3,
+        "uncertain": 2,
+        "errors": 0,
+        "medianMs": 176.67443749999802
+      },
+      "astra": {
+        "correct": 1,
+        "total": 6,
+        "positivesCaught": 0,
+        "falseAlarms": 1,
+        "uncertain": 4,
+        "errors": 0,
+        "medianMs": 4805.023437499998,
+        "medianWallMs": 5181.265916499999
+      },
+      "thinking": {
+        "correct": 4,
+        "total": 6,
+        "positivesCaught": 3,
+        "falseAlarms": 2,
+        "uncertain": 0,
+        "errors": 0,
+        "medianMs": 1710.5332085000002
+      }
+    }
+  }
+}
